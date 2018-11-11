@@ -32,17 +32,6 @@ if (args[0]=='--debug' || args[0]=='-d') {
   logMod.logMode('all');
   args.shift();
 }
-writeout("FILE TO PROCESS: "+args[0]+'\n');
-
-// Open the file...
-const fs = require('fs');
-
-var fl = fs.readFileSync(args[0]);
-
-log("FILE: ", fl.toString());
-
-var lines = fl.toString().split(/\n/m);
-
 function toHex4(val) {
   return ('0000'+val.toString(16)).substr(-4);
 }
@@ -50,20 +39,26 @@ function toHex2(val) {
   return ('00'+val.toString(16)).substr(-2);
 }
 
-log("FILES BY LINE: ", lines);
 function writeByte(addr, data) {
   log("WRITE: "+toHex4(addr)+" "+toHex2(data));
   return io.writeByte(addr, data);
 }
 async function downloadFile(lines) {
-  // Wait until we have the bus
-  await io.busRequest(true);
-
   // Read lines
   for (var l=0; l<lines.length; l++) {
-    writeout('SENDING: '+line+'\n');
     var line = lines[l];
-    // Split out the fields.
+    writeout('SENDING: '+line+'\n');
+    // Split out the fields. Format is:
+    //   :[LEN 1][ADDR 2][REC_TYPE 1][DATA 2]+[CHKSM 1]
+    // REC_TYPE IS:
+    //   00: Data record
+    //   01: EOF
+    // We don't process the following:
+    //   02: Extended Segment Address - for 80386 addressing
+    //   03: Start segment address - ditto
+    //   04: Extended linear address. Address field is ignored and the record includes two data bytes that are the
+    //       upper 2 bytes of a 32 bit address.
+    //   05: Start linear address - 32/64 bit procesors again!
     var [,len,addr,type,data,cs] = ((/:([0-9A-F]{2})([0-9A-F]{4})([0-9A-F]{2})(.*)([0-9A-F]{2})/).exec(line)||[]);
 
     if (len!=null && addr!=null) {
@@ -99,15 +94,37 @@ async function downloadFile(lines) {
     }
   }
 
-  // Release bus
-  await io.busRequest(false);
-
   return "FINISHED";
 }
+// Make a list of files...
+const fileList = args;
 
-if (lines!=null && lines.length>0) {
-  downloadFile(lines).then((msg) => {
-    log("RES: "+msg);
-    process.exit();
-  });
-}
+writeout("FILES TO PROCESS: "+fileList+'\n');
+
+(async function() {
+  // Open the file...
+  const fs = require('fs');
+
+  // Concatenate all lines from all files...
+  var lines = [];
+  var first = true;
+  for (var i=0;i<fileList.length;i++) {
+    var f = fileList[i];
+    var fl = fs.readFileSync(f);
+
+    const l = fl.toString().split(/\n/m);
+    if (l!=null && l.length>0) {
+      if (first) {
+        // Grab bus and do download
+        await io.busRequest(true);
+        first = false;
+      }
+      var res = await downloadFile(l);
+      log("FILE: '"+f+"' - Result: "+res);
+    }
+  }
+  if (!first) {
+    // Release bus, which will cause a reset.
+    await io.busRequest(false);
+  }
+})();

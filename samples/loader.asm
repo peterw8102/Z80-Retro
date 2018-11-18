@@ -14,9 +14,13 @@ DEL       .EQU     7fH             ; Delete
 CS        .EQU     0CH             ; Clear screen
 SPC       .EQU     20H
 
-          .ORG     0200H
+STACK     .EQU     1000h
 
-START:    LD    HL, INTRO
+          .ORG     0160H
+
+START:    LD    HL,STACK
+          LD    SP,HL
+          LD    HL, INTRO
           CALL  PRINT
 
 main:     LD    HL, PROMPT
@@ -33,6 +37,8 @@ main:     LD    HL, PROMPT
           CALL  SKIPSPC
 
           ; CALL  GET_CHR
+          OR    A
+          JR    Z, main
           CP    'L'                ; Load
           JR    Z, LOAD
           CP    CR                 ; Load
@@ -41,11 +47,10 @@ main:     LD    HL, PROMPT
           JR    Z, REPEAT
           CP    'R'
           JR    Z, RUN
+          CP    'B'
+          JR    Z, BANK
           CP    'D'
           JR    Z, DUMP
-          CP    'R'
-          JR    Z, RUN
-          RST   08H                ; Echo character
           JP    err
 
 ; ------------------- load
@@ -61,6 +66,24 @@ LOAD:     CALL  GET_HEX           ; OFFSET to apply to hex records. Z flag set i
 RUN:      CALL  GET_HEX           ; OFFSET to apply to hex records. Z flag set if 'break' pressed.
           PUSH  HL
           RET
+; ------------------- dump
+BANK:     CALL  IN_HEX_2          ; OFFSET to apply to hex records. Z flag set if 'break' pressed.
+          CALL  WRITE_8
+          ; Write the bottom nibble to the high menory bank
+          AND   0fh
+          ADD   A,A
+          ADD   A,A
+          ADD   A,A
+          ADD   A,A
+          PUSH  AF
+          LD    HL,_BANKMSG
+          CALL  PRINT
+          POP   AF
+          CALL  WRITE_8
+          LD    C,224
+          OUT   (C),A
+          WRITE_CRLF
+          JP    main
 ; ------------------- run
 DUMP:     CALL  GET_HEX           ; OFFSET to apply to hex records. Z flag set if 'break' pressed.
           JR    NZ, cont_dump
@@ -118,7 +141,7 @@ WRITE_16:  PUSH AF
            POP  AF
            RET
 WRITE_8:   PUSH AF
-          PUSH BC
+           PUSH BC
            PUSH DE
            PUSH HL
            LD   DE, HEX_CHRS
@@ -151,12 +174,7 @@ WRITE_8:   PUSH AF
 
 
 ; ----- Load a hex file (from the console input)
-_waiting: .TEXT "Waiting..."
-          .DB    0
-_h1:      .TEXT "Here 1" \ .DB 0
-_h2:      .TEXT "Here 2" \ .DB 0
-_h3:      .TEXT "Here 3" \ .DB 0
-_h4:      .TEXT "Here 4" \ .DB 0
+_waiting: .TEXT "Waiting..." \ .DB 0
 
 invalid:  LD    HL, _NOSTART
           CALL  PRINT
@@ -165,9 +183,6 @@ impeof:   LD    HL,_COMPLETE
           CALL  PRINT
           JP    main
 rec_err:  LD    HL,_REC_ERR
-          CALL  PRINT
-          JP    main
-here:     LD    HL,_h1
           CALL  PRINT
           JP    main
 
@@ -263,6 +278,7 @@ IN_HEX_2: PUSH  HL
 errhex2:  LD    HL,_HEXERR
           CALL  PRINT
           POP   HL
+          SCF
           RET
 
 IN_HEX_4: CALL  IN_HEX_2
@@ -273,7 +289,6 @@ IN_HEX_4: CALL  IN_HEX_2
           RET
 
 ; -------- HEX_TO_BIN Char in A - 0-15. 255 if not valid char
-_hexout:    .TEXT  "\r\nCharacter: [" \ .DB 0
 HEX_TO_BIN: CP    '0'
             JR    C, inv      ; Less than zero so invalid
             CP    'F'+1
@@ -397,9 +412,11 @@ DONE:     .TEXT "\r\ndone.\r\n"
           .DB    0
 WHERE:    .TEXT "\rADDR? "
           .DB    0
-ERROR:    .TEXT "\r\nUnknown command\r\n"
+ERROR:    .TEXT "Unknown command\r\n"
           .DB    0
 _NOSTART: .TEXT "\r\nNo record start character ':'\r\n"
+          .DB    0
+_BANKMSG: .TEXT "\r\nSwitching bank register to: "
           .DB    0
 _REC_ERR: .TEXT "\r\nBad record\r\n"
           .DB    0

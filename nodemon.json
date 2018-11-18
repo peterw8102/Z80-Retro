@@ -1,0 +1,7 @@
+{
+  "verbose": false,
+  "ignore": ["samples/*.obj", "samples/*.o", "samples/*.lis", "samples/*.lst", "samples/*.o","samples/*.err"],
+  "watch": ["samples","lib","tools"],
+  "ext": "js,asm",
+  "delay": 1000
+}

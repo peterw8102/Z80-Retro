@@ -12,8 +12,6 @@
 ;    RST08 - TX the character in A reg on port A
 ;    RST10 - RX a character from port A
 ;    RST18 - Check port status on Port A
-;    RST20 - TX the character in A reg on port B
-;    RST28 - Set baud rate (A is 1=1200, 2=2400, 9=9600, 19=19200, 115=115200)
 ;    RST38 - Hardware interrupt from SIO
 ;
 ;==================================================================================
@@ -21,7 +19,7 @@
 ; Full input buffering with incoming data hardware handshaking
 ; Handshake shows full before the buffer is totally filled to allow run-on from the sender
 
-SER_BUFSIZE     .EQU     3FH
+SER_BUFSIZE     .EQU     7FH
 SER_FULLSIZE    .EQU     30H
 SER_EMPTYSIZE   .EQU     5
 
@@ -29,6 +27,8 @@ SIOA_D          .EQU     $81
 SIOA_C          .EQU     $80
 SIOB_D          .EQU     $83
 SIOB_C          .EQU     $82
+
+PAGE_REG        .EQU    224
 
 RTS_HIGH        .EQU    0E8H
 RTS_LOW         .EQU    0EAH
@@ -39,6 +39,8 @@ TEMPSTACK       .EQU     $7FF0           ; temporary stack somewhere near the
 CR              .EQU     0DH
 LF              .EQU     0AH
 CS              .EQU     0CH             ; Clear screen
+
+_start          .EQU     $1C0
 
                 .ORG $0000
 ;------------------------------------------------------------------------------
@@ -71,9 +73,7 @@ RST18            JP      CKINCHAR
 ; RST 38 - INTERRUPT VECTOR [ for IM 1 ]
 
                 .ORG     0038H
-RST38            JR      serialInt
-
-;------------------------------------------------------------------------------
+RST38
 serialInt:      PUSH     AF
                 PUSH     HL
 
@@ -147,7 +147,7 @@ rts1:           LD       A,(HL)
 
 ;------------------------------------------------------------------------------
 TXA:            PUSH     AF              ; Store character
-conout1:        SUB      A
+conout1:        XOR      A
                 OUT      (SIOA_C),A
                 IN       A,(SIOA_C)
                 RRCA
@@ -162,43 +162,64 @@ CKINCHAR:       LD       A,(serBufUsed)
                 RET
 
 ;------------------------------------------------------------------------------
-INIT:          LD        C, 224          ; Set up bank select register.
-               LD        A, 10h          ; RAM page 1 in 32K[2]
-               OUT       (C), A
+INIT:          LD         HL,_testaddr
+               LD         A,55h         ; Test pattern
+               LD        (HL), A        ; Store
+               LD         A, (HL)       ; Read back
+               CP         55h
+               JR         Z, CONT       ; Running from RAM so continue!
+               ; Running from ROM so copy first 4K of ROM to page 0 RAM and restart.
+               LD        A, 80h          ; RAM page 1 in 32K[2]
+               OUT       (PAGE_REG), A
+               LD        HL,$0000        ; SRC address
+               LD        DE,$8000        ; DST
+               LD        BC,$1000        ; 4K page
+               LDIR
+               ; Reset page register so RAM in slot 8 and 1 and reset.
+CONT:          LD        (HL), 0AAH
+PVAL:          LD        A, 10h          ; RAM page 0 and RAM page 1
+               OUT       (PAGE_REG), A
+               LD        HL, PVAL+1
+               ; LD        (HL),98h
+
+               ; Running from RAM
                LD        HL,TEMPSTACK    ; Temp stack
                LD        SP,HL           ; Set up a temporary stack
 
 ;       Initialise SIO
 
-                LD      A,$00            ; write 0
-                OUT     (SIOA_C),A
+                XOR     A                ; write 0
+                LD      C,SIOA_C
+                OUT     (C),A
                 LD      A,$18            ; reset ext/status interrupts
-                OUT     (SIOA_C),A
+                OUT     (C),A
 
                 LD      A,$04            ; write 4
-                OUT     (SIOA_C),A
+                OUT     (C),A
                 LD      A,$C4            ; X64, no parity, 1 stop
-                OUT     (SIOA_C),A
+                ;LD      A,$84           ; X32, no parity, 1 stop
+                OUT     (C),A
 
                 LD      A,$01            ; write 1
-                OUT     (SIOA_C),A
+                OUT     (C),A
                 LD      A,$18            ; interrupt on all recv
-                OUT     (SIOA_C),A
+                OUT     (C),A
 
                 LD      A,$03            ; write 3
-                OUT     (SIOA_C),A
+                OUT     (C),A
                 LD      A,$E1            ; 8 bits, auto enable, rcv enab
-                OUT     (SIOA_C),A
+                OUT     (C),A
 
                 LD      A,$05            ; write 5
-                OUT     (SIOA_C),A
+                OUT     (C),A
                 LD      A,RTS_LOW        ; dtr enable, 8 bits, tx enable, rts
-                OUT     (SIOA_C),A
+                OUT     (C),A
 
-                LD      A,$00
-                OUT     (SIOB_C),A
+                LD      C,SIOB_C
+                XOR     A
+                OUT     (C),A
                 LD      A,$18
-                OUT     (SIOB_C),A
+                OUT     (C),A
 
                 ; LD      A,$04            ; write 4
                 ; OUT     (SIOB_C),A
@@ -211,9 +232,9 @@ INIT:          LD        C, 224          ; Set up bank select register.
                 ; OUT     (SIOB_C),A
 
                 LD      A,$02           ; write reg 2
-                OUT     (SIOB_C),A
+                OUT     (C),A
                 LD      A,$E0           ; INTERRUPT VECTOR ADDRESS
-                OUT     (SIOB_C),A
+                OUT     (C),A
 
                 ; LD      A,$03
                 ; OUT     (SIOB_C),A
@@ -235,15 +256,14 @@ INIT:          LD        C, 224          ; Set up bank select register.
                ; enable interrupts
                IM        1
                EI
+               JP        _start          ; Run the program
 
-               JP        $160             ; Run the program
-
-               .ORG     $110
+               .ORG     $130
 serBuf          .DS      SER_BUFSIZE
 serInPtr        .DW      serBuf
 serRdPtr        .DW      serBuf
 serBufUsed      .DB      0
 serInMask       .EQU     serInPtr&$FF
-
+_testaddr       .DB      0AAh
 
 .END

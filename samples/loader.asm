@@ -1,5 +1,7 @@
 #define WRITE_CHR(c) LD A,c \ RST 08H
 #define WRITE_CRLF   LD A,CR \ RST 08H \ LD A,LF \ RST 08H
+YES       .EQU      1
+NO        .EQU      0
 
 ; External dependancies
 ; RST 08h - Write a single character to the terminal, character in A
@@ -8,6 +10,18 @@
 
 ; Configurable parameters
 LOAD_ADDR   .EQU    01C0h     ; Start address for the main code
+; If you want to run the monitor from ROM then variables need to be in RAM. Set this
+; label to indicate where you want variables and change the value of FLASH_MON to YES
+VARS_ADDR    .EQU    2000h
+FLASH_MON    .EQU   NO
+
+; Where to initialise our stack If the stack is already configured set this to zero. If
+; my system I have 32K memory pages so I run everything from the first 32 allowing me to page in
+; data to the upper 32K
+STACK     .EQU     07ff0h
+
+; My 2x32K pages are controlled by an 8bit write-only I/O port. This is the address of
+; the port. The 'B' command writes a value to this port.
 PAGE_REG    .EQU     0E0h     ; I/O address for 8 bit memory page select register (B command)
 
 ; Breakpoints in code are handled by replacing the opcode at the break location with a RST instruction. The
@@ -31,8 +45,6 @@ DEL       .EQU     7fH             ; Delete
 CS        .EQU     0CH             ; Clear screen
 SPC       .EQU     20H
 
-STACK     .EQU     07ff0h
-
           .ORG    BRK_HANDLER
 BP:       JP      DO_BP
 
@@ -41,22 +53,21 @@ NUM_BK    .EQU    64
 
           .ORG    LOAD_ADDR
 
-START:    LD    HL,STACK
+START:
+#if STACK
+          LD    HL,STACK
           LD    SP,HL
+#endif
           LD    HL, INTRO
           CALL  PRINT
 
           ; Clear all breakpoints
           LD    HL,BPOINTS
+          LD    DE,BPOINTS+1
           LD    BC,NUM_BK*5
           XOR   A
-          LD    D,A
-clrn:     LD    (HL),D
-          DEC   BC
-          INC   HL
-          LD    A,B
-          OR    C
-          JR    NZ,clrn
+          LD    (HL),A
+clrn:     LDIR
           ; Display initial registers
           JP    SHOW_RGS
 main:     LD    HL, PROMPT
@@ -115,24 +126,106 @@ DO_COPY:  LD    HL,MON_COPY
           LDIR
           RST   00H  ; Probably won't get here!
 COPYEND:
-; ------------------- run
-SHOW_RGS: LD    HL,SAVE_POS
+; ------------------- SET_RGS
+; CMD: Set register value. R reg=val
+; reg is A,B,C,D,E,H,L,BC,DE,HL,IX,IY
+; val is an 8 or 16 bit hex value
+SET_RGS:  ; Get the name of the register, one or two characters
+          CALL  SKIPSPC
+          JR    Z,_rend    ; nothing to use
+          LD    D,A        ; First character (required)
+          LD    E,0
+          CALL  BUFCHR     ; either a space or '=' otherwise use it
+          CP    '='
+          JR    Z,_getval
+          CP    ' '
+          JR    Z,_8bit
+          LD    E,A
+_8bit:    ; Waste characters until '=' or end of line
+          CALL  SKIPSPC
+          JR    Z,_rerr    ; End of line
+          CP    '='
+          JR    NZ,_8bit
+          ; Now get the hex value to write. Don't care about size at this point
+_getval:  CALL  GET_HEX    ; Value in HL
+          JR    Z,_rerr    ; no value entered
+          ;     DE: One or two character register name
+          ;     HL: Value to store in register
+          CALL  _reg_addr
+          JR    C,_rerr    ; Unknown register name
+          ; DE  now contains the address of the register to write. A:0 8 bit, A!=0 16 bit
+          EX    DE,HL
+          JR    NZ,_set8
+          ; 16 bit
+          LD    (HL),E
+          INC   HL
+          LD    (HL),D
+_rend:    JP    SHOW_RGS
+_set8:    LD    (HL),E
+          JR    _rend
+_rerr:    LD    HL,BAD_REG
           CALL  PRINT
-          LD    HL,R_WIN_TOP
+          JP    main
+_reg_addr:;DE contains the name of the register
+          PUSH  HL
+          LD    A,E
+          OR    A        ; If zero then 8 bit
+          JR    Z,_lu8
+          ; 16 bit look up
+          LD    HL,R_ADDR_16
+_nxt16:   LD    A,(HL)
+          OR    A
+          JR    Z,_nfnd  ; End of table - no match
+          INC   HL
+          CP    D
+          JR    NZ,_miss16
+          LD    A,(HL)
+          CP    E
+          JR    NZ,_miss16
+          ; Found - the address is in the next two bytes
+          XOR   A
+_resreg:  INC   HL
+          LD    E,(HL)
+          INC   HL
+          LD    D,(HL)
+          POP   HL
+          RET
+_miss16:  INC   HL
+          INC   HL
+          INC   HL
+          JR    _nxt16
+_lu8:     LD    HL,R_ADDR_8
+_nxt8:    LD    A,(HL)
+          OR    A
+          JR    Z,_nfnd
+          CP    D
+          JR    NZ,_miss8
+          OR    A        ; Clear Z flag
+          ; Found
+          JR    _resreg
+_miss8:   INC   HL
+          INC   HL
+          INC   HL
+          JR    _nxt8
+_nfnd:    ; Bad register name, set the carry flag and return
+          POP  HL
+          SCF
+          RET
+
+
+          ; No match
+; ------------------- SHOW_RGS
+SHOW_RGS: LD    HL,SAVE_POS
           CALL  PRINT
           LD    HL,R_PC_DESC
           CALL  PRINT
           LD    HL,(R_PC)
           CALL  WRITE_16
-          LD    HL,R_EOLN
-          CALL  PRINT
 
           LD    HL,R_SP_DESC
           CALL  PRINT
           LD    HL,(R_SP)
           CALL  WRITE_16
-          LD    HL,R_EOLN
-          CALL  PRINT
 
           LD    HL,R_F_DESC
           CALL  PRINT
@@ -156,46 +249,32 @@ _skipxx:  CALL  PRINT
           CALL  PRINT
           LD    A,(R_AF+1)
           CALL  WRITE_8
-          LD    HL,R_EOLN
-          CALL  PRINT
 
           LD    HL,R_BC_DESC
           CALL  PRINT
           LD    HL,(R_BC)
           CALL  WRITE_16
-          LD    HL,R_EOLN
-          CALL  PRINT
 
           LD    HL,R_DE_DESC
           CALL  PRINT
           LD    HL,(R_DE)
           CALL  WRITE_16
-          LD    HL,R_EOLN
-          CALL  PRINT
 
           LD    HL,R_HL_DESC
           CALL  PRINT
           LD    HL,(R_HL)
           CALL  WRITE_16
-          LD    HL,R_EOLN
-          CALL  PRINT
 
           LD    HL,R_IX_DESC
           CALL  PRINT
           LD    HL,(R_IX)
           CALL  WRITE_16
-          LD    HL,R_EOLN
-          CALL  PRINT
 
           LD    HL,R_IY_DESC
           CALL  PRINT
           LD    HL,(R_IY)
           CALL  WRITE_16
-          LD    HL,R_EOLN
-          CALL  PRINT
 
-          LD    HL,R_WIN_BOT
-          CALL  PRINT
           LD    HL,REST_POS
           CALL  PRINT
           JP    main
@@ -677,8 +756,16 @@ _nobp:    POP   DE
 ; ----- Set single-step BP then return
 SSTEP_S:  CALL  SSTEP_BP
           JP    main
+
+; ----- Step Over
+NSTEP:    XOR   A            ; A -> zero
+          LD    E,A          ; In E
+          CALL  SSTEP_BP
+          JR    GO
+
 ; ----- Single Step
-SSTEP:    CALL  SSTEP_BP    ; Set single step BP then go
+SSTEP:    LD    E,1         ; A -> !0
+          CALL  SSTEP_BP    ; Set single step BP then go
 ; ------------------- go
 GO:       LD    SP,(R_SP)
           LD    HL,(R_PC)
@@ -706,7 +793,9 @@ _nc1:     LD    L,A
           ; 01 - relative : last byte of instruction is PC relative offset
           ; 02 - absolute : last two bytes of inststruction is an absolute address
           ; 03 - return   : look at the stack to find the next instruction
-          ; 04 - special  : JR (HL)(IX)(IY) - special processing required.
+          ; 04 - rst      : RST xxH call
+          ; 05 - special  : JR (HL)(IX)(IY) - special processing required.
+          ; 06 - call     : Call to absolute address
           LD    A,C
           DEC   A
           JR    NZ,_type2
@@ -745,7 +834,9 @@ _type4:   DEC   A
           JR    NZ,_type5
           ; It's an RSTxx instruction. Deal with this later :/
           JR    GO
-_type5:   ; JP (XX) - HL, IX, IY. Instruction determines which
+_type5:   DEC   A
+          JR    NZ,_type6
+          ; JP (XX) - HL, IX, IY. Instruction determines which
           LD    HL, (R_PC)
           LD    A,(HL)
           CP    0E9h
@@ -758,7 +849,12 @@ _not_hl:  CP    0DDh
           JR    _setbp
 _not_ix:  LD    HL, (R_IY)
           JR    _setbp
-          ; And run
+_type6    ; It's a subroutine call. Same as absolute jump except check E=0. If 0 then
+          ; we want to step over the sub call so don't add the extra breakpoint
+          LD    A,E
+          OR    A
+          RET   Z
+          JR    _type2   ; Treat it as an absolute jump
 
 ; ------------------- DO_BP
 DO_BP:    CALL  SAVE_RGS   ; Save normal registers
@@ -1086,6 +1182,7 @@ _BANKMSG: .TEXT "\r\nSwitching bank register to: \000"
 _REC_ERR: .TEXT "\r\nBad record\r\n\000"
 _COMPLETE:.TEXT "\r\nDownload complete\r\n\000"
 _HEXERR:  .TEXT "\r\nBad hex character: \r\n\000"
+BAD_REG   .TEXT "Bad register\r\n\000"
 HEX_CHRS: .TEXT  "0123456789ABCDEF"
 
 ; Register labels
@@ -1098,7 +1195,6 @@ R_HL_DESC .TEXT "\033[4;60H  HL: \000"
 R_F_DESC  .TEXT "\033[5;60H  F:  \000"
 R_IX_DESC .TEXT "\033[5;40H  IX: \000"
 R_IY_DESC .TEXT "\033[6;40H  IY: \000"
-R_EOLN    .TEXT "\000";\033[K\000"
 R_WIN_TOP .TEXT "\033[0;12r\000"
 R_WIN_BOT .TEXT "\033[13;50r\000"
 SAVE_POS  .TEXT "\0337\000"
@@ -1133,6 +1229,7 @@ _nobpavail:  .TEXT "No BP available\r\n\000"
 ;   011 - Return from subrouting
 ;   100 - A RST call
 ;   101 - JR (reg) - HL, IX, IY depending on prefix
+;   110 - A 'call' instruction. Absolute address but step over this is the 'next' command is used.
 _opcodes        .DW      0001h, 0003h, 0001h, 0001h, 0001h, 0001h, 0002h, 0001h,   0001h, 0011h, 0001h, 0001h, 0001h, 0001h, 0002h, 0001h ; 0
                 .DW      0102h, 0033h, 0031h, 0011h, 0011h, 0011h, 0022h, 0001h,   0102h, 0011h, 0031h, 0011h, 0011h, 0011h, 0022h, 0001h ; 1
                 .DW      0102h, 003Fh, 000Fh, 0005h, 0021h, 0021h, 0032h, 0001h,   0102h, 0011h, 0033h, 0011h, 0011h, 0011h, 0022h, 0001h ; 2
@@ -1146,10 +1243,10 @@ _opcodes        .DW      0001h, 0003h, 0001h, 0001h, 0001h, 0001h, 0002h, 0001h,
                 .DW      0001h, 0001h, 0001h, 0001h, 0011h, 0011h, 0021h, 0001h,   0001h, 0001h, 0001h, 0001h, 0011h, 0011h, 0021h, 0001h ; 9
                 .DW      0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h,   0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h ; A
                 .DW      0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h,   0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h ; B
-                .DW      0301h, 0201h, 0203h, 0203h, 0003h, 0001h, 0002h, 0401h,   0301h, 0301h, 0203h, 0032h, 0203h, 0203h, 0002h, 0401h ; C - note CB: All 2 bytes so no prefix decode
-                .DW      0301h, 0001h, 0203h, 0002h, 0203h, 0001h, 0002h, 0401h,   0301h, 0001h, 0203h, 0002h, 0203h, 0080h, 0002h, 0401h ; D
-                .DW      0301h, 0011h, 0203h, 0011h, 0203h, 0011h, 0002h, 0401h,   0301h, 0511h, 0203h, 0001h, 0203h, 0000h, 0002h, 0401h ; E
-                .DW      0301h, 0001h, 0203h, 0201h, 0003h, 0001h, 0002h, 0401h,   0301h, 0011h, 0203h, 0001h, 0203h, 0080h, 0002h, 0401h ; F
+                .DW      0301h, 0201h, 0203h, 0203h, 0603h, 0001h, 0002h, 0401h,   0301h, 0301h, 0203h, 0032h, 0603h, 0603h, 0002h, 0401h ; C - note CB: All 2 bytes so no prefix decode
+                .DW      0301h, 0001h, 0203h, 0002h, 0603h, 0001h, 0002h, 0401h,   0301h, 0001h, 0203h, 0002h, 0603h, 0080h, 0002h, 0401h ; D
+                .DW      0301h, 0011h, 0203h, 0011h, 0603h, 0011h, 0002h, 0401h,   0301h, 0511h, 0203h, 0001h, 0603h, 0000h, 0002h, 0401h ; E
+                .DW      0301h, 0001h, 0203h, 0201h, 0603h, 0001h, 0002h, 0401h,   0301h, 0011h, 0203h, 0001h, 0603h, 0080h, 0002h, 0401h ; F
 
 ; Cmd jump table. 26 entries one for each letter. Every command starts with a letter. Each entry is the address of the handler.
 CMD_TABLE:      .DW      0         ; A
@@ -1165,11 +1262,11 @@ CMD_TABLE:      .DW      0         ; A
                 .DW      0         ; K
                 .DW      LOAD      ; L hhhh    : hex offset to add to all addresses
                 .DW      MODIFY    ; M hhhh    : start writing bytes at specified address
-                .DW      0         ; N
+                .DW      NSTEP     ; N         ; single step but over subroutine calls
                 .DW      0         ; O
                 .DW      SET_PC    ; P hhhh    : set PC to this address. 'G' and 'S' will then use this address
                 .DW      0         ; Q
-                .DW      SHOW_RGS  ; R         : show register values. R NAME=VALUE - set specific register values
+                .DW      SET_RGS   ; R         : show register values. R NAME=VALUE - set specific register values
                 .DW      SSTEP     ; S         : step one instruction
                 .DW      SSTEP_S   ; T
                 .DW      UPGRADE   ; U         : upgrade monitor image from memory @2
@@ -1181,6 +1278,10 @@ CMD_TABLE:      .DW      0         ; A
 
 
 ; ---------------------- VARIABLES
+; If you want the monitor code in ROM then add an ORG here to locate variables somewhere in RAM
+#if FLASH_MON=YES
+           .ORG   VARS_ADDR
+#endif
 LAST_CMD:  .DB    0
 DUMP_ADDR: .DW    0
 DUMP_MODE: .DB    'I'
@@ -1200,6 +1301,23 @@ R_DE       .DW    0
 R_HL       .DW    0
 R_IX       .DW    0
 R_IY       .DW    0
+
+R_ADDR_8:  .DB    'A'  \ .DW R_AF+1
+           .DB    'B'  \ .DW R_BC+1
+           .DB    'C'  \ .DW R_BC
+           .DB    'D'  \ .DW R_DE+1
+           .DB    'E'  \ .DW R_DE
+           .DB    'H'  \ .DW R_HL+1
+           .DB    'L'  \ .DW R_HL
+           .DB     0
+R_ADDR_16: .DB    "BC" \ .DW R_BC
+           .DB    "DE" \ .DW R_DE
+           .DB    "HL" \ .DW R_HL
+           .DB    "IX" \ .DW R_IX
+           .DB    "IY" \ .DW R_IY
+           .DB    "PC" \ .DW R_PC
+           .DB    "SP" \ .DW R_SP
+           .DW    0
 
 ; Breakpoints. Each entry is 6 bytes:
 ; Type|X|AddrX2|B1|B2

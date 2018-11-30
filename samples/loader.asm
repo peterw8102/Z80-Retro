@@ -1,13 +1,27 @@
 #define WRITE_CHR(c) LD A,c \ RST 08H
 #define WRITE_CRLF   LD A,CR \ RST 08H \ LD A,LF \ RST 08H
 
-SIO_A_C   .EQU     80H
-SIO_A_D   .EQU     81H
-SIO_B_C   .EQU     82H
-SIO_B_D   .EQU     83H
+; External dependancies
+; RST 08h - Write a single character to the terminal, character in A
+; RST 10h - Read one character from the terminal. Block until there is a character. Returned in A
+; RST 18h - Check whether there is a character available. Non blocking. Z flag set if there is NOT a character waiting.
 
-PAGE_REG  .EQU    0E0H
+; Configurable parameters
+LOAD_ADDR   .EQU    01C0h     ; Start address for the main code
+PAGE_REG    .EQU     0E0h     ; I/O address for 8 bit memory page select register (B command)
 
+; Breakpoints in code are handled by replacing the opcode at the break location with a RST instruction. The
+; default is RST 20h. You can change this if your system is using RST 20 for something else.
+BRK_OPCODE  .EQU     0E7h     ; The instruction to use to cause a breakpoint. This must be a RST xx single byte op. Default RST 20h
+BRK_HANDLER .EQU      20h     ; The address at which to origin the break point handler Must match BRK_OPCODE
+
+; The 'U' command replaces the current running monitor with a modified copy at MON_COPY. This
+; is generally used for developing the monitor and doesn't have a lot of use in a running
+; environment. To make the copy a small copy loop is written to unused memory at LOADER.
+MON_COPY    .EQU    2000h
+LOADER      .EQU    7800h
+
+; Character constants
 CR        .EQU     0DH
 LF        .EQU     0AH
 FF        .EQU     0CH
@@ -18,13 +32,14 @@ CS        .EQU     0CH             ; Clear screen
 SPC       .EQU     20H
 
 STACK     .EQU     07ff0h
-LOADER    .EQU     07800h
 
-          .ORG    0020h
+          .ORG    BRK_HANDLER
 BP:       JP      DO_BP
 
+; Number of breakpoint locations (in code)
+NUM_BK    .EQU    64
 
-          .ORG     01C0H
+          .ORG    LOAD_ADDR
 
 START:    LD    HL,STACK
           LD    SP,HL
@@ -33,69 +48,58 @@ START:    LD    HL,STACK
 
           ; Clear all breakpoints
           LD    HL,BPOINTS
-          LD    BC,256*6
-clrn:     XOR   A
-          LD    (HL),A
+          LD    BC,NUM_BK*5
+          XOR   A
+          LD    D,A
+clrn:     LD    (HL),D
           DEC   BC
           INC   HL
           LD    A,B
           OR    C
           JR    NZ,clrn
-
+          ; Display initial registers
+          JP    SHOW_RGS
 main:     LD    HL, PROMPT
           CALL  PRINT
           CALL  GET_LINE
-
-          ; Echo input line
-          LD    HL, INBUF
 
           WRITE_CHR(CR)
           WRITE_CHR(LF)
           ; CALL  PRINT
 
           CALL  SKIPSPC
-
-          ; CALL  GET_CHR
-          CP    LF
-          JR    Z, REPEAT
           OR    A
-          JR    Z, main
-          CP    CR
-          JR    Z, REPEAT
-          CP    'B'
-          JP    Z, BANK
-          CP    'C'
-          JR    Z, COPY
-          CP    'D'
-          JP    Z, DUMP
-          CP    'F'
-          JP    Z, FILL
-          CP    'G'
-          JP    Z, GO
-          CP    'L'
-          JP    Z, LOAD
-          CP    'M'
-          JP    Z, MODIFY
-          CP    'P'
-          JP     Z, SET_PC
-          CP    'R'
-          JP    Z, SHOW_RGS
-          CP    'S'
-          JP    Z, SSTEP
-          CP    'T'
-          JP    Z, SSTEP_S
-          CP    'U'
-          JP    Z, UPGRADE
-          CP    'Z'
-          JP    Z, FLASH_OP
-          JP    err
+          JR    NZ, _newcmd
+          ; Move to previous line
+          LD    HL,CURS_UP
+          CALL  PRINT
+          LD    A,(LAST_CMD)
+_newcmd:  LD    (LAST_CMD),A
+          ; Is it a letter?
+          CP    'Z'+1
+          JR    NC,err    ; Greater than a 'Z'
+          SUB   'A'
+          JR    C,err     ; Less than an 'A'
+          ADD   A,A
+          ; Load from jump table
+          LD    HL,CMD_TABLE
+          LD    E,A
+          LD    D,0
+          ADD   HL,DE
+          LD    E,(HL)
+          LD    A,E
+          INC   HL
+          LD    D,(HL)
+          OR    D
+          JR    Z,err     ; null entry in jump table
+          EX    DE,HL
+          JP    (HL)
+err:      LD    HL, ERROR
+          CALL  PRINT
+          JR    main
 
-; ------------------- load
-REPEAT:   WRITE_CHR(CR)
-          WRITE_CHR(LF)
-          JP    main
 
-; ------------------- copy
+; ------------------- copy - TBD
 COPY:     JP    main
 ; ------------------- upgrade
 ; New image at 1000. Copy to zero as a single operation
@@ -105,9 +109,9 @@ UPGRADE:  LD    HL,DO_COPY
           LDIR
           JP    LOADER
 
-DO_COPY:  LD    HL,1000h
+DO_COPY:  LD    HL,MON_COPY
           LD    DE,0
-          LD    BC,1000h
+          LD    BC,LAST_ADDR+1000h
           LDIR
           RST   00H  ; Probably won't get here!
 COPYEND:
@@ -130,10 +134,27 @@ SHOW_RGS: LD    HL,SAVE_POS
           LD    HL,R_EOLN
           CALL  PRINT
 
+          LD    HL,R_F_DESC
+          CALL  PRINT
+          LD    HL,FLAGS_DESC
+          LD    DE,INBUF
+          PUSH  DE
+          LD    BC,9
+          LDIR
+          LD    HL,INBUF-1
+          LD    A,(R_AF)
+          LD    B,8
+_nextf:   INC   HL
+          RLCA
+          JR    C,_nextfn
+          LD   (HL),' '
+_nextfn:  DJNZ  _nextf
+          POP   HL
+_skipxx:  CALL  PRINT
+
           LD    HL,R_A_DESC
           CALL  PRINT
-          LD    HL,(R_AF)
-          LD    A,H
+          LD    A,(R_AF+1)
           CALL  WRITE_8
           LD    HL,R_EOLN
           CALL  PRINT
@@ -182,17 +203,11 @@ SHOW_RGS: LD    HL,SAVE_POS
 SET_PC:   CALL  GET_HEX           ; OFFSET to apply to hex records. Z flag set if 'break' pressed.
           LD    (R_PC),HL
           JP    SHOW_RGS
-          ; JP    main
 
 ; ------------------- bank
 BANK:     CALL  IN_HEX_2          ; OFFSET to apply to hex records. Z flag set if 'break' pressed.
+          JP    Z,main
           CALL  WRITE_8
-          ; Write the bottom nibble to the high menory bank
-          ; AND   0fh
-          ; ADD   A,A
-          ; ADD   A,A
-          ; ADD   A,A
-          ; ADD   A,A
           PUSH  AF
           LD    HL,_BANKMSG
           CALL  PRINT
@@ -273,23 +288,31 @@ f_err:    LD    HL,_fill_err
           CALL  PRINT
           JP    main
 
-; --------------------------- DUMP decode (instruction decode and display) MIGHT become
-; a disassembler at some point.
-decode:   LD    B,20       ; Number of instructions
-_nexti:   PUSH  BC
+; -- DECINST
+; Decode and display single instruction. HL points to the sart of the instruction. Displays
+; the HEX bytes for this instruction followed by a newline.
+; INPUT:  HL - the address of the instruction
+; OUTPUT: HL - First byte of _next_ instruction
+; Registers not saved: A
+DECINST:  PUSH  BC        ; INST_LEN returns instruction information we don't need in BC
           CALL  INST_LEN
-          POP   BC
-          LD    C,A        ; A includes the number of bytes in this op
+          LD    B,A        ; A includes the number of bytes in this op
           CALL  WRITE_16   ; Write out the address
           WRITE_CHR(SPC)
 _nextb:   LD    A,(HL)
           CALL  WRITE_8
           WRITE_CHR(SPC)
           INC   HL
-          DEC   C
-          JR    NZ,_nextb
+          DJNZ  _nextb
           ; Row complete
           WRITE_CRLF
+          POP   BC
+          RET
+
+; --------------------------- DUMP decode (instruction decode and display) MIGHT become
+; a disassembler at some point.
+decode:   LD    B,20       ; Number of instructions
+_nexti:   CALL  DECINST
           DJNZ  _nexti
           LD    (DUMP_ADDR), HL
           LD    A,'I'
@@ -352,10 +375,6 @@ writeout: INC   DE
           LD    (DUMP_MODE), A
           WRITE_CHR(CR)
           WRITE_CHR(LF)
-          JP    main
-
-err:      LD    HL, ERROR
-          CALL  PRINT
           JP    main
 
 ; ------------------- FLASH_OP
@@ -508,14 +527,13 @@ rec_err:  LD    HL,_REC_ERR
 
 ; Process all lines starting with a ':'
 LOAD:     CALL  GET_HEX           ; OFFSET to apply to hex records. Z flag set if 'break' pressed.
-          LD    D,H
+          LD    D,H               ; Save HL
           LD    E,L
           LD    HL, _waiting
           CALL  PRINT
           WRITE_CRLF
-;          :102000000F0E0D0C0B0A0908070605040302010008
-;          :102010000A0A0A0A0A0A0A0A0A0A0A0A0A0A0A0A08
-;          :00000001FF
+          LD    H,D
+          LD    L,E
 nextline: CALL  GET_LINE
           JR    Z, nextline
           CALL  BUFCHR
@@ -532,7 +550,7 @@ nextline: CALL  GET_LINE
           JR    C, rec_err
           OR    A
           JR    NZ, impeof
-          ; Modify the address using the offset in DL
+          ; Modify the address using the offset in DE
           ADD   HL,DE
 next_b:   CALL  IN_HEX_2
           JR    C, rec_err
@@ -552,12 +570,12 @@ SETBP:    PUSH  BC
           LD    D,H
           LD    E,L
           LD    HL,BPOINTS
-          LD    BC,0
+          LD    C,0
+          LD    B,NUM_BK
 nextbp:   LD    A,(HL)
           OR    A
           JR    Z,fndbp
           ; Not available so skip
-          INC   HL
           INC   HL
           INC   HL
           INC   HL
@@ -576,7 +594,6 @@ nextbp:   LD    A,(HL)
           JP    main
 fndbp:    POP   AF
           LD    (HL),A   ; HL points at the BP record to be used
-          INC   HL       ; Unused entry
           INC   HL
           LD    (HL),E
           INC   HL
@@ -584,7 +601,7 @@ fndbp:    POP   AF
           INC   HL
           LD    A,(DE)
           LD    (HL),A
-          LD    A,0E7h
+          LD    A,BRK_OPCODE
           LD    (DE),A
           INC   DE
           INC   HL
@@ -599,11 +616,13 @@ fndbp:    POP   AF
 
 ; ------ CLRBP
 ; BP number in A
-CLRBP:    LD    L,A
+CLRBP:    PUSH  HL
+          PUSH  DE
+          LD    L,A
           LD    H,0
-          ADD   HL,HL
           LD    D,H
           LD    E,L
+          ADD   HL,HL       ; Index x 5
           ADD   HL,HL
           ADD   HL,DE
           LD    DE,BPOINTS
@@ -614,7 +633,7 @@ CLRBP:    LD    L,A
           JR    Z,_clrsstp
           ; Just a single break point to clear
           CALL  _clrbp
-          RET
+          JR    _cbpfin
 _clrsstp: ; Find all breakpoints type 1 and clear
           LD    HL,BPOINTS
           LD    B,0
@@ -627,8 +646,9 @@ _nextbp:  LD    A,(HL)
           INC   HL
           INC   HL
           INC   HL
-          INC   HL
           DJNZ  _nextbp
+_cbpfin:  POP   DE
+          POP   HL
           RET
 
 _clrbp:   ; HL points to the BP descriptor
@@ -639,12 +659,11 @@ _clrbp:   ; HL points to the BP descriptor
           JR    Z,_nobp
           XOR   A
           LD    (HL),A
-          INC   HL
-          INC   HL
+          INC   HL          ; Next two bytes are the address of this BP
           LD    E,(HL)
           INC   HL
           LD    D,(HL)
-          INC   HL
+          INC   HL          ; And the last two bytes are the ones we saved to overwrite with the BP trigger code
           LD    A,(HL)
           LD    (DE),A      ; Restore the bytes we overwrote
           INC   DE
@@ -655,15 +674,11 @@ _nobp:    POP   DE
           POP   HL
           RET
 
-; ----- Load a hex file (from the console input)
-RUN_AT:   LD    HL, DONE
-          CALL  PRINT
-          JP    main
-; ----- Single Step
+; ----- Set single-step BP then return
 SSTEP_S:  CALL  SSTEP_BP
           JP    main
-
-SSTEP:    CALL  SSTEP_BP
+; ----- Single Step
+SSTEP:    CALL  SSTEP_BP    ; Set single step BP then go
 ; ------------------- go
 GO:       LD    SP,(R_SP)
           LD    HL,(R_PC)
@@ -748,17 +763,12 @@ _not_ix:  LD    HL, (R_IY)
 ; ------------------- DO_BP
 DO_BP:    CALL  SAVE_RGS   ; Save normal registers
           POP   HL         ; HL will be 1 more than the RST instruction
-          LD    A,(HL)     ; Points to the BP index
-          DEC   HL         ; Points at the RST instruction which is going to be replaced
-          CALL  WRITE_8
-          PUSH  AF
-          WRITE_CHR('@')
-          CALL  WRITE_16
-          WRITE_CRLF
-          POP   AF
+          LD    A,(HL)     ; Points to the BP index - load into A
+          DEC   HL         ; Points at the RST instruction which we overwrote with the RST instruction
           LD   (R_PC),HL
           LD   (R_SP),SP
           CALL  CLRBP
+          CALL  DECINST
           JP    SHOW_RGS
 
 ; --------- INST_LEN
@@ -779,7 +789,7 @@ INST_LEN: PUSH  DE
 
           ; Processing a prefix so need the next opcode byte
           LD    A,(HL)   ; Upper bit 0: Use bits 2-3, 1: use bits 4-5
-          ADD   A,A      ; Carry bit dictates how we decode count bits
+          BIT   7,A      ; Carry bit dictates how we decode count bits
           POP   HL
           PUSH  HL
           INC   HL
@@ -788,7 +798,7 @@ INST_LEN: PUSH  DE
           ADD   HL,DE
           ADD   HL,DE
           LD    A,(HL)   ; Descriptive byte for next byte
-          JR    C,_is_dd
+          JR    NZ,_is_dd
           AND   0Ch
           SRL   A
           SRL   A
@@ -876,10 +886,12 @@ WRITE_8:   PUSH AF
            RET
 
 ; ------------------- GET_HEX - read in up to 4 hex digits, returned in HL
-GET_HEX:  LD    HL, 0
-          PUSH  BC
+GET_HEX:  PUSH  BC
           LD    B,A  ; Save A
-          LD    C,0
+          XOR   A
+          LD    H,A
+          LD    L,A
+          LD    C,A
           CALL  SKIPSPC
           ; End of input?
 next_hc:  OR    A
@@ -957,11 +969,9 @@ inv:        SCF
 
 ; --------------------- GET_LINE
 GET_LINE: PUSH     HL
-          PUSH     DE
           PUSH     BC
           LD       HL, INBUF
           LD      (INPTR), HL
-          LD       DE, END_INBUF
           LD       BC, 0
 
 getc:     CALL     GET_CHR
@@ -988,7 +998,6 @@ eol:      XOR     A
           LD      (HL), A
           LD      A, B
           POP     BC
-          POP     DE
           POP     HL
           OR      A     ; Z flag set if no characters entered in line
           RET
@@ -1067,7 +1076,7 @@ loop3:    DEC L
           RET
 
 ; --------------------- STRINGS
-INTRO:    .TEXT "\033[2J\033[0;10rTOP\033[13,50rBOT\033[13,1HZ80 CLM 2.5\r\nReady...\r\n\000"
+INTRO:    .TEXT "\033[2J\033[13;50r\033[14,1HZ80 CLM 2.5\r\nReady...\r\n\000"
 PROMPT:   .TEXT "> \000"
 DONE:     .TEXT "\r\ndone.\r\n\000"
 WHERE:    .TEXT "\rADDR? \000"
@@ -1080,20 +1089,23 @@ _HEXERR:  .TEXT "\r\nBad hex character: \r\n\000"
 HEX_CHRS: .TEXT  "0123456789ABCDEF"
 
 ; Register labels
-R_PC_DESC .TEXT "\033[2;60H  PC: \000"
-R_SP_DESC .TEXT "\033[3;60H  SP: \000"
-R_A_DESC  .TEXT "\033[4;60H  A:  \000"
-R_BC_DESC .TEXT "\033[5;60H  BC: \000"
-R_DE_DESC .TEXT "\033[6;60H  DE: \000"
-R_HL_DESC .TEXT "\033[7;60H  HL: \000"
-R_F_DESC  .TEXT "\033[8;60H  F:  \000"
-R_IX_DESC .TEXT "\033[9;60H  IX: \000"
-R_IY_DESC .TEXT "\033[10;60H  IY: \000"
-R_EOLN    .TEXT "\033[K\000"
+R_PC_DESC .TEXT "\033[2;40H  PC: \000"
+R_SP_DESC .TEXT "\033[3;40H  SP: \000"
+R_A_DESC  .TEXT "\033[4;40H  A:  \000"
+R_BC_DESC .TEXT "\033[2;60H  BC: \000"
+R_DE_DESC .TEXT "\033[3;60H  DE: \000"
+R_HL_DESC .TEXT "\033[4;60H  HL: \000"
+R_F_DESC  .TEXT "\033[5;60H  F:  \000"
+R_IX_DESC .TEXT "\033[5;40H  IX: \000"
+R_IY_DESC .TEXT "\033[6;40H  IY: \000"
+R_EOLN    .TEXT "\000";\033[K\000"
 R_WIN_TOP .TEXT "\033[0;12r\000"
 R_WIN_BOT .TEXT "\033[13;50r\000"
 SAVE_POS  .TEXT "\0337\000"
 REST_POS  .TEXT "\0338\000"
+CURS_UP   .TEXT "\033[A\000"
+
+FLAGS_DESC:  .TEXT "SZ5H3VNC\000"
 
 _fill_err:   .TEXT "Bad parameters\r\n\000"
 _fill_msg:   .TEXT "Fill: ADDR: \000"
@@ -1105,14 +1117,25 @@ _nobpavail:  .TEXT "No BP available\r\n\000"
 
 ; _opcodes
 ;   - lower 8 bits - instruction length
-;   -  XX XX XX
-;       |  |  +---> Length of no prefix
-;       |  +------>
-;       +--------->
-;   - bit 0-1: The length of the instruction (only valid if this is an opcode - bit 8 is 0)
+;   -  XX XX XX XX
+;      |   |  |  +---> Length of no prefix
+;      |   |  +------> Length for ED prefix
+;      |   +---------> Length for DD,FD prefix
+;      +-------------> If a prefix then clr for ED, set for DD
+; CB prefix instructions are all 2 bytes so don't need any more deconding
+;
+; The MSB contains enhanced information. Current bits are
+;   -  XX XXX AAA
+;   AAA - decribes change of for for this instruction:
+;   000 - Normal instruction, no change of control
+;   001 - Single byte relative jump (eg JR NZ xx)
+;   010 - Two byte absolute jump (eg JP C xxxx)
+;   011 - Return from subrouting
+;   100 - A RST call
+;   101 - JR (reg) - HL, IX, IY depending on prefix
 _opcodes        .DW      0001h, 0003h, 0001h, 0001h, 0001h, 0001h, 0002h, 0001h,   0001h, 0011h, 0001h, 0001h, 0001h, 0001h, 0002h, 0001h ; 0
                 .DW      0102h, 0033h, 0031h, 0011h, 0011h, 0011h, 0022h, 0001h,   0102h, 0011h, 0031h, 0011h, 0011h, 0011h, 0022h, 0001h ; 1
-                .DW      0102h, 000Fh, 000Fh, 0005h, 0021h, 0021h, 0032h, 0001h,   0102h, 0011h, 0033h, 0011h, 0011h, 0011h, 0022h, 0001h ; 2
+                .DW      0102h, 003Fh, 000Fh, 0005h, 0021h, 0021h, 0032h, 0001h,   0102h, 0011h, 0033h, 0011h, 0011h, 0011h, 0022h, 0001h ; 2
                 .DW      0102h, 0003h, 0003h, 0001h, 0021h, 0021h, 0032h, 0001h,   0102h, 0011h, 0003h, 0001h, 0001h, 0001h, 0002h, 0001h ; 3
                 .DW      0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h,   0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h ; 4
                 .DW      0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h,   0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h ; 5
@@ -1128,8 +1151,37 @@ _opcodes        .DW      0001h, 0003h, 0001h, 0001h, 0001h, 0001h, 0002h, 0001h,
                 .DW      0301h, 0011h, 0203h, 0011h, 0203h, 0011h, 0002h, 0401h,   0301h, 0511h, 0203h, 0001h, 0203h, 0000h, 0002h, 0401h ; E
                 .DW      0301h, 0001h, 0203h, 0201h, 0003h, 0001h, 0002h, 0401h,   0301h, 0011h, 0203h, 0001h, 0203h, 0080h, 0002h, 0401h ; F
 
+; Cmd jump table. 26 entries one for each letter. Every command starts with a letter. Each entry is the address of the handler.
+CMD_TABLE:      .DW      0         ; A
+                .DW      BANK      ; B
+                .DW      COPY      ; C
+                .DW      DUMP      ; D
+                .DW      0         ; E
+                .DW      FILL      ; F
+                .DW      GO        ; G
+                .DW      0         ; H
+                .DW      0         ; I
+                .DW      0         ; J
+                .DW      0         ; K
+                .DW      LOAD      ; L hhhh    : hex offset to add to all addresses
+                .DW      MODIFY    ; M hhhh    : start writing bytes at specified address
+                .DW      0         ; N
+                .DW      0         ; O
+                .DW      SET_PC    ; P hhhh    : set PC to this address. 'G' and 'S' will then use this address
+                .DW      0         ; Q
+                .DW      SHOW_RGS  ; R         : show register values. R NAME=VALUE - set specific register values
+                .DW      SSTEP     ; S         : step one instruction
+                .DW      SSTEP_S   ; T
+                .DW      UPGRADE   ; U         : upgrade monitor image from memory @2
+                .DW      0         ; V
+                .DW      0         ; W
+                .DW      0         ; X
+                .DW      0         ; Y
+                .DW      FLASH_OP  ; Z
+
 
 ; ---------------------- VARIABLES
+LAST_CMD:  .DB    0
 DUMP_ADDR: .DW    0
 DUMP_MODE: .DB    'I'
 DUMP_CHRS: .TEXT  "  "
@@ -1137,10 +1189,11 @@ DUMP_CHRS: .TEXT  "  "
            .DB    0
 INPTR      .DW  INBUF
 INBUF      .DS   80
+END_INBUF  .DB    0
 
 ; Storage area for working registers
-R_SP       .DW    0
-R_PC       .DW    0
+R_SP       .DW    6ff0h
+R_PC       .DW    2000h
 R_AF       .DW    0
 R_BC       .DW    0
 R_DE       .DW    0
@@ -1156,8 +1209,8 @@ R_IY       .DW    0
 ;       1 - single shot - removed once hit
 ;       2 - permanent breakpoint (TBD)
 
-BPOINTS:   .DS    256*6
+BPOINTS:   .DS    NUM_BK*5
 
-END_INBUF  .DB    0
+LAST_ADDR: .DB    0
 
 .END

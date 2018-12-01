@@ -58,7 +58,7 @@ START:
           LD    HL,STACK
           LD    SP,HL
 #endif
-          LD    HL, INTRO
+          LD    HL, _INTRO
           CALL  PRINT
 
           ; Clear all breakpoints
@@ -70,7 +70,7 @@ START:
 clrn:     LDIR
           ; Display initial registers
           JP    SHOW_RGS
-main:     LD    HL, PROMPT
+main:     LD    HL, _PROMPT
           CALL  PRINT
           CALL  GET_LINE
 
@@ -105,7 +105,7 @@ _newcmd:  LD    (LAST_CMD),A
           JR    Z,err     ; null entry in jump table
           EX    DE,HL
           JP    (HL)
-err:      LD    HL, ERROR
+err:      LD    HL, _ERROR
           CALL  PRINT
           JR    main
 
@@ -163,7 +163,7 @@ _getval:  CALL  GET_HEX    ; Value in HL
 _rend:    JP    SHOW_RGS
 _set8:    LD    (HL),E
           JR    _rend
-_rerr:    LD    HL,BAD_REG
+_rerr:    LD    HL,_BAD_REG
           CALL  PRINT
           JP    main
 _reg_addr:;DE contains the name of the register
@@ -211,9 +211,6 @@ _nfnd:    ; Bad register name, set the carry flag and return
           POP  HL
           SCF
           RET
-
-
-          ; No match
 ; ------------------- SHOW_RGS
 SHOW_RGS: LD    HL,SAVE_POS
           CALL  PRINT
@@ -275,13 +272,35 @@ _skipxx:  CALL  PRINT
           LD    HL,(R_IY)
           CALL  WRITE_16
 
+          ; UPDATE STACK CONTENT. Show one lower then the previous 7
+          LD    HL,HOME
+          CALL  PRINT
+          LD    HL,(R_SP)
+          LD    DE,15
+          ADD   HL,DE
+          EX    DE,HL
+          LD    B,8
+_nextstk: LD    HL,STK_NXT
+          CALL  PRINT
+          LD    H,D
+          LD    L,E
+          DEC   HL
+          CALL  WRITE_16
+          WRITE_CHR(':')
+          WRITE_CHR(' ')
+          EX    DE,HL
+          LD    D,(HL)
+          DEC   HL
+          LD    E,(HL)
+          DEC   HL
+          EX    DE,HL
+          CALL  WRITE_16
+          DJNZ  _nextstk
+
           LD    HL,REST_POS
           CALL  PRINT
+
           JP    main
-; ------------------- run
-SET_PC:   CALL  GET_HEX           ; OFFSET to apply to hex records. Z flag set if 'break' pressed.
-          LD    (R_PC),HL
-          JP    SHOW_RGS
 
 ; ------------------- bank
 BANK:     CALL  IN_HEX_2          ; OFFSET to apply to hex records. Z flag set if 'break' pressed.
@@ -639,23 +658,27 @@ next_b:   CALL  IN_HEX_2
           ; END of that record (ignoring checksum)
           WRITE_CRLF
           JR    nextline
-; ----- SETBP
-; Set breakpoint at address in HL. If A=0 then single hit - erased once matched. Find
-; an available breakpoint slot
+; ----- SETBP - set breakpoint
+; HL: The address at which to set a BP
+; A:  The type code for the BP. Must be >0. 1: single step BP (reserved)
+; Find an available breakpoint slot.
 SETBP:    PUSH  BC
           PUSH  DE
           PUSH  HL
+          LD    C,A             ; A holds the BP type to set - need to keep this
+          LD    A,(HL)          ; If there's already a BP at this location do nothing
+          CP    BRK_OPCODE
+          LD    A,C
+          JR    Z,_dupbp
           PUSH  AF
-          LD    D,H
+          LD    D,H             ; Save HL (BP address)
           LD    E,L
           LD    HL,BPOINTS
           LD    C,0
           LD    B,NUM_BK
 nextbp:   LD    A,(HL)
           OR    A
-          JR    Z,fndbp
-          ; Not available so skip
-          INC   HL
+          JR    Z,fndbp         ; Not available so skip
           INC   HL
           INC   HL
           INC   HL
@@ -669,58 +692,76 @@ nextbp:   LD    A,(HL)
           POP   HL
           POP   DE
           POP   BC
-          POP   BC       ; Lose return address
+          POP   BC               ; Lose return address
           JP    main
 fndbp:    POP   AF
-          LD    (HL),A   ; HL points at the BP record to be used
+          LD    (HL),A           ; HL points at the BP record to be used and A is the BP type
           INC   HL
-          LD    (HL),E
+          LD    (HL),E           ; Next 2 bytes are the address at which thi BP is set
           INC   HL
           LD    (HL),D
           INC   HL
-          LD    A,(DE)
-          LD    (HL),A
-          LD    A,BRK_OPCODE
+          LD    A,(DE)           ; DE is the address at which we're setting the BP. We need the op-code stored there (in A)
+          LD    (HL),A           ; And sore that in the BP record
+          LD    A,BRK_OPCODE     ; The opcode is replaced by our single byte RST BP handler code
           LD    (DE),A
-          INC   DE
-          INC   HL
-          LD    A,(DE)
-          LD    (HL),A
-          LD    A,C
-          LD    (DE),A
-          POP   HL
+_dupbp:   POP   HL
           POP   DE
           POP   BC
           RET
 
-; ------ CLRBP
-; BP number in A
-CLRBP:    PUSH  HL
-          PUSH  DE
-          LD    L,A
-          LD    H,0
-          LD    D,H
-          LD    E,L
-          ADD   HL,HL       ; Index x 5
-          ADD   HL,HL
-          ADD   HL,DE
-          LD    DE,BPOINTS
-          ADD   HL,DE       ; HL points to BP descriptor
+
+; ------ FINDBP - Find the BP at the address pointed to by HL. Result returned in DE. HL unchanged.
+; DE - Address of BP (IN)
+; HL - Address of matching BP record if found (OUT)
+; Z  - Set if BP not found
+FINDBP:   LD    HL,BPOINTS
+          PUSH  BC
+          LD    B,NUM_BK
+_chknxt:  LD    A,(HL)
+          OR    A          ; Unused slot if this is zero
+          JR    Z,_nf1
+          INC   HL         ; Next 2 bytes are the address
           LD    A,(HL)
-          ; Type 1 means clear all of this type (single step)
-          DEC   A
-          JR    Z,_clrsstp
-          ; Just a single break point to clear
+          INC   HL
+          CP    E
+          JR    NZ,_nf2
+          LD    A,(HL)
+          CP    D
+          JR    NZ,_nf2
+          ; Found...
+          DEC   HL
+          DEC   HL         ; Set HL to point back to the start of the record.
+          OR    1          ; Clear Z flag
+          JR    _fnd1
+
+_nf1:     INC   HL
+          INC   HL
+_nf2      INC   HL
+          INC   HL
+          DJNZ  _chknxt
+          ; If we get here then there's no matching BP
+_fnd1     POP   BC
+          RET
+
+; ------ CLRBP
+; DE: Address in code where a BP is set.
+CLRBP:    CALL  FINDBP
+          RET   Z              ; No BP known at that address
+          PUSH  HL             ; HL: Points to the BP record
+          PUSH  DE             ; DE: address of the BP in code
+          LD    A,(HL)         ; The type of the BP
+          DEC   A              ; Type 1 means clear all of this type (single step)
+          JR    Z,_clrsstp     ; Just a single break point to clear
           CALL  _clrbp
           JR    _cbpfin
 _clrsstp: ; Find all breakpoints type 1 and clear
           LD    HL,BPOINTS
-          LD    B,0
+          LD    B,NUM_BK
 _nextbp:  LD    A,(HL)
           DEC   A
           CALL  Z,_clrbp
           ; Not available so skip
-          INC   HL
           INC   HL
           INC   HL
           INC   HL
@@ -730,32 +771,20 @@ _cbpfin:  POP   DE
           POP   HL
           RET
 
-_clrbp:   ; HL points to the BP descriptor
-          PUSH  HL
+_clrbp:   PUSH  HL          ; HL points to the BP descriptor
           PUSH  DE
-          LD    A,(HL)
-          OR    A
-          JR    Z,_nobp
-          XOR   A
+          XOR   A           ; Clear the 'type' field to free this slot
           LD    (HL),A
           INC   HL          ; Next two bytes are the address of this BP
           LD    E,(HL)
           INC   HL
           LD    D,(HL)
-          INC   HL          ; And the last two bytes are the ones we saved to overwrite with the BP trigger code
+          INC   HL          ; And the last byte is the one we replaced with the BP trigger RST opcode
           LD    A,(HL)
-          LD    (DE),A      ; Restore the bytes we overwrote
-          INC   DE
-          INC   HL
-          LD    A,(HL)
-          LD    (DE),A      ; Restore the bytes we overwrote
+          LD    (DE),A      ; Restore the byte we overwrote
 _nobp:    POP   DE
           POP   HL
           RET
-
-; ----- Set single-step BP then return
-SSTEP_S:  CALL  SSTEP_BP
-          JP    main
 
 ; ----- Step Over
 NSTEP:    XOR   A            ; A -> zero
@@ -767,12 +796,12 @@ NSTEP:    XOR   A            ; A -> zero
 SSTEP:    LD    E,1         ; A -> !0
           CALL  SSTEP_BP    ; Set single step BP then go
 ; ------------------- go
-GO:       LD    SP,(R_SP)
+GO:       LD    (MON_SP),SP
+          LD    SP,(R_SP)
           LD    HL,(R_PC)
           PUSH  HL
           CALL  REST_RGS
           RET
-
 SSTEP_BP: LD    HL, (R_PC)
           CALL  INST_LEN
           ; A: Instruction length
@@ -829,10 +858,12 @@ _type3:   DEC   A
           LD    E,(HL)
           INC   HL
           LD    D,(HL)
+          EX    DE,HL
           JR    _setbp
 _type4:   DEC   A
           JR    NZ,_type5
-          ; It's an RSTxx instruction. Deal with this later :/
+          ; It's an RSTxx instruction. We don't try to step into these right now. They are generally system calls
+          ; and it's not good to tamper!
           JR    GO
 _type5:   DEC   A
           JR    NZ,_type6
@@ -857,14 +888,27 @@ _type6    ; It's a subroutine call. Same as absolute jump except check E=0. If 0
           JR    _type2   ; Treat it as an absolute jump
 
 ; ------------------- DO_BP
-DO_BP:    CALL  SAVE_RGS   ; Save normal registers
-          POP   HL         ; HL will be 1 more than the RST instruction
-          LD    A,(HL)     ; Points to the BP index - load into A
-          DEC   HL         ; Points at the RST instruction which we overwrote with the RST instruction
-          LD   (R_PC),HL
+DO_BP:    ; Save main registers
+          LD   (R_BC),BC
+          LD   (R_DE),DE
+          LD   (R_HL),HL
+          LD   (R_IX),IX
+          LD   (R_IY),IY
+
+          POP   DE         ; DE will be 1 more than the RST instruction - the return address
+          DEC   DE         ; Points at the RST instruction which we overwrote with the RST instruction
+          LD   (R_PC),DE   ; DE is now the start of the next instruction
           LD   (R_SP),SP
-          CALL  CLRBP
-          CALL  DECINST
+
+          LD   SP,(MON_SP) ; Restore our own SP
+
+          PUSH AF          ; Grab the AF pair through OUR stack - don't tamper with the apps stack
+          POP  HL
+          LD   (R_AF),HL
+
+          CALL  CLRBP      ; DE points at the BP address
+          EX    DE,HL      ; Put the current address into HL so we can display it
+          CALL  DECINST    ; Display the next instruction
           JP    SHOW_RGS
 
 ; --------- INST_LEN
@@ -953,7 +997,7 @@ WRITE_8:   PUSH AF
            PUSH BC
            PUSH DE
            PUSH HL
-           LD   DE, HEX_CHRS
+           LD   DE, _HEX_CHRS
            LD   B,A
            SRA  A
            SRA  A
@@ -1154,6 +1198,8 @@ skip2:    LD       A, (HL)
 ; Z flag set on OK
 
 ; --------------------- PRINT - write a string to the terminal
+; HL: The address of the string to print (NOT SAVED)
+; A and HL not saved
 PRINT:    LD       A,(HL)          ; Get character
           OR       A               ; Is it $00 ?
           RET      Z               ; Then RETurn on terminator
@@ -1172,18 +1218,16 @@ loop3:    DEC L
           RET
 
 ; --------------------- STRINGS
-INTRO:    .TEXT "\033[2J\033[13;50r\033[14,1HZ80 CLM 2.5\r\nReady...\r\n\000"
-PROMPT:   .TEXT "> \000"
-DONE:     .TEXT "\r\ndone.\r\n\000"
-WHERE:    .TEXT "\rADDR? \000"
-ERROR:    .TEXT "Unknown command\r\n\000"
+_INTRO:   .TEXT "\033[2J\033[1m\033[1;6HSTACK\033[m\033[11;50r\033[9;1H>\033[12,1HZ80 CLM 1.0\r\nReady...\r\n\000"
+_PROMPT:  .TEXT "> \000"
+_ERROR:   .TEXT "Unknown command\r\n\000"
 _NOSTART: .TEXT "\r\nNo record start character ':'\r\n\000"
 _BANKMSG: .TEXT "\r\nSwitching bank register to: \000"
 _REC_ERR: .TEXT "\r\nBad record\r\n\000"
 _COMPLETE:.TEXT "\r\nDownload complete\r\n\000"
 _HEXERR:  .TEXT "\r\nBad hex character: \r\n\000"
-BAD_REG   .TEXT "Bad register\r\n\000"
-HEX_CHRS: .TEXT  "0123456789ABCDEF"
+_BAD_REG: .TEXT "Bad register\r\n\000"
+_HEX_CHRS: .TEXT  "0123456789ABCDEF"
 
 ; Register labels
 R_PC_DESC .TEXT "\033[2;40H  PC: \000"
@@ -1197,9 +1241,14 @@ R_IX_DESC .TEXT "\033[5;40H  IX: \000"
 R_IY_DESC .TEXT "\033[6;40H  IY: \000"
 R_WIN_TOP .TEXT "\033[0;12r\000"
 R_WIN_BOT .TEXT "\033[13;50r\000"
+
+; VT100 sequences
 SAVE_POS  .TEXT "\0337\000"
 REST_POS  .TEXT "\0338\000"
 CURS_UP   .TEXT "\033[A\000"
+HOME:     .TEXT "\033[H\000"
+STK_NXT   .TEXT "\r\n\033[3C\000" ; Down one line then to character 2
+
 
 FLAGS_DESC:  .TEXT "SZ5H3VNC\000"
 
@@ -1226,7 +1275,7 @@ _nobpavail:  .TEXT "No BP available\r\n\000"
 ;   000 - Normal instruction, no change of control
 ;   001 - Single byte relative jump (eg JR NZ xx)
 ;   010 - Two byte absolute jump (eg JP C xxxx)
-;   011 - Return from subrouting
+;   011 - Return from subroutine
 ;   100 - A RST call
 ;   101 - JR (reg) - HL, IX, IY depending on prefix
 ;   110 - A 'call' instruction. Absolute address but step over this is the 'next' command is used.
@@ -1264,11 +1313,11 @@ CMD_TABLE:      .DW      0         ; A
                 .DW      MODIFY    ; M hhhh    : start writing bytes at specified address
                 .DW      NSTEP     ; N         ; single step but over subroutine calls
                 .DW      0         ; O
-                .DW      SET_PC    ; P hhhh    : set PC to this address. 'G' and 'S' will then use this address
+                .DW      0         ; P
                 .DW      0         ; Q
                 .DW      SET_RGS   ; R         : show register values. R NAME=VALUE - set specific register values
                 .DW      SSTEP     ; S         : step one instruction
-                .DW      SSTEP_S   ; T
+                .DW      0         ; T
                 .DW      UPGRADE   ; U         : upgrade monitor image from memory @2
                 .DW      0         ; V
                 .DW      0         ; W
@@ -1293,7 +1342,7 @@ INBUF      .DS   80
 END_INBUF  .DB    0
 
 ; Storage area for working registers
-R_SP       .DW    6ff0h
+R_SP       .DW    6FF0h ; Initial application stack is NOT the same as ours
 R_PC       .DW    2000h
 R_AF       .DW    0
 R_BC       .DW    0
@@ -1301,6 +1350,8 @@ R_DE       .DW    0
 R_HL       .DW    0
 R_IX       .DW    0
 R_IY       .DW    0
+
+MON_SP:    .DW    0    ; Monitors SP is stored here before running client code.
 
 R_ADDR_8:  .DB    'A'  \ .DW R_AF+1
            .DB    'B'  \ .DW R_BC+1
@@ -1327,7 +1378,7 @@ R_ADDR_16: .DB    "BC" \ .DW R_BC
 ;       1 - single shot - removed once hit
 ;       2 - permanent breakpoint (TBD)
 
-BPOINTS:   .DS    NUM_BK*5
+BPOINTS:   .DS    NUM_BK*4
 
 LAST_ADDR: .DB    0
 

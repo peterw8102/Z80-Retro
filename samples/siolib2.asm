@@ -15,10 +15,15 @@
 ;    RST38 - Hardware interrupt from SIO
 ;
 ;==================================================================================
-
+RAM_FIRST       .EQU     1
 ; Full input buffering with incoming data hardware handshaking
 ; Handshake shows full before the buffer is totally filled to allow run-on from the sender
 
+#if RAM_FIRST
+LIVE_PAGE       .EQU     10h
+#else
+LIVE_PAGE       .EQU     98h
+#endif
 SER_BUFSIZE     .EQU     7FH
 SER_FULLSIZE    .EQU     30H
 SER_EMPTYSIZE   .EQU     5
@@ -61,6 +66,7 @@ RST08            JP      TXA
 
                 .ORG 0010H
 RST10            JP      RXA
+BRK_HANDLER:     .DW     0
 
 ;------------------------------------------------------------------------------
 ; Check serial status
@@ -74,8 +80,8 @@ RST18            JP      CKINCHAR
 
                 .ORG     0038H
 RST38
-serialInt:      PUSH     AF
-                PUSH     HL
+serialInt:      PUSH     HL
+                PUSH     AF
 
                 XOR      A
                 OUT      (SIOA_C),A
@@ -84,8 +90,21 @@ serialInt:      PUSH     AF
                 JR       NC, rts0
 
                 IN       A,(SIOA_D)
+                ; Check if this is a break character and if it is has anyone registered a break handler?
+                CP       3h
+                ; CTRL-C - is there a handler?
                 PUSH     AF
-                LD       A,(serBufUsed)
+                JR       NZ,proc
+                LD       A,(BRK_HANDLER)
+                OR       A
+                LD       L,A
+                LD       A,(BRK_HANDLER+1)
+                LD       H,A
+                JR       NZ,brk
+                OR       A
+                JR       NZ,brk
+
+proc:           LD       A,(serBufUsed)
                 CP       SER_BUFSIZE     ; If full then ignore
                 JR       NZ,notFull
                 POP      AF
@@ -110,8 +129,16 @@ notWrap:        LD       (serInPtr),HL
                 POP      AF
                 LD       (HL),A
 
-rts0:           POP      HL
-                POP      AF
+rts0:           POP      AF
+                POP      HL
+                EI
+                RETI
+                ; There is a break handler. Hack the stack so we return to the
+                ; handler
+brk:            POP      AF  ; The character code we read (CTRL-C) no longer needed
+                POP      AF  ; AF as it was before the call
+                ; Next thing on the return stack is the pushed HL register. Swap this with the handler address
+                EX      (SP),HL
                 EI
                 RETI
 
@@ -177,7 +204,7 @@ INIT:          LD         HL,_testaddr
                LDIR
                ; Reset page register so RAM in slot 8 and 1 and reset.
 CONT:          LD        (HL), 0AAH
-PVAL:          LD        A, 10h          ; RAM page 0 and RAM page 1
+PVAL:          LD        A, LIVE_PAGE    ; RAM page 0 and RAM page 1
                OUT       (PAGE_REG), A
                LD        HL, PVAL+1
                ; LD        (HL),98h
@@ -258,7 +285,7 @@ PVAL:          LD        A, 10h          ; RAM page 0 and RAM page 1
                EI
                JP        _start          ; Run the program
 
-               .ORG     $130
+;               .ORG     $130
 serBuf          .DS      SER_BUFSIZE
 serInPtr        .DW      serBuf
 serRdPtr        .DW      serBuf

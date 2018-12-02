@@ -8,13 +8,20 @@ NO        .EQU      0
 ; RST 10h - Read one character from the terminal. Block until there is a character. Returned in A
 ; RST 18h - Check whether there is a character available. Non blocking. Z flag set if there is NOT a character waiting.
 
-; Configurable parameters
-LOAD_ADDR   .EQU    01C0h     ; Start address for the main code
 ; If you want to run the monitor from ROM then variables need to be in RAM. Set this
 ; label to indicate where you want variables and change the value of FLASH_MON to YES
 VARS_ADDR    .EQU    2000h
 FLASH_MON    .EQU   NO
 
+; Configurable parameters
+LOAD_ADDR   .EQU    01D0h     ; Start address for the main code
+
+; Correct values to write to the Flash register to make bank 0 RAM and bank 1 ROM
+#if FLASH_MON=YES
+SEL_FLSH  .EQU     08h
+#else
+SEL_FLSH  .EQU     80h
+#endif
 ; Where to initialise our stack If the stack is already configured set this to zero. If
 ; my system I have 32K memory pages so I run everything from the first 32 allowing me to page in
 ; data to the upper 32K
@@ -46,7 +53,7 @@ CS        .EQU     0CH             ; Clear screen
 SPC       .EQU     20H
 
           .ORG    BRK_HANDLER
-BP:       JP      DO_BP
+BP_RST     JP      DO_BP
 
 ; Number of breakpoint locations (in code)
 NUM_BK    .EQU    64
@@ -108,7 +115,6 @@ _newcmd:  LD    (LAST_CMD),A
 err:      LD    HL, _ERROR
           CALL  PRINT
           JR    main
-
 
 ; ------------------- copy - TBD
 COPY:     JP    main
@@ -314,6 +320,14 @@ BANK:     CALL  IN_HEX_2          ; OFFSET to apply to hex records. Z flag set i
           OUT   (PAGE_REG),A
           WRITE_CRLF
           JP    main
+; ------------------- BP: Set breakpoint
+; Get address from command line. If not specfied then BP at the current PC value
+BP:       CALL  GET_HEX          ; Address for breakpoint
+          JP    Z, f_err
+          ; Set a BP at the address in HL
+          LD    A,2              ; BP type
+          CALL  SETBP
+          JP    main
 ; ------------------- MODIFY
 MODIFY:   CALL  GET_HEX          ; Start address
           JP    Z, f_err
@@ -487,7 +501,6 @@ FLASH_OP: CALL  SKIPSPC
           CP    'Z'
           JR    Z,flsh_clr
 
-SEL_FLSH  .EQU  08h
 ; ------------------- Read Flash Info
 flsh_id:  WRITE_CRLF
           LD    A,SEL_FLSH
@@ -517,24 +530,30 @@ flsh_clr: LD    A,SEL_FLSH
 
 ; ----------------------------------- flsh_prg
 ; Expect a start address in page zero and a length. Writes data to the high page
-flsh_prg: LD    A,SEL_FLSH       ; Make sure we have flash page 0 mapped to page 2.
+flsh_prg: LD    HL,_FLSH_PRG
+          CALL  PRINT
+          LD    A,SEL_FLSH       ; Make sure we have flash page 0 mapped to page 2.
           OUT   (PAGE_REG),A
           ; Get parameters
-          CALL  GET_HEX          ; Address
+          CALL  GET_HEX          ; From Address
           JP    Z, f_err
-          PUSH  HL
           LD    D,H
-          LD    E,L              ; DE: Address
-          CALL  WASTESPC
-          CALL  GET_HEX          ; Length
+          LD    E,L              ; DE: Address FROM address
+          CALL  GET_HEX          ; The TO ADDRESS - top bit set
           JP    Z,f_err
-          PUSH  HL
+          LD    (FL_TO_ADDR),HL  ; TO ADDRESS saved
+          CALL  GET_HEX          ; The Length
+          JP    Z,f_err
           LD    B,H              ; BC: Count
           LD    C,L
-          LD    HL,_prg_msg
+          LD    HL,_prg_msg      ; "FROM ADDRESS: "
           CALL  PRINT
           LD    H,D
           LD    L,E
+          CALL  WRITE_16
+          LD    HL,_prg_msgto
+          CALL  PRINT
+          LD    HL,(FL_TO_ADDR)   ; Get the TO address to display
           CALL  WRITE_16
           LD    HL,_prg_msglen
           CALL  PRINT
@@ -546,13 +565,12 @@ flsh_prg: LD    A,SEL_FLSH       ; Make sure we have flash page 0 mapped to page
           XOR   A
           ; CALL  _flsh_clr
           ; Write data
-          POP   BC
-          POP   HL
-loopp:    LD    A,(HL)
+          LD    HL,(FL_TO_ADDR)   ; Get the TO address to display
           SET   7,H
+loopp:    LD    A,(DE)
           CALL  _flsh_bt
-          RES   7,H
           INC   HL
+          INC   DE
           DEC   BC
           LD    A,B
           OR    C
@@ -660,7 +678,9 @@ next_b:   CALL  IN_HEX_2
           JR    nextline
 ; ----- SETBP - set breakpoint
 ; HL: The address at which to set a BP
-; A:  The type code for the BP. Must be >0. 1: single step BP (reserved)
+; A:  The type code for the BP. Must be >0.
+;   1: single step BP (reserved)
+;   2: standard BP - permanent until cleared
 ; Find an available breakpoint slot.
 SETBP:    PUSH  BC
           PUSH  DE
@@ -701,6 +721,10 @@ fndbp:    POP   AF
           INC   HL
           LD    (HL),D
           INC   HL
+          ; If 'type' is 1 then set the BP. Any other value and the BP
+          ; is set at runtime
+          DEC   A
+          JR    NZ,_dupbp
           LD    A,(DE)           ; DE is the address at which we're setting the BP. We need the op-code stored there (in A)
           LD    (HL),A           ; And sore that in the BP record
           LD    A,BRK_OPCODE     ; The opcode is replaced by our single byte RST BP handler code
@@ -744,11 +768,68 @@ _nf2      INC   HL
 _fnd1     POP   BC
           RET
 
+; ------ INSTBP
+; Install ALL permanent breakpoints prior to running the code. If a permanent break point
+; is being set at the current PC location then it's skipped.
+; A:  0 - set the breakpoints
+; A: !0 - remove the breakpoints
+INSTBP:   LD    HL,BPOINTS
+          LD    C,A
+          LD    B,NUM_BK
+_inextbp: LD    A,(HL)
+          CP    2
+          CALL  Z,_insbp
+          ; Not available so skip
+          INC   HL
+          INC   HL
+          INC   HL
+          INC   HL
+          DJNZ  _inextbp
+          RET
+_insbp:   PUSH  HL
+          INC   HL
+          LD    E,(HL)
+          INC   HL
+          LD    D,(HL)
+          INC   HL
+          LD    A,C
+          OR    A
+          JR    NZ,_insrm
+          ; Install the breakpoint
+          ; Check whether this BP is at the current PC location
+          LD    A,(R_PC)
+          CP    E
+          JR    NZ,_insok
+          LD    A,(R_PC+1)
+          CP    D
+          JR    Z,_iskip    ; Can't set a BP at the current PC location
+_insok:   LD    A,(DE)      ; BP already installed?
+          CP    BRK_OPCODE
+          JR    Z,_iskip
+          LD    (HL),A
+          LD    A,BRK_OPCODE
+          LD    (DE),A
+_iskip:   POP   HL
+          RET
+_insrm:   LD    A,(DE)
+          CP    BRK_OPCODE
+          JR    NZ,_noclr
+          LD    A,(HL)      ; The opcode that needs to be reset into the code
+          LD    (DE),A
+_noclr:   POP   HL
+          RET
+; ------ SUSBP
+; Suspend breakpoint. Remove from code but not from the BP table.
+; HL: Address of the BP record.
+SUSBP:    PUSH  HL
+          PUSH  DE
+          JR    _rembp
+
 ; ------ CLRBP
 ; DE: Address in code where a BP is set.
 CLRBP:    CALL  FINDBP
           RET   Z              ; No BP known at that address
-          PUSH  HL             ; HL: Points to the BP record
+CLRBP2:   PUSH  HL             ; HL: Points to the BP record
           PUSH  DE             ; DE: address of the BP in code
           LD    A,(HL)         ; The type of the BP
           DEC   A              ; Type 1 means clear all of this type (single step)
@@ -775,11 +856,14 @@ _clrbp:   PUSH  HL          ; HL points to the BP descriptor
           PUSH  DE
           XOR   A           ; Clear the 'type' field to free this slot
           LD    (HL),A
-          INC   HL          ; Next two bytes are the address of this BP
+_rembp    INC   HL          ; Next two bytes are the address of this BP
           LD    E,(HL)
           INC   HL
           LD    D,(HL)
           INC   HL          ; And the last byte is the one we replaced with the BP trigger RST opcode
+          LD    A,(DE)
+          CP    BRK_OPCODE
+          JR    NZ,_nobp
           LD    A,(HL)
           LD    (DE),A      ; Restore the byte we overwrote
 _nobp:    POP   DE
@@ -793,15 +877,22 @@ NSTEP:    XOR   A            ; A -> zero
           JR    GO
 
 ; ----- Single Step
+SSTEP_T:  LD    E,1         ; A -> !0
+          CALL  SSTEP_BP    ; Set single step BP then go
+          JP    main
+; ----- Single Step
 SSTEP:    LD    E,1         ; A -> !0
           CALL  SSTEP_BP    ; Set single step BP then go
 ; ------------------- go
-GO:       LD    (MON_SP),SP
-          LD    SP,(R_SP)
-          LD    HL,(R_PC)
-          PUSH  HL
+GO:       XOR   A
+          CALL  INSTBP      ; Install all permanent breakpoints
+          LD    HL,DO_BP
+          LD    (13h),HL
           CALL  REST_RGS
-          RET
+          LD    (MON_SP),SP
+          LD    SP,(R_SP)
+          JP    JP_RUN
+
 SSTEP_BP: LD    HL, (R_PC)
           CALL  INST_LEN
           ; A: Instruction length
@@ -889,26 +980,44 @@ _type6    ; It's a subroutine call. Same as absolute jump except check E=0. If 0
 
 ; ------------------- DO_BP
 DO_BP:    ; Save main registers
+          DI
           LD   (R_BC),BC
           LD   (R_DE),DE
           LD   (R_HL),HL
           LD   (R_IX),IX
           LD   (R_IY),IY
 
-          POP   DE         ; DE will be 1 more than the RST instruction - the return address
-          DEC   DE         ; Points at the RST instruction which we overwrote with the RST instruction
-          LD   (R_PC),DE   ; DE is now the start of the next instruction
+          ; Disable break processing
+          LD    HL,0
+          LD    (13h),HL
+          EI
+
+          POP   DE            ; DE will be 1 more than the RST instruction - the return address
+          DEC   DE            ; Points at the RST instruction which we overwrote with the RST instruction
+          LD   (R_PC),DE      ; DE is now the start of the next instruction
           LD   (R_SP),SP
 
-          LD   SP,(MON_SP) ; Restore our own SP
+          LD   SP,(MON_SP)    ; Restore our own SP
 
-          PUSH AF          ; Grab the AF pair through OUR stack - don't tamper with the apps stack
+          PUSH AF             ; Grab the AF pair through OUR stack - don't tamper with the apps stack
           POP  HL
           LD   (R_AF),HL
 
-          CALL  CLRBP      ; DE points at the BP address
-          EX    DE,HL      ; Put the current address into HL so we can display it
-          CALL  DECINST    ; Display the next instruction
+          XOR   A             ; Coming from execution not from a clear BP CLI op
+          CALL  FINDBP        ; Find the BP. Want to know what type it is.
+          JR    Z,_bp_nf
+          LD    A,(HL)        ; The type of the BP. 1: single step, 2: hard breakpoint
+          DEC   A             ; Single step?
+          JR    NZ, _permbp   ; No - permanent BP
+          ; Single step - so clear all
+          CALL  CLRBP2        ; DE points at the BP address
+          JR    _bp_nf
+
+_permbp:  CALL  SUSBP         ; Remove this BP from code but not from the BP table.
+
+
+_bp_nf:   EX    DE,HL         ; Put the current address into HL so we can display it
+          CALL  DECINST       ; Display the next instruction
           JP    SHOW_RGS
 
 ; --------- INST_LEN
@@ -953,17 +1062,6 @@ _noext:   INC   HL
           LD    C,(HL)   ; Return the extended descriptor in C
           POP   HL
           POP   DE
-          RET
-
-; SAVE_RGS - Get the caller from SP+4
-SAVE_RGS: LD   (R_BC),BC
-          LD   (R_DE),DE
-          LD   (R_HL),HL
-          LD   (R_IX),IX
-          LD   (R_IY),IY
-          PUSH AF
-          POP  HL
-          LD   (R_AF),HL
           RET
 
 ; REST_RGS - HL will contain the PC
@@ -1218,7 +1316,7 @@ loop3:    DEC L
           RET
 
 ; --------------------- STRINGS
-_INTRO:   .TEXT "\033[2J\033[1m\033[1;6HSTACK\033[m\033[11;50r\033[9;1H>\033[12,1HZ80 CLM 1.0\r\nReady...\r\n\000"
+_INTRO:   .TEXT "\033[2J\033[1m\033[1;6HSTACK\033[m\033[11;50r\033[9;1H>\033[12,1HZ80 CLM 1.1\r\nReady...\r\n\000"
 _PROMPT:  .TEXT "> \000"
 _ERROR:   .TEXT "Unknown command\r\n\000"
 _NOSTART: .TEXT "\r\nNo record start character ':'\r\n\000"
@@ -1227,10 +1325,11 @@ _REC_ERR: .TEXT "\r\nBad record\r\n\000"
 _COMPLETE:.TEXT "\r\nDownload complete\r\n\000"
 _HEXERR:  .TEXT "\r\nBad hex character: \r\n\000"
 _BAD_REG: .TEXT "Bad register\r\n\000"
+_FLSH_PRG:.TEXT "Flash prog\r\n\000"
 _HEX_CHRS: .TEXT  "0123456789ABCDEF"
 
 ; Register labels
-R_PC_DESC .TEXT "\033[2;40H  PC: \000"
+R_PC_DESC .TEXT "\033[11;50r\033[2;40H  PC: \000"
 R_SP_DESC .TEXT "\033[3;40H  SP: \000"
 R_A_DESC  .TEXT "\033[4;40H  A:  \000"
 R_BC_DESC .TEXT "\033[2;60H  BC: \000"
@@ -1256,7 +1355,8 @@ _fill_err:   .TEXT "Bad parameters\r\n\000"
 _fill_msg:   .TEXT "Fill: ADDR: \000"
 _fill_sz:    .TEXT " LEN:\000"
 _fill_wt:    .TEXT " WITH:\000"
-_prg_msg:    .TEXT "PROG ADDRESS: \000"
+_prg_msg:    .TEXT "FROM ADDRESS: \000"
+_prg_msgto:  .TEXT ", TO: \000"
 _prg_msglen: .TEXT ", LEN: \000"
 _nobpavail:  .TEXT "No BP available\r\n\000"
 
@@ -1299,7 +1399,7 @@ _opcodes        .DW      0001h, 0003h, 0001h, 0001h, 0001h, 0001h, 0002h, 0001h,
 
 ; Cmd jump table. 26 entries one for each letter. Every command starts with a letter. Each entry is the address of the handler.
 CMD_TABLE:      .DW      0         ; A
-                .DW      BANK      ; B
+                .DW      BP        ; B
                 .DW      COPY      ; C
                 .DW      DUMP      ; D
                 .DW      0         ; E
@@ -1317,41 +1417,13 @@ CMD_TABLE:      .DW      0         ; A
                 .DW      0         ; Q
                 .DW      SET_RGS   ; R         : show register values. R NAME=VALUE - set specific register values
                 .DW      SSTEP     ; S         : step one instruction
-                .DW      0         ; T
+                .DW      SSTEP_T   ; T
                 .DW      UPGRADE   ; U         : upgrade monitor image from memory @2
                 .DW      0         ; V
                 .DW      0         ; W
                 .DW      0         ; X
-                .DW      0         ; Y
+                .DW      BANK      ; Y
                 .DW      FLASH_OP  ; Z
-
-
-; ---------------------- VARIABLES
-; If you want the monitor code in ROM then add an ORG here to locate variables somewhere in RAM
-#if FLASH_MON=YES
-           .ORG   VARS_ADDR
-#endif
-LAST_CMD:  .DB    0
-DUMP_ADDR: .DW    0
-DUMP_MODE: .DB    'I'
-DUMP_CHRS: .TEXT  "  "
-           .DS   16
-           .DB    0
-INPTR      .DW  INBUF
-INBUF      .DS   80
-END_INBUF  .DB    0
-
-; Storage area for working registers
-R_SP       .DW    6FF0h ; Initial application stack is NOT the same as ours
-R_PC       .DW    2000h
-R_AF       .DW    0
-R_BC       .DW    0
-R_DE       .DW    0
-R_HL       .DW    0
-R_IX       .DW    0
-R_IY       .DW    0
-
-MON_SP:    .DW    0    ; Monitors SP is stored here before running client code.
 
 R_ADDR_8:  .DB    'A'  \ .DW R_AF+1
            .DB    'B'  \ .DW R_BC+1
@@ -1369,6 +1441,42 @@ R_ADDR_16: .DB    "BC" \ .DW R_BC
            .DB    "PC" \ .DW R_PC
            .DB    "SP" \ .DW R_SP
            .DW    0
+
+; ---------------------- VARIABLES
+; If you want the monitor code in ROM then add an ORG here to locate variables somewhere in RAM
+#if FLASH_MON=YES
+           .ORG   VARS_ADDR
+#endif
+LAST_CMD:  .DB    'R'
+DUMP_ADDR: .DW    0
+DUMP_MODE: .DB    'I'
+DUMP_CHRS: .TEXT  "  "
+           .DS   16
+           .DB    0
+INPTR      .DW  INBUF
+INBUF      .DS   80
+END_INBUF  .DB    0
+
+; Temporary storage for Flash programming
+FL_TO_ADDR .DW   0
+
+; JP_RUN - C3 is the JP opcode. By jumping to JP_RUN execution will
+; continue from the current value of the PC. This avoids us having to
+; push values onto the applications stack.
+JP_RUN:    .DB    $C3
+; Storage area for working registers
+R_PC       .DW    2000h
+R_SP       .DW    6FF0h ; Initial application stack is NOT the same as ours
+R_AF       .DW    0
+R_BC       .DW    0
+R_DE       .DW    0
+R_HL       .DW    0
+R_IX       .DW    0
+R_IY       .DW    0
+
+MON_SP:    .DW    0    ; Monitors SP is stored here before running client code.
+
+JP_
 
 ; Breakpoints. Each entry is 6 bytes:
 ; Type|X|AddrX2|B1|B2

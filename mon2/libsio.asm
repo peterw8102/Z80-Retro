@@ -261,30 +261,10 @@ PVAL:          LD        A, LIVE_PAGE    ; RAM page 0 and RAM page 1
                 LD      A,$18
                 OUT     (C),A
 
-                ; LD      A,$04            ; write 4
-                ; OUT     (SIOB_C),A
-                ; LD      A,$44            ; X16, no parity, 1 stop
-                ; OUT     (SIOB_C),A
-                ;
-                ; LD      A,$01
-                ; OUT     (SIOB_C),A
-                ; LD      A,$18
-                ; OUT     (SIOB_C),A
-
                 LD      A,$02           ; write reg 2
                 OUT     (C),A
                 LD      A,$E0           ; INTERRUPT VECTOR ADDRESS
                 OUT     (C),A
-
-                ; LD      A,$03
-                ; OUT     (SIOB_C),A
-                ; LD      A,$E1
-                ; OUT     (SIOB_C),A
-
-                ; LD      A,$05
-                ; OUT     (SIOB_C),A
-                ; LD      A,RTS_LOW
-                ; OUT     (SIOB_C),A
 
                ; initialize first serial port
                LD        HL,serBuf

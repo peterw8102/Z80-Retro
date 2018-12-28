@@ -1,12 +1,11 @@
 import config.asm
 import defs.asm
 
-          public PRINT,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,WRITE_8,WRITE_16,HEX_FROM_A,INHEX_2,INHEX_4,GET_HEX,INPTR,INBUF,END_PROG
+          public PRINT,PRINT_LN,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,WRITE_8,WRITE_16,HEX_FROM_A,INHEX_2,INHEX_4,GET_HEX,INPTR,INBUF,END_PROG
 
           CSEG
 ; Layer of code above the the basic driver that provides line input control and output formatting.
-GET_CHR:  XOR   A
-          RST   10H                ; Read character
+GET_CHR:  RST   10H                ; Read character
           CP    'a'                ; Lower case -> upper case
           RET    C
           SUB   'a'
@@ -54,15 +53,13 @@ WRITE_16:  PUSH AF
            POP  AF
            RET
 
-WRITE_8:   PUSH AF
-           PUSH HL
+WRITE_8:   PUSH HL
            CALL HEX_FROM_A
            LD   A,H
            RST  08H
            LD   A,L
            RST  08H
            POP  HL
-           POP  AF
            RET
 
 ; ------------------- GET_HEX - read in up to 4 hex digits, returned in HL
@@ -95,7 +92,7 @@ add_chr:  ADD   HL, HL
           JR    next_hc
 
 ; -------- INHEX_2 - Return 2 hex digit value in A. Set C flag on error
-INHEX_2: PUSH  HL
+INHEX_2:  PUSH  HL
           LD    L,0     ; Value being built
           CALL  BUFCHR  ; A -> character
           CALL  HEX_TO_BIN
@@ -115,14 +112,11 @@ INHEX_2: PUSH  HL
           OR    A
           RET
 
-errhex2:  LD    HL,_HEXERR
-          CALL  PRINT
-          RST   08h
-          POP   HL
+errhex2:  POP   HL
           SCF
           RET
 
-INHEX_4: CALL  INHEX_2
+INHEX_4:  CALL  INHEX_2
           RET   C
           LD    H,A
           CALL  INHEX_2
@@ -164,19 +158,19 @@ getc:     CALL     GET_CHR
           LD      (HL), A
 
           ; At end of buffer?
-          LD      C,A
+          LD      C,A           ; Save last character
           LD      A,80
           CP      B
           JR      Z, getc       ; buffer full
           INC     HL
           INC     B
           LD      A,C
-          RST     08H
+echo:     RST     08H           ; Echo character
           JR      getc
 
 eol:      XOR     A
-          LD      (HL), A
-          LD      A, B
+          LD      (HL),A
+          LD      A,B
           POP     BC
           POP     HL
           OR      A     ; Z flag set if no characters entered in line
@@ -190,18 +184,17 @@ bspc:     XOR      A
           DEC      HL
           LD      (HL), A
           DEC      B
-          WRITE_CHR BS;
-          ; WRITE_CHR(DEL);
-          JR       getc
+          LD       A,BS
+          JR       echo
 
 BUFCHR:   PUSH     HL
           LD       HL, (INPTR)
           LD       A, (HL)
           OR       A
-          JR       Z, eb
+          JR       Z, eb1
           INC      HL
           LD       (INPTR), HL
-          POP      HL
+eb1:      POP      HL
           RET
 
 ; -------- SKIPSPC
@@ -219,6 +212,7 @@ skip      LD       A, (HL)
           LD       (INPTR), HL
 eb:       POP      HL
           RET
+
 WASTESPC: PUSH     HL
           LD       HL, (INPTR)
 skip2:    LD       A, (HL)
@@ -246,15 +240,19 @@ PRINT:    LD       A,(HL)          ; Get character
           RST      08H             ; Print it
           INC      HL              ; Next Character
           JR       PRINT           ; Continue until $00
-
+PRINT_LN: CALL     PRINT
+          LD       A,CR
+          RST      08H
+          LD       A,LF
+          RST      08H
+          RET
 ; Read only data definitions that go in the code section
 _HEX_CHRS: DEFB  "0123456789ABCDEF"
-_HEXERR:   DEFB CR,LF,"Bad hex character: ",CR,LF,0
 END_PROG:  .DB 0
 
 ; Data defintions for this module
          dseg
 
-INPTR      DEFW  INBUF
-INBUF      .DS   80
-END_INBUF  DEFB    0
+INPTR:      DEFW  INBUF
+INBUF:      .DS   80
+END_INBUF:  DEFB    0

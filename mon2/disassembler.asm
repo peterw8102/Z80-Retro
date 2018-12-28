@@ -11,8 +11,7 @@ import defs.asm
 ; INPUT:  HL - pointer to instruction
 ; OUTPUT: HL - Pointer to description
 ;          A - The number of bytes in this instruction
-DISASS:   PUSH  BC
-          PUSH  DE
+DISASS:   PUSH  DE
           PUSH  HL
           ; Reset output buffer
           EX    DE,HL
@@ -23,16 +22,18 @@ DISASS:   PUSH  BC
           ; Set prefix length to zero
           XOR   A
           LD    (PREFLEN),A
-          LD    (PREFCODE),A
+          LD    (CTRLFLOW),A
 
           ; And start disassembling from HL
           CALL  SPLIT_OP
 
-          ; Check for prefix
+         ; Check for prefix
           CP    $DD
-          JR    Z,_pref_x
+          LD    DE,REG_IX
+          JR    Z,_pref_xy
           CP    $FD
-          JR    Z,_pref_y
+          LD    DE,REG_IY
+          JR    Z,_pref_xy
           CP    $ED
           JR    Z,_pref_ed
           CP    $CB
@@ -51,8 +52,7 @@ DISASS:   PUSH  BC
           CALL  PRT_LU_T
           ; And the register to operate on
           LD    A,C
-          LD    HL,_reg8a
-_prtret2: CALL  PRT_LU
+_prtret2: CALL  DESCREG8
 _ret2:    LD    A,2       ; All these are two bytes
           JR    _ret1a
 
@@ -65,25 +65,17 @@ _bit:     LD    A,C
           LD    A,B
           ADD   '0'
           CALL  PRTCHR
-          LD    A,','
-          CALL  PRTCHR
+          CALL  PRTCOM
           LD    A,C
           RRCA
           RRCA
           RRCA
-          LD    HL,_reg8a
           JR    _prtret2
-
-_pref_x:  LD    DE,REG_IX
-          LD    (EXT_REG),DE
-          JR    _pref_xy
-
-_pref_y:  LD    DE,REG_IY
-          LD    (EXT_REG),DE
 
 ; ------ _pre_xy - the last byte was DD or FD so an IX or IY operation. However
 ; multiple prefix bytes cancel each other. Check for multiple sequences of prefix
-_pref_xy: LD    B,0              ; Number of prefix bytes
+_pref_xy: LD    (EXT_REG),DE
+          LD    B,0              ; Number of prefix bytes
           POP   HL
 _nxtpref: INC   B
           INC   HL
@@ -99,23 +91,19 @@ _nxtpref: INC   B
 
           LD    A,B
           LD    (PREFLEN),A      ; Number of extra prefix bytes
-          ; CALL  WRITE_8
 
           ; Byte in C is the effective prefix
           ; Byte in A is the prefixed opcode
           ; HL points to the opcode held in A
           PUSH  HL
           LD    A,C                ; Take a look at the prefix
-          LD    (PREFCODE),A       ; Store the prefix we're using
           CP    $ED
           JR    Z,_pref_ed
 
           LD    A,D                ; First byte after opcode
-          ; CALL  WRITE_16
 
           ; It's an IX/IY operation. They are the same but have the right register stored in EXT_REG
           CALL  SPLIT_OP
-          ; CALL  WRITE_8
           ;     A, C: Still opcode
           ;     B:    Y
           AND   $C0
@@ -134,8 +122,7 @@ _nxtpref: INC   B
           RRCA
           LD    HL,_reg16_a
           CALL  TAB_LU
-          LD    A,','
-          CALL  PRTCHR
+          CALL  PRTCOM
           CALL  PRTBUF
           JR    _ret1
 
@@ -157,8 +144,7 @@ _ddx0_1:  LD    A,B                ; Look for Y=6
           LD    A,2
           JR    _ret1b
 
-_imidx:   LD    A,','
-          CALL  PRTCHR
+_imidx:   CALL  PRTCOM
           CALL  ABS_8
           LD    A,3
           JR    _ret1b
@@ -185,8 +171,7 @@ _not21:   CP    $22               ; LD (**),idx
           CALL  PRTBUF_T
           POP   HL
           CALL  INDIR_16
-          LD    A,','
-          CALL  PRTCHR
+          CALL  PRTCOM
           LD    HL,(EXT_REG)
           CALL  PRTBUF
           JR    _ret3
@@ -228,8 +213,7 @@ _high2:   CALL  PRTCHR
           AND   7
           CP    6
           JR    NZ,_ret1
-          LD    A,','
-          CALL  PRTCHR
+          CALL  PRTCOM
           POP   HL
           CALL  ABS_8
           LD    A,2
@@ -256,8 +240,7 @@ _ddx1:    CP    $40
           JR    _dodest
 _ind_1:   CALL  DESCREGX
           ; Add an extra byte to the op length
-_dodest:  LD    A,','
-          CALL  PRTCHR
+_dodest:  CALL  PRTCOM
           LD    A,B
           CP    6
           LD    A,C
@@ -298,6 +281,7 @@ _ddx3:    LD    A,C                ; $C0 - this is the only option left
 
           CP    $E9
           JR    NZ,_notidjp
+          ; It's JP (IDX)
           LD    HL,OP_JP
           CALL  PRTBUF_T
           LD    A,'('
@@ -306,6 +290,8 @@ _ddx3:    LD    A,C                ; $C0 - this is the only option left
           CALL  PRTBUF
           LD    A,')'
           CALL  PRTCHR
+          LD    A,CT_IND          ; It's a jump through a register
+          LD    (CTRLFLOW),A
           JR    _ret1
 
 _notidjp: LD    HL,_desc_2
@@ -334,8 +320,7 @@ _opreg:   LD    A,C
           JR    Z,_noreg
           LD    HL,_reg8a
           CALL  TAB_LU           ; Result in HL
-          LD    A,','
-          CALL  PRTCHR
+          CALL  PRTCOM
           CALL  PRTBUF
 
           ; Finished -
@@ -351,8 +336,7 @@ _bitx:    RLCA       ; Move Z to lower two bits
           LD    A,B
           ADD   '0'
           CALL  PRTCHR
-          LD    A,','
-          CALL  PRTCHR
+          CALL  PRTCOM
           ; Now the index offset
           POP   HL
           CALL  IDX_INDIR
@@ -363,7 +347,7 @@ _bitx:    RLCA       ; Move Z to lower two bits
 
 
 
-_pref_ed: POP   HL                 ; Check for a specific exception instruction
+_pref_ed: POP   HL                 ; Byte after ED is the opcode to decode
           INC   HL
           CALL  SPLIT_OP           ; C: opcode, B: bits 3-5 >> 3, A: opcode
           PUSH  HL
@@ -384,10 +368,8 @@ _outc:    CALL  PRTBUF_T
           LD    A,B
           CP    6
           JR    Z,_inflgs
-          LD    HL,_reg8a
-          CALL  PRT_LU
-          LD    A,','
-          CALL  PRTCHR
+          CALL  DESCREG8
+          CALL  PRTCOM
 _inflgs:  LD    HL,IND_C
 _prt2:    CALL  PRTBUF
           JR    _ret2
@@ -398,13 +380,11 @@ _edz1:    DEC   A
           CALL  PRTBUF_T
           LD    HL,IND_C
           CALL  PRTBUF
-          LD    A,','
-          CALL  PRTCHR
+          CALL  PRTCOM
           LD    A,B
           CP    6
           JR    Z,_outz
-          LD    HL,_reg8a
-          CALL  PRT_LU
+          CALL  DESCREG8
           JR    _ret2
 _outz:    LD    A,'0'
           CALL  PRTCHR
@@ -437,8 +417,7 @@ _edz3:    DEC   A
           CALL  INDIR_16
           PUSH  HL
           LD    B,A
-          LD    A,','
-          CALL  PRTCHR
+          CALL  PRTCOM
           LD    A,B
           LD    HL,_reg16_b
           CALL  PRT_LU
@@ -447,8 +426,7 @@ _ret4:    LD    A,4               ; 4 byte instruction
 
 _ld_16in: LD    HL,_reg16_b
           CALL  PRT_LU
-          LD    A,','
-          CALL  PRTCHR
+          CALL  PRTCOM
           POP   HL
           CALL  INDIR_16
           PUSH  HL
@@ -465,12 +443,13 @@ _edz5:    DEC   A
           JR    NZ,_edz6
           LD    A,B
           DEC   A
-          JR    Z,_reti
+          LD    HL,OP_RETI
+          JR    Z,_prtret
           LD    HL,OP_RETN
 _prtret:  CALL  PRTBUF
+          LD    A,CT_RET
+          LD    (CTRLFLOW),A
           JR    _ret2
-_reti:    LD    HL,OP_RETI
-          JR    _prtret
 
 _edz6:    DEC   A
           JR    NZ,_edz7
@@ -487,8 +466,24 @@ _luz7:    CALL  PRT_LU
           JR    _ret2
 
 
-_edx2:
+_edx2:    BIT   2,B
+          JR    Z,_inved
+          LD    A,B
 
+          ; It's a block operation
+          LD    A,C                ; Bottom 2 bits of the opcode
+          AND   3
+          ADD   B                  ; And 4x bits 3-5
+          ADD   B
+          ADD   B
+          ADD   B
+          LD    HL,_map_blk
+          CALL  PRT_LU
+          JR    _ret2
+
+_inved:   LD    HL,OP_NOP
+          CALL  PRTBUF
+          JR    _ret2
 
 _no_pref: LD    HL,_desc_1
           CALL  SRCH_TAB
@@ -496,10 +491,12 @@ _no_pref: LD    HL,_desc_1
 _ret1:    LD    A,1                 ; Length of the instruction - 1
 _ret1a:   POP   DE                  ; Don't need the save HL here - waste it
 _ret1b:   LD    D,A
+          LD    A,(CTRLFLOW)
+          LD    C,A
+          ; CALL  WRITE_8
           LD    A,(PREFLEN)
           ADD   D                   ; Add any accumulated prefix bytes
           POP   DE
-          POP   BC
           LD    HL,DISBUF
           RET
 
@@ -515,7 +512,7 @@ _notfnd:  AND   $C0
           LD    A,C
           BIT   5,A
           JR    NZ,_jrcond
-          ; It's either JR or DJNZ. NP and EX AF.AF already dealt with as an exception
+          ; It's either JR or DJNZ. NOP and EX AF.AF already dealt with as an exception
           BIT   3,A
           JR    Z,_dnjz
           LD    HL,OP_JR
@@ -530,13 +527,14 @@ _jrcond:  LD    HL,OP_JR
           AND   3
           LD    HL,_mapFlag
           CALL  PRT_LU
-          LD    A,','
-          CALL  PRTCHR
+          CALL  PRTCOM
 _offs_r:  POP   HL         ; Instruction pointer
           INC   HL
           PUSH  HL
           LD    A,(HL)
           CALL  PRTHEX
+          LD    A,CT_REL
+          LD    (CTRLFLOW),A
           LD    A,2        ; All these instructions are 2 bytes
           JR    _ret1a
 
@@ -552,8 +550,7 @@ _x0z1:    DEC   A
           ; The 16 bit register should still be in A
           LD    HL,_reg16_a
           CALL  PRT_LU
-          LD    A,','
-          CALL  PRTCHR
+          CALL  PRTCOM
           ; Now the 16 bit value - next 2 bytes of the instruction
           POP   HL
           INC   HL
@@ -599,15 +596,13 @@ _ind1     ; Ld A/HL from 16 bit address. 3 byte instructions - next 2 bytes are 
           ; Work out the register now
           LD    HL,_regAcc
           CALL  TAB_LU           ; Result in HL
-          LD    A,','
-          CALL  PRTCHR
+          CALL  PRTCOM
           CALL  PRTBUF           ; The register name we cached
           LD    A,3
           JR    _ret1b
 _frmmem1: LD    HL,_regAcc       ; Determines the register
           CALL  PRT_LU
-          LD    A,','
-          CALL  PRTCHR
+          CALL  PRTCOM
           POP   HL
           CALL  INDIR_16
           PUSH  HL
@@ -641,8 +636,7 @@ _opreg8:  CALL  PRTBUF
 
           ; This is an 8 bit register - describe it
           LD    A,B                 ; Bits 3-5 (Y)
-          LD    HL,_reg8a
-          CALL  PRT_LU
+          CALL  DESCREG8
           JR    _ret1
 
 _x0z6:    DEC   A                   ; 8bit load immediate
@@ -652,10 +646,8 @@ _x0z6:    DEC   A                   ; 8bit load immediate
           LD    A,TAB
           CALL  PRTCHR
           LD    A,B                 ; Bits 3-5 (Y)
-          LD    HL,_reg8a
-          CALL  PRT_LU
-          LD    A,','
-          CALL  PRTCHR
+          CALL  DESCREG8
+          CALL  PRTCOM
           POP   DE
           INC   DE
           PUSH  DE
@@ -681,8 +673,7 @@ _next_1:  CP    $40                 ; Top two bits = '01'? If so then it's a loa
           CALL  PRTCHR
           LD    A,B                 ; Dest register bits xx000xxx
           CALL  DESCREG8            ; Output the destination register
-          LD    A,','
-          CALL  PRTCHR
+          CALL  PRTCOM
           LD    A,C
           CALL  DESCREG8
           LD    HL,DISBUF
@@ -694,16 +685,18 @@ _next_2:  CP    80h                 ; ALU operation. Use 'y' to lookup the opera
           LD    HL,_mapArith
           CALL  PRT_LU
           LD    A,C
-          LD    HL,_reg8a
-          CALL  PRT_LU
+          CALL  DESCREG8
           JR    _ret1
 
 _next_3:  LD    A,C                 ; Random collection of operations
-          AND   7h                  ; Decode further based on bottom 3 bits
+          AND   7                   ; Decode further based on bottom 3 bits
           JR    nz,_stk
           ; Z=0 => Single byte conditional return
           LD    HL,OP_RET
           CALL  PRTBUF_T
+          ; Set the ret control flow
+          LD    A,CT_RET
+          LD    (CTRLFLOW),A
           ; Work out the condition
           LD    A,B                 ; Dest register bits xx000xxx
           LD    HL,_mapFlag
@@ -711,7 +704,22 @@ _next_3:  LD    A,C                 ; Random collection of operations
           JR    _ret1
 
 _stk:     LD    A,C
-          AND   11001011b
+          ; Deal with ctrl flow changes first (C9: Ret, E9: JP HL)
+          CP    $C9
+          JR    NZ,_testjp
+          LD    A,CT_RET
+          LD    HL,OP_RET
+_opct:    LD    (CTRLFLOW),A
+          CALL  PRTBUF
+          JR    _ret1
+
+_testjp:  CP    $E9
+          LD    HL,OP_JPHL
+          LD    A,CT_IND
+          JR    Z,_opct
+          LD    A,C
+
+_itsstk:  AND   11001011b
           CP    11000001b
           JR    NZ,_x3z2
           ; It's EITHER a PUSH or a POP depending on bit 2
@@ -725,12 +733,14 @@ _pop:     CALL  PRTBUF_T
           LD    HL,_reg16_b
           CALL  PRT_LU
           JR    _ret1
-          ; It's a POP instruction with the remainder of the
 _x3z2:    LD    A,C
           AND   7
           CP    2
           JR    NZ,_x3z3
           ; It's a conditional JUMP. Exactly the same processing as CALL with a different opcode
+          LD    A,CT_ABS            ; Store control flow
+          LD    (CTRLFLOW),A
+
           LD    HL,OP_JP
           JR    _cond_jp
 
@@ -746,6 +756,8 @@ _x3z3:    CP    3
           ; And the address we're jumping to
           POP   HL
           CALL  ABS_16
+          LD    A,CT_ABS            ; Store control flow
+          LD    (CTRLFLOW),A
           LD    A,3
           JR    _ret1b
 _x3z3y1:  DEC    A                 ; CB prefix - ignore here
@@ -774,12 +786,14 @@ _x3z4:    LD    A,C
           JR    NZ,_x3z5
           ; It's a conditional call
           LD    HL,OP_CALL
+          LD    A,CT_CALL
+          LD    (CTRLFLOW),A
+
 _cond_jp: CALL  PRTBUF_T
           LD    A,B                 ; Dest register bits xx000xxx
           LD    HL,_mapFlag
           CALL  PRT_LU
-          LD    A,','
-          CALL  PRTCHR
+          CALL  PRTCOM
           ; Next the target absolute address
           POP   HL
           CALL  ABS_16
@@ -788,11 +802,13 @@ _cond_jp: CALL  PRTBUF_T
           JR    _ret1a
 _x3z5:    CP    5
           JR    NZ,_x3z6
-          ; Only opcode NOT decoded for this pattern is an unconditional
+          ; Only opcode NOT decoded for this pattern is an unconditional CALL
           LD    HL,OP_CALL
           CALL  PRTBUF_T
           POP   HL
           CALL  ABS_16
+          LD    A,CT_CALL           ; Save control flow change information for a CALL
+          LD    (CTRLFLOW),A
           LD    A,3                 ; Instruction length
           JR    _ret1b
 
@@ -816,55 +832,13 @@ _x3z7:    LD    HL,OP_RST            ; RST xx
           CALL  PRTHEX
           LD    A,'h'
           CALL  PRTCHR
+          LD    A,CT_RST            ; Save control flow change information for a CALL
+          LD    (CTRLFLOW),A
           JR    _ret1
 
 
           LD    HL,_FAIL
           JR    _ret1a
-; ----------- DESCREG8
-; A: Bits 0-2 contains an 8 bit register reference
-; Returns HL pointing to next byte in output buffer
-DESCREG8: PUSH  HL
-          LD    HL,_reg8a
-          CALL  PRT_LU
-          POP   HL
-          RET
-
-; ----------- DESCREGX
-; A: Bits 0-2 contains an 8 bit register reference in the
-; index register set. In this table if the result is H
-; then make this IXH, L -> IXL but where IX is the actual
-; index stored in EXT_REG. If the first character is
-; '(' then this becomes (IX+*). In this call HL must
-; point to the current PC to get the offset.
-; HL: Current PC
-DESCREGX: PUSH  AF
-          PUSH  HL
-          LD    HL,_reg8a
-          CALL  TAB_LU
-          ; HL points to the string so get the character and look
-          ; for exceptions.
-          LD    A,(HL)
-          CP    A,'H'+80h
-          JR    Z,_descih
-          CP    A,'L'+80h
-          JR    Z,_descih
-          CP    A,'('
-          JR    Z,_idrct
-          CALL  PRTBUF
-          POP   HL
-          POP   AF
-          RET
-_idrct:   POP   HL     ; Need the PC to work out the offset
-          CALL  IDX_INDIR
-          POP   AF
-          RET
-_descih:  LD    HL,(EXT_REG)
-          CALL  PRTBUF
-          CALL  PRTCHR
-          POP   HL
-          POP   AF
-          RET
 
 ; ----------- ABS_8
 ; Next byte from HL are an 8 bit number.
@@ -960,6 +934,51 @@ SPLIT_OP: LD    A,(HL)
           LD    A,C
           RET
 
+; ----------- DESCREGX
+; A: Bits 0-2 contains an 8 bit register reference in the
+; index register set. In this table if the result is H
+; then make this IXH, L -> IXL but where IX is the actual
+; index stored in EXT_REG. If the first character is
+; '(' then this becomes (IX+*). In this call HL must
+; point to the current PC to get the offset.
+; HL: Current PC
+DESCREGX: PUSH  AF
+          PUSH  HL
+          LD    HL,_reg8a
+          CALL  TAB_LU
+          ; HL points to the string so get the character and look
+          ; for exceptions.
+          LD    A,(HL)
+          CP    A,'H'+80h
+          JR    Z,_descih
+          CP    A,'L'+80h
+          JR    Z,_descih
+          CP    A,'('
+          JR    Z,_idrct
+          CALL  PRTBUF
+          POP   HL
+          POP   AF
+          RET
+_idrct:   POP   HL     ; Need the PC to work out the offset
+          CALL  IDX_INDIR
+          POP   AF
+          RET
+_descih:  LD    HL,(EXT_REG)
+          CALL  PRTBUF
+          CALL  PRTCHR
+          POP   HL
+          POP   AF
+          RET
+
+; ----------- DESCREG8
+; A: Bits 0-2 contains an 8 bit register reference
+; Returns HL pointing to next byte in output buffer
+DESCREG8: LD    HL,_reg8a
+
+; ------- PRT_LU
+; Do a TAB_LU then write the result to the output buffer
+PRT_LU:   CALL  TAB_LU ; Result in HL
+
 ; -------- PRTBUF
 ; Print to the output buffer. Data pointed to by HL
 ; HL string to 'print' - it's an ASCII string with MSB set (HL NOT PRESERVED).
@@ -992,6 +1011,14 @@ PRTCHR:   PUSH HL
           POP  HL
           RET
 
+PRTCOM:   LD    A,','
+          JR    PRTCHR
+
+; ---------- PRTBUF_X
+; Print to buf from (HL) then append the character in A. No registers saved
+PRTBUF_X: CALL PRTBUF
+          JR   PRTCHR
+
 PRTHEX:   PUSH  HL
           CALL  HEX_FROM_A        ; A contains the 8 bit value to print to the buffer
           LD    A,H               ; Result in HL
@@ -999,12 +1026,6 @@ PRTHEX:   PUSH  HL
           LD    A,L
           CALL  PRTCHR
           POP   HL
-          RET
-
-; ---------- PRTBUF_X
-; Print to buf from (HL) then append the character in A. No registers saved
-PRTBUF_X: CALL PRTBUF
-          CALL PRTCHR
           RET
 
 PRTBUF_T: PUSH AF
@@ -1019,7 +1040,7 @@ PRTBUF_C: PUSH AF
           POP  AF
           RET
 
-SKIPEND: LD    A,(HL)
+SKIPEND:  LD    A,(HL)
           BIT   7,A
           INC   HL
           JR    Z,SKIPEND
@@ -1040,11 +1061,6 @@ _nextlu:  CALL  SKIPEND
           POP   BC
           RET
 
-; ------- PRT_LU
-; Do a TAB_LU then write the result to the output buffer
-PRT_LU:   CALL  TAB_LU ; Result in HL
-          CALL  PRTBUF
-          RET
 ; ------- PRT_LU_T
 ;As TAB_LU but append a TAB character to the output
 PRT_LU_T: CALL  TAB_LU ; Result in HL
@@ -1090,13 +1106,14 @@ OP_NEG:         DC    'NEG'
 OP_RETI:        DC    'RETI'
 OP_RETN:        DC    'RETN'
 OP_IM:          DC    'IM'
+OP_JPHL:        DB    'JP',TAB,'H',('L'+80h)
 
 
 OP_A:           DC    ',A'
 IND_C:          DC    '(C)'
 HL_1ST:         DC    'HL,'
-REG_IX          DC    'IX'
-REG_IY          DC    'IY'
+REG_IX:         DC    'IX'
+REG_IY:         DC    'IY'
 ; C Strings
 _FAIL:          DC    "--XX--"
 
@@ -1162,15 +1179,15 @@ _mapArith:      DB        7      ; Mask to lower 3 bits
                 DB       'CP',(TAB+80h)
 
 ; Bit shifting instructions
-_mapShift:     DB        7
-               DC        'RLC'
-               DC        'RRC'
-               DC        'RL'
-               DC        'RR'
-               DC        'SLA'
-               DC        'SRA'
-               DC        'SLL'
-               DC        'SRL'
+_mapShift:      DB        7
+                DC        'RLC'
+                DC        'RRC'
+                DC        'RL'
+                DC        'RR'
+                DC        'SLA'
+                DC        'SRA'
+                DC        'SLL'
+                DC        'SRL'
 
 ; Map for 00xxx111 opcode
 _map00xxx111:  DB        7
@@ -1199,21 +1216,40 @@ _map_ed_z7:    DB        7
                DC        'NOP'
                DC        'NOP'
 
+_map_blk:      DB         15
+               DC         'LDI'
+               DC         'CDI'
+               DC         'INI'
+               DC         'OUTI'
+               DC         'LDD'
+               DC         'CPD'
+               DC         'IND'
+               DC         'OUTD'
+               DC         'LDIR'
+               DC         'CDIR'
+               DC         'INIR'
+               DC         'OTIR'
+               DC         'LDDR'
+               DC         'CPDR'
+               DC         'INDR'
+               DC         'OTDR'
+
+_idx_alu:      DB        3
+OP_INC:        DC        'INC'
+OP_DEC:        DC        'DEC'
+OP_LD:         DC        'LD'
+
 ; Simple single byte instructions:
-_desc_1:        DB        $00
-                DC        "NOP"
+_desc_1:        DB        $00    ; 0 has to be the first entry - otherwise it's a terminator
+OP_NOP:         DC        "NOP"
                 DB        $08
                 DB        "EX",TAB,"AF,AF",("'"+80h)
                 DB        $76
                 DC        "HALT"
-                DB        $C9
-                DC        "RET"
                 DB        $D9
                 DC        "EXX"
                 DB        $E3
                 DB        'EX',TAB,'(SP),H',('L'+80h)
-                DB        $E9
-                DB        'JP',TAB,'H',('L'+80h)
                 DB        $EB
                 DB        'EX',TAB,'DE,H',('L'+80h)
                 DB        $F3
@@ -1234,17 +1270,22 @@ _desc_2:        DB        $E1
                 DB       "LD",TAB,"SP",(','+80h)
                 DB        0
 
-_idx_alu:       DB        3
-OP_INC:         DC        'INC'
-OP_DEC:         DC        'DEC'
-OP_LD:          DC        'LD'
-
-
 ; Data defintions for this module
            DSEG
 DISPTR:    DW      0
 DISBUF:    DS     20
 PREFLEN:   DB      0
-PREFCODE:  DB      0
-HL_SUB_IX: DB      0      ; 0: IX, 1: IY
 EXT_REG    DW      0
+
+; When an instruction is decoded we store information about how that
+; instruction controls flow here. The bottom 3 bits of this value are decoded
+; as follows:
+CT_NONE:   .EQU    000b  ; 0 - Normal instruction, no change of control
+CT_REL:    .EQU    001b  ; 1 - Single byte relative jump (eg JR NZ xx)
+CT_ABS:    .EQU    010b  ; 2 - Two byte absolute jump (eg JP C xxxx)
+CT_RET:    .EQU    011b  ; 3 - Return from subroutine
+CT_RST:    .EQU    100b  ; 4 - A RST call
+CT_IND:    .EQU    101b  ; 5 - JP (reg) - HL, IX, IY depending on prefix
+CT_CALL:   .EQU    110b  ; 6 - A 'call' instruction. Absolute address but step over this is the 'next' command is used.
+
+CTRLFLOW:  DB      0

@@ -29,3 +29,6 @@ BRK_HANDLER: .EQU      20h     ; The address at which to origin the break point 
 ; environment. To make the copy a small copy loop is written to unused memory at LOADER.
 MON_COPY:    .EQU    2000h  ; Where the updated monitor executable has been loaded
 LOADER:      .EQU    7800h  ; A safe, unused area of memory where a short copy loop can be writte.
+
+; Include platform specific commands
+PLATFORM     .EQU    0

@@ -57,23 +57,20 @@ main:     LD    HL, _PROMPT
           CALL  PRINT
           LD    A,(LAST_CMD)
 _newcmd:  LD    (LAST_CMD),A
-          ; Is it a letter?
-          CP    'Z'+1
-          JR    NC,err    ; Greater than a 'Z'
-          SUB   'A'
-          JR    C,err     ; Less than an 'A'
-          ADD   A,A
           ; Load from jump table
+          LD    C,A
           LD    HL,CMD_TABLE
-          LD    E,A
-          LD    D,0
-          ADD   HL,DE
+_nxtcmd:  LD    A,(HL)
+          INC   HL
           LD    E,(HL)
-          LD    A,E
           INC   HL
           LD    D,(HL)
-          OR    D
-          JR    Z,err     ; null entry in jump table
+          INC   HL
+          OR    A
+          JR    Z,err      ; End of table
+          CP    C
+          JR    NZ,_nxtcmd
+          ; Found the command, address in DE
           EX    DE,HL
           JP    (HL)
 err:      LD    HL, _ERROR
@@ -84,6 +81,8 @@ err:      LD    HL, _ERROR
 COPY:     JR    main
 ; ------------------- upgrade
 ; New image at 1000. Copy to zero as a single operation
+if PLATFORM
+
 UPGRADE:  LD    HL,DO_COPY
           LD    DE,LOADER
           LD    BC,COPYEND-DO_COPY+1
@@ -96,13 +95,14 @@ DO_COPY:  LD    HL,MON_COPY
           LDIR
           RST   00H  ; Probably won't get here!
 COPYEND:
+
+endif
 ; ------------------- SET_RGS
 ; CMD: Set register value. R reg=val
 ; reg is A,B,C,D,E,H,L,BC,DE,HL,IX,IY
 ; val is an 8 or 16 bit hex value
-SET_RGS:  ; Get the name of the register, one or two characters
-          CALL  SKIPSPC
-          JR    Z,_rend    ; nothing to use
+SET_RGS:  CALL  SKIPSPC    ; Get the name of the register, one or two characters
+          JR    Z,SHOW_RGS ; nothing to use
           LD    D,A        ; First character (required)
           LD    E,0
           CALL  BUFCHR     ; either a space or '=' otherwise use it
@@ -111,8 +111,7 @@ SET_RGS:  ; Get the name of the register, one or two characters
           CP    ' '
           JR    Z,_8bit
           LD    E,A
-_8bit:    ; Waste characters until '=' or end of line
-          CALL  SKIPSPC
+_8bit:    CALL  SKIPSPC    ; Waste characters until '=' or end of line
           JR    Z,_rerr    ; End of line
           CP    '='
           JR    NZ,_8bit
@@ -135,7 +134,7 @@ _set8:    LD    (HL),E
           JR    _rend
 _rerr:    LD    HL,_BAD_REG
           CALL  PRINT
-          JP    main
+          JR    main
 _reg_addr:;DE contains the name of the register
           PUSH  HL
           LD    A,E
@@ -272,6 +271,7 @@ _nextstk: LD    HL,STK_NXT
 
           JP    main
 
+if PLATFORM
 ; ------------------- bank
 BANK:     CALL  INHEX_2          ; OFFSET to apply to hex records. Z flag set if 'break' pressed.
           JP    Z,main
@@ -284,6 +284,7 @@ BANK:     CALL  INHEX_2          ; OFFSET to apply to hex records. Z flag set if
           OUT   (PAGE_REG),A
           WRITE_CRLF
           JP    main
+endif
 ; ------------------- BP: Set breakpoint
 ; Get address from command line. If not specfied then BP at the current PC value
 BP:       CALL  GET_HEX          ; Address for breakpoint
@@ -370,17 +371,13 @@ f_err:    LD    HL,_fill_err
 ; INPUT:  HL - the address of the instruction
 ; OUTPUT: HL - First byte of _next_ instruction
 ; Registers not saved: A
-DECINST:  PUSH  BC         ; INST_LEN returns instruction information we don't need in BC
+DECINST:  PUSH  BC         ; DISASS returns instruction information we don't need in BC
           PUSH  DE
-          ; CALL  INST_LEN
-          ; LD    B,A      ; A includes the number of bytes in this op
           CALL  WRITE_16   ; Write out the address
           WRITE_CHR SPC
           PUSH  HL
           CALL  DISASS     ; HL now points at the description
           LD    B,A
-          ; CALL  WRITE_8
-          ; WRITE_CHR SPC
           LD    D,H        ; Save pointer to disassembled string
           LD    E,L
           POP   HL         ; Back to pointing to the start of the instruction
@@ -434,11 +431,11 @@ cont_dump:LD    A,B
           CP    'M'
           JR    NZ,decode
           CALL  BUFCHR
-          ; Display 5 blocks of 16 characters
+          ; Display 8 blocks of 16 characters
           LD    C,8
 
           ; Dump address (start of line)
-dloop2    WRITE_CRLF
+dloop2:   WRITE_CRLF
           CALL  WRITE_16          ; 4 hex digits from HL
           WRITE_CHR SPC
           LD    DE, DUMP_CHRS+2
@@ -475,6 +472,7 @@ writeout: INC   DE
 ; ------------------- FLASH_OP
 ; ZI - Flash information (also default)
 ; ZP AAAA LEN
+if PLATFORM
 FLASH_OP: CALL  SKIPSPC
           JR    Z,flsh_id
           CP    'I'
@@ -610,6 +608,8 @@ _flsh_cmd:  PUSH  HL
            LD   (HL),A
            POP   HL
            RET
+
+endif
 
 ; ----- Load a hex file (from the console input)
 invalid:  LD    HL, _NOSTART
@@ -878,10 +878,20 @@ GO:       XOR   A
           JP    JP_RUN
 
 SSTEP_BP: LD    HL, (R_PC)
-          CALL  INST_LEN
+          CALL  DISASS
+          LD    HL, (R_PC)
           ; A: Instruction length
           ; C: Extended status
           ; HL: Unchanged - start of THIS instruction
+          PUSH  AF
+          CALL  WRITE_8
+          LD    A,'-'
+          RST   08h
+          LD    A,C
+          CALL  WRITE_8
+          LD    A,':'
+          RST   08h
+          POP   AF
           ADD   A,L
           JR    NC,_nc1
           INC   H
@@ -1004,50 +1014,6 @@ _bp_nf:   EX    DE,HL         ; Put the current address into HL so we can displa
           CALL  DECINST       ; Display the next instruction
           JP    SHOW_RGS
 
-; --------- INST_LEN
-; Given a pointer to an opcode return the number of bytes in the referenced instruction. All
-; registers saved EXCEPT A which holds the return count and C which includes the instruction code
-; from the first byte.
-INST_LEN: PUSH  DE
-          PUSH  HL
-          LD    D,0
-          LD    E,(HL)  ; OPCODE THING
-          LD    B,0
-          LD    HL,_opcodes
-          ADD   HL,DE
-          ADD   HL,DE
-          LD    A,(HL)   ; Descriptive byte
-          AND   03h      ; If the lower 2 bits are zero then this is a prefix that needs more decoding.
-          JR    NZ,_noext
-
-          ; Processing a prefix so need the next opcode byte
-          LD    A,(HL)   ; Upper bit 0: Use bits 2-3, 1: use bits 4-5
-          BIT   7,A      ; Carry bit dictates how we decode count bits
-          POP   HL
-          PUSH  HL
-          INC   HL
-          LD    E,(HL)   ; Second byte of opcode - look this up
-          LD    HL,_opcodes
-          ADD   HL,DE
-          ADD   HL,DE
-          LD    A,(HL)   ; Descriptive byte for next byte
-          JR    NZ,_is_dd
-          AND   0Ch
-          SRL   A
-          SRL   A
-          JR    _got2nd
-_is_dd:   AND   30h
-          SRL   A
-          SRL   A
-          SRL   A
-          SRL   A
-_got2nd:  INC   A
-_noext:   INC   HL
-          LD    C,(HL)   ; Return the extended descriptor in C
-          POP   HL
-          POP   DE
-          RET
-
 ; REST_RGS - HL will contain the PC
 REST_RGS: LD   HL,(R_AF)
           PUSH HL
@@ -1064,28 +1030,28 @@ REST_RGS: LD   HL,(R_AF)
 ; --------------------- STRINGS
 _INTRO:   DEFB ESC,"[2J",ESC,"[1m",ESC,"[1;6HSTACK",ESC,"[m",ESC,"[11;50r",ESC,"[9;1H>",ESC,"[12,1HZ80 CLM 1.3",CR,LF,"Ready...",CR,LF,NULL
 _PROMPT:  DEFB "> ",0
-_ERROR:   DEFB "Unknown command",CR,LF,0
-_NOSTART: DEFB CR,LF,"No record start character ':'",CR,LF,NULL
-_BANKMSG: DEFB CR,LF,"Switching bank register to: ",NULL
-_REC_ERR: DEFB CR,LF,"Bad record",CR,LF,0
-_COMPLETE:DEFB CR,LF,"Download complete",CR,LF,0
-_BAD_REG: DEFB "Bad register",CR,LF,0
+_ERROR:   DEFB "unknown",CR,LF,0
+_NOSTART: DEFB CR,LF,"Missing ':'",CR,LF,NULL
+_BANKMSG: DEFB CR,LF,"Select bank: ",NULL
+_REC_ERR: DEFB CR,LF,"Bad rec",CR,LF,0
+_COMPLETE:DEFB CR,LF,"Complete",CR,LF,0
+_BAD_REG: DEFB "Bad reg",CR,LF,0
 _FLSH_PRG:DEFB "Flash prog",CR,LF,0
 _WAITING: DEFB "Waiting...",0
 
 
 ; Register labels
-R_PC_DESC DEFB ESC,"[11;50r",ESC,"[2;40H  PC: ",NULL
-R_SP_DESC DEFB ESC,"[3;40H  SP: ",NULL
-R_A_DESC  DEFB ESC,"[4;40H  A:  ",NULL
-R_BC_DESC DEFB ESC,"[2;60H  BC: ",NULL
-R_DE_DESC DEFB ESC,"[3;60H  DE: ",NULL
-R_HL_DESC DEFB ESC,"[4;60H  HL: ",NULL
-R_F_DESC  DEFB ESC,"[5;60H  F:  ",NULL
-R_IX_DESC DEFB ESC,"[5;40H  IX: ",NULL
-R_IY_DESC DEFB ESC,"[6;40H  IY: ",NULL
-R_WIN_TOP DEFB ESC,"[0;12r",NULL
-R_WIN_BOT DEFB ESC,"[13;50r",NULL
+R_PC_DESC: DEFB ESC,"[11;50r",ESC,"[2;40H  PC: ",NULL
+R_SP_DESC: DEFB ESC,"[3;40H  SP: ",NULL
+R_A_DESC:  DEFB ESC,"[4;40H  A:  ",NULL
+R_BC_DESC: DEFB ESC,"[2;60H  BC: ",NULL
+R_DE_DESC: DEFB ESC,"[3;60H  DE: ",NULL
+R_HL_DESC: DEFB ESC,"[4;60H  HL: ",NULL
+R_F_DESC:  DEFB ESC,"[5;60H  F:  ",NULL
+R_IX_DESC: DEFB ESC,"[5;40H  IX: ",NULL
+R_IY_DESC: DEFB ESC,"[6;40H  IY: ",NULL
+R_WIN_TOP: DEFB ESC,"[0;12r",NULL
+R_WIN_BOT: DEFB ESC,"[13;50r",NULL
 
 
 ; VT100 sequences
@@ -1098,79 +1064,45 @@ COLSTR:   DEFB CR,ESC,'[25C',NULL
 
 FLAGS_DESC:  DEFB "SZ5H3VNC",NULL
 
-_fill_err:   DEFB "Bad parameters",CR,LF,NULL
+_fill_err:   DEFB "Bad param",CR,LF,NULL
 _fill_msg:   DEFB "Fill: ADDR: ",NULL
 _fill_sz:    DEFB " LEN:",NULL
 _fill_wt:    DEFB " WITH:",NULL
 _prg_msg:    DEFB "FROM ADDRESS: ",NULL
 _prg_msgto:  DEFB ", TO: ",NULL
 _prg_msglen: DEFB ", LEN: ",NULL
-_nobpavail:  DEFB "No BP available",CR,LF,NULL
+_nobpavail:  DEFB "Full",CR,LF,NULL
 
-; _opcodes
-;   - lower 8 bits - instruction length
-;   -  XX XX XX XX
-;      |   |  |  +---> Length of no prefix
-;      |   |  +------> Length for ED prefix
-;      |   +---------> Length for DD,FD prefix
-;      +-------------> If a prefix then clr for ED, set for DD
-; CB prefix instructions are all 2 bytes so don't need any more deconding
-;
-; The MSB contains enhanced information. Current bits are
-;   -  XX XXX AAA
-;   AAA - decribes change of for for this instruction:
-;   000 - Normal instruction, no change of control
-;   001 - Single byte relative jump (eg JR NZ xx)
-;   010 - Two byte absolute jump (eg JP C xxxx)
-;   011 - Return from subroutine
-;   100 - A RST call
-;   101 - JR (reg) - HL, IX, IY depending on prefix
-;   110 - A 'call' instruction. Absolute address but step over this is the 'next' command is used.
-_opcodes        DEFW      0001h, 0003h, 0001h, 0001h, 0001h, 0001h, 0002h, 0001h,   0001h, 0011h, 0001h, 0001h, 0001h, 0001h, 0002h, 0001h ; 0
-                DEFW      0102h, 0033h, 0031h, 0011h, 0011h, 0011h, 0022h, 0001h,   0102h, 0011h, 0031h, 0011h, 0011h, 0011h, 0022h, 0001h ; 1
-                DEFW      0102h, 003Fh, 000Fh, 0005h, 0021h, 0021h, 0032h, 0001h,   0102h, 0011h, 0033h, 0011h, 0011h, 0011h, 0022h, 0001h ; 2
-                DEFW      0102h, 0003h, 0003h, 0001h, 0021h, 0021h, 0032h, 0001h,   0102h, 0011h, 0003h, 0001h, 0001h, 0001h, 0002h, 0001h ; 3
-                DEFW      0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h,   0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h ; 4
-                DEFW      0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h,   0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h ; 5
-                DEFW      0015h, 0015h, 0015h, 001Dh, 0015h, 0015h, 0025h, 0015h,   0015h, 0015h, 0015h, 001Dh, 0015h, 0015h, 0025h, 0015h ; 6
-                DEFW      0025h, 0025h, 0025h, 002Dh, 0025h, 0025h, 0005h, 0025h,   0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h ; 7
-
-                DEFW      0001h, 0001h, 0001h, 0001h, 0011h, 0011h, 0021h, 0001h,   0001h, 0001h, 0001h, 0001h, 0011h, 0011h, 0021h, 0001h ; 8
-                DEFW      0001h, 0001h, 0001h, 0001h, 0011h, 0011h, 0021h, 0001h,   0001h, 0001h, 0001h, 0001h, 0011h, 0011h, 0021h, 0001h ; 9
-                DEFW      0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h,   0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h ; A
-                DEFW      0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h,   0005h, 0005h, 0005h, 000Dh, 0015h, 0015h, 0025h, 0005h ; B
-                DEFW      0301h, 0201h, 0203h, 0203h, 0603h, 0001h, 0002h, 0401h,   0301h, 0301h, 0203h, 0032h, 0603h, 0603h, 0002h, 0401h ; C - note CB: All 2 bytes so no prefix decode
-                DEFW      0301h, 0001h, 0203h, 0002h, 0603h, 0001h, 0002h, 0401h,   0301h, 0001h, 0203h, 0002h, 0603h, 0080h, 0002h, 0401h ; D
-                DEFW      0301h, 0011h, 0203h, 0011h, 0603h, 0011h, 0002h, 0401h,   0301h, 0511h, 0203h, 0001h, 0603h, 0000h, 0002h, 0401h ; E
-                DEFW      0301h, 0001h, 0203h, 0201h, 0603h, 0001h, 0002h, 0401h,   0301h, 0011h, 0203h, 0001h, 0603h, 0080h, 0002h, 0401h ; F
-
-; Cmd jump table. 26 entries one for each letter. Every command starts with a letter. Each entry is the address of the handler.
-CMD_TABLE:      DEFW      0         ; A
-                DEFW      BP        ; B
-                DEFW      COPY      ; C
-                DEFW      DUMP      ; D
-                DEFW      0         ; E
-                DEFW      FILL      ; F
-                DEFW      GO        ; G
-                DEFW      0         ; H
-                DEFW      0         ; I
-                DEFW      0         ; J
-                DEFW      0         ; K
-                DEFW      LOAD      ; L hhhh    : hex offset to add to all addresses
-                DEFW      MODIFY    ; M hhhh    : start writing bytes at specified address
-                DEFW      NSTEP     ; N         ; single step but over subroutine calls
-                DEFW      0         ; O
-                DEFW      0         ; P
-                DEFW      0         ; Q
-                DEFW      SET_RGS   ; R         : show register values. R NAME=VALUE - set specific register values
-                DEFW      SSTEP     ; S         : step one instruction
-                DEFW      SSTEP_T   ; T
-                DEFW      UPGRADE   ; U         : upgrade monitor image from memory @2
-                DEFW      0         ; V
-                DEFW      0         ; W
-                DEFW      0         ; X
-                DEFW      BANK      ; Y
-                DEFW      FLASH_OP  ; Z
+; Alternate command table format: LETTER:ADDRESS
+CMD_TABLE:      DB       'B'
+                DW        BP
+                DB       'C'
+                DW        COPY
+                DB       'D'
+                DW        DUMP
+                DB       'F'
+                DW        FILL
+                DB       'G'
+                DW        GO
+                DB       'L'
+                DW        LOAD
+                DB       'M'
+                DW        MODIFY
+                DB       'N'
+                DW        NSTEP
+                DB       'R'
+                DW        SET_RGS
+                DB       'S'
+                DW        SSTEP
+if PLATFORM
+                DB       'U'
+                DW        UPGRADE
+                DB       'B'
+                DW        BANK
+                DB       'Z'
+                DW        FLASH_OP
+endif
+                DB        0
 
 R_ADDR_8:  DEFB    'A'
            DEFW    R_AF+1

@@ -1,4 +1,3 @@
-import config.asm
 import ../zlib/defs.asm
 
 

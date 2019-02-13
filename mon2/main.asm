@@ -268,20 +268,30 @@ _nextstk: LD    HL,STK_NXT
 
           JR    main
 
-if PLATFORM
-; ------------------- bank
-BANK:     CALL  INHEX_2          ; OFFSET to apply to hex records. Z flag set if 'break' pressed.
-          JR    Z,main
-          CALL  WRITE_8
+; ------------------- Port output
+OUTPUT:   CALL  WASTESPC
+          CALL  INHEX_2
+          JR    C,main
+          LD    C,A
+          PUSH  BC
+          CALL  WASTESPC
+          CALL  INHEX_2
+          JR    C,main
           PUSH  AF
-          LD    HL,_BANKMSG
+          LD    HL,_OUTMSG
           CALL  PRINT
-          POP   AF
+          LD    A,C
           CALL  WRITE_8
-          OUT   (PAGE_REG),A
+          WRITE_CHR '='
+          POP   AF
+          PUSH  AF
+          CALL  WRITE_8
+          POP   AF
+          POP   BC
+          OUT   (C),A
           WRITE_CRLF
           JR    main
-endif
+
 ; ------------------- BP: Set breakpoint
 ; Get address from command line. If not specfied then BP at the current PC value
 BP:       CALL  GET_HEX          ; Address for breakpoint
@@ -462,148 +472,6 @@ writeout: INC   DE
           JR    NZ,dloop2
           LD    (DUMP_ADDR), HL
           JR    main
-
-; ------------------- FLASH_OP
-; ZI - Flash information (also default)
-; ZP AAAA LEN
-if PLATFORM
-FLASH_OP: CALL  SKIPSPC
-          JR    Z,flsh_id
-          CP    'I'
-          JR    Z,flsh_id
-          CP    'P'
-          JR    Z,flsh_prg
-          CP    'Z'
-          JR    Z,flsh_clr
-
-; ------------------- Read Flash Info
-flsh_id:  WRITE_CRLF
-          LD    A,SEL_FLSH
-          OUT   (PAGE_REG),A
-          ; --
-          LD    A,90h
-          CALL  FLSH_CMD
-          ;--
-          LD    HL,8000h
-          LD    A,(HL)
-          CALL  WRITE_8
-          WRITE_CHR '-'
-          LD    HL,8001h
-          LD    A,(HL)
-          CALL  WRITE_8
-          WRITE_CRLF
-          ; -- EXIT
-          LD    A,0F0h
-          CALL  FLSH_CMD
-          JR    main
-
-; ------------------- flsh_clr
-flsh_clr: LD    A,SEL_FLSH
-          OUT   (PAGE_REG),A
-          CALL  _flsh_clr
-          JR    main
-
-; ----------------------------------- flsh_prg
-; Expect a start address in page zero and a length. Writes data to the high page
-flsh_prg: LD    HL,_FLSH_PRG
-          CALL  PRINT_LN
-          LD    A,SEL_FLSH       ; Make sure we have flash page 0 mapped to page 2.
-          OUT   (PAGE_REG),A
-          ; Get parameters
-          CALL  GET_HEX          ; From Address
-          JR    Z, f_err
-          LD    D,H
-          LD    E,L              ; DE: Address FROM address
-          CALL  GET_HEX          ; The TO ADDRESS - top bit set
-          JR    Z,f_err
-          LD    (FL_TO_ADDR),HL  ; TO ADDRESS saved
-          CALL  GET_HEX          ; The Length
-          JR    Z,f_err
-          LD    B,H              ; BC: Count
-          LD    C,L
-          LD    HL,_prg_msg      ; "FROM ADDRESS: "
-          CALL  PRINT
-          LD    H,D
-          LD    L,E
-          CALL  WRITE_16
-          LD    HL,_prg_msgto
-          CALL  PRINT
-          LD    HL,(FL_TO_ADDR)   ; Get the TO address to display
-          CALL  WRITE_16
-          LD    HL,_prg_msglen
-          CALL  PRINT
-          LD    H,B
-          LD    L,C
-          CALL  WRITE_16
-          WRITE_CRLF
-          ; Delete page 0 in flash
-          XOR   A
-          ; CALL  _flsh_clr
-          ; Write data
-          LD    HL,(FL_TO_ADDR)   ; Get the TO address to display
-          SET   7,H
-loopp:    LD    A,(DE)
-          CALL  _flsh_bt
-          INC   HL
-          INC   DE
-          DEC   BC
-          LD    A,B
-          OR    C
-          JR    NZ,loopp
-          JR    main;
-; ----------------------------------- _flsh_clr
-; Erase page 0 (mapped to 8000 - 4K page)
-_flsh_clr: LD   A,80h
-           CALL FLSH_CMD
-           LD   A,30h
-           LD   DE,8000h
-           CALL _flsh_cmd
-           CALL _flsh_poll
-           RET
-; ----------------------------------- _flsh_poll
-; Poll for write operation complete
-_flsh_poll:PUSH  HL
-           LD    HL,8000h
-_flsh_lp1: LD    A,(HL)
-           XOR   (HL)
-           BIT   6,A
-           JR    NZ,_flsh_lp1
-           POP   HL
-           RET
-
-; ----------------------------------- _flsh_bt
-; Write a single byte to flash. HL: Address, A: data
-_flsh_bt: PUSH  AF
-          LD    A,0A0h
-          CALL  FLSH_CMD  ; Flash CMD
-          POP   AF
-          LD    (HL),A
-          CALL  _flsh_poll
-          RET
-
-FLSH_CMD:  PUSH  DE
-           LD    DE,0D555h
-           CALL  _flsh_cmd
-           POP   DE
-           RET
-; ----------------------------------- _flsh_cmd
-; Write a command sequence to FLASH. The flash page must be preselected in page 2. The command
-; byte to be written is in the accumulator. No registers overwritten except A.
-_flsh_cmd:  PUSH  HL
-           ; --
-           LD    HL, 0D555h
-           LD   (HL),0AAh
-           ; --
-           LD    HL, 0AAAAh
-           LD   (HL),55h
-           ; --
-           LD    H, D
-           LD    L, E
-           LD   (HL),A
-           POP   HL
-           RET
-
-endif
 
 ; ----- Load a hex file (from the console input)
 invalid:  LD    HL, _NOSTART
@@ -998,7 +866,7 @@ _INTRO:   DEFB ESC,"[2J",ESC,"[1m",ESC,"[1;6HSTACK",ESC,"[m",ESC,"[11;50r",ESC,"
 _PROMPT:  DEFB "> ",0
 _ERROR:   DEFB "unknown",0
 _NOSTART: DEFB CR,LF,"Missing ':'",NULL
-_BANKMSG: DEFB CR,LF,"Select bank: ",NULL
+_OUTMSG:  DEFB CR,LF,"Out: ",NULL
 _REC_ERR: DEFB CR,LF,"Bad rec",NULL
 _WAITING: DEFB "Waiting...",NULL
 _COMPLETE:DEFB CR,LF,"Complete",0
@@ -1057,18 +925,12 @@ CMD_TABLE:      DB       'B'
                 DW        MODIFY
                 DB       'N'
                 DW        NSTEP
+                DB       'O'
+                DW        OUTPUT
                 DB       'R'
                 DW        SET_RGS
                 DB       'S'
                 DW        SSTEP
-if PLATFORM
-                DB       'U'
-                DW        UPGRADE
-                DB       'B'
-                DW        BANK
-                DB       'Z'
-                DW        FLASH_OP
-endif
                 DB        0
 
 R_ADDR_8:  DEFB    'A'

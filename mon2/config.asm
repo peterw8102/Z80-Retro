@@ -15,10 +15,6 @@ LOAD_ADDR:   .EQU    01D0h     ; Start address for the main code
 ; data to the upper 32K
 STACK:       .EQU     03ff0h
 
-; My 2x32K pages are controlled by an 8bit write-only I/O port. This is the address of
-; the port. The 'B' command writes a value to this port.
-PAGE_REG:    .EQU     060h     ; I/O address for 8 bit memory page select register (B command)
-
 ; Breakpoints in code are handled by replacing the opcode at the break location with a RST instruction. The
 ; default is RST 20h. You can change this if your system is using RST 20 for something else.
 BRK_OPCODE:  .EQU     0E7h     ; The instruction to use to cause a breakpoint. This must be a RST xx single byte op. Default RST 20h

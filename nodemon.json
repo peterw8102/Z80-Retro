@@ -1,7 +1,7 @@
 {
   "verbose": false,
-  "ignore": ["samples/*.obj", "samples/*.o", "samples/*.lis", "samples/*.lst", "samples/*.o","samples/*.err"],
-  "watch": ["samples","lib","tools"],
+  "ignore": ["zlib/zout","zloader/zout","monitor/zout","samples/*.obj", "samples/*.o", "samples/*.lis", "samples/*.lst", "samples/*.o","samples/*.err"],
+  "watch": ["zlib","zloader","mon2","monitor","samples","lib","tools"],
   "ext": "js,asm",
   "delay": 1000
 }

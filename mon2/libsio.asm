@@ -37,21 +37,19 @@ LIVE_PAGE       .EQU     10h
 else
 LIVE_PAGE       .EQU     98h
 endif
-SER_BUFSIZE     .EQU     7FH
+SER_BUFSIZE     .EQU    $F0
 SER_FULLSIZE    .EQU     30H
 SER_EMPTYSIZE   .EQU     5
 
 SIOA_D          .EQU     $81
-SIOA_C          .EQU     $80
-SIOB_D          .EQU     $83
+SIOA_C          .EQU     $83
+SIOB_D          .EQU     $80
 SIOB_C          .EQU     $82
-
-PAGE_REG        .EQU    224
 
 RTS_HIGH        .EQU    0E8H
 RTS_LOW         .EQU    0EAH
 
-TEMPSTACK       .EQU     $7FF0           ; temporary stack somewhere near the
+TEMPSTACK       .EQU     $1000           ; temporary stack somewhere near the
                                          ; end of high mem
 
 
@@ -202,27 +200,7 @@ CKINCHAR:       LD       A,(serBufUsed)
                 RET
 
 ;------------------------------------------------------------------------------
-INIT:          LD         HL,_testaddr
-               LD         A,55h         ; Test pattern
-               LD        (HL), A        ; Store
-               LD         A, (HL)       ; Read back
-               CP         55h
-               JR         Z, CONT       ; Running from RAM so continue!
-               ; Running from ROM so copy first 4K of ROM to page 0 RAM and restart.
-               LD        A, 80h          ; RAM page 1 in 32K[2]
-               OUT       (PAGE_REG), A
-               LD        HL,$0000        ; SRC address
-               LD        DE,$8000        ; DST
-               LD        BC,$1000        ; 4K page
-               LDIR
-               ; Reset page register so RAM in slot 8 and 1 and reset.
-CONT:          LD        (HL), 0AAH
-PVAL:          LD        A, LIVE_PAGE    ; RAM page 0 and RAM page 1
-               OUT       (PAGE_REG), A
-               LD        HL, PVAL+1
-               ; LD        (HL),98h
-
-               ; Running from RAM
+INIT:          ; Running from RAM
                LD        HL,TEMPSTACK    ; Temp stack
                LD        SP,HL           ; Set up a temporary stack
 

@@ -13,11 +13,11 @@ LOAD_ADDR:   .EQU    01D0h     ; Start address for the main code
 ; Where to initialise our stack If the stack is already configured set this to zero. If
 ; my system I have 32K memory pages so I run everything from the first 32 allowing me to page in
 ; data to the upper 32K
-STACK:       .EQU     07ff0h
+STACK:       .EQU     03ff0h
 
 ; My 2x32K pages are controlled by an 8bit write-only I/O port. This is the address of
 ; the port. The 'B' command writes a value to this port.
-PAGE_REG:    .EQU     0E0h     ; I/O address for 8 bit memory page select register (B command)
+PAGE_REG:    .EQU     060h     ; I/O address for 8 bit memory page select register (B command)
 
 ; Breakpoints in code are handled by replacing the opcode at the break location with a RST instruction. The
 ; default is RST 20h. You can change this if your system is using RST 20 for something else.

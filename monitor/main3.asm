@@ -13,6 +13,7 @@ BP_RST     JP      DO_BP
 
 ; Number of breakpoint locations (in code)
 NUM_BK    .EQU    64
+BP_SIZE   .EQU     4
 
           .ORG    LOAD_ADDR
 
@@ -23,11 +24,15 @@ if STACK != 0
 endif
           LD    HL, _INTRO
           CALL  PRINT
+          LD    A,$C3
+          LD    (JP_RUN),A
+          LD    HL,INBUF
+          LD    (INPTR),HL
 
           ; Clear all breakpoints
           LD    HL,BPOINTS
           LD    DE,BPOINTS+1
-          LD    BC,NUM_BK*5
+          LD    BC,NUM_BK*BP_SIZE
           XOR   A
           LD    (HL),A
 clrn:     LDIR
@@ -37,10 +42,7 @@ main:     LD    HL, _PROMPT
           CALL  PRINT
           CALL  GET_LINE
 
-          WRITE_CHR CR
-          WRITE_CHR LF
-          ; CALL  PRINT
-
+          WRITE_CRLF
           CALL  SKIPSPC
           OR    A
           JR    NZ, _newcmd
@@ -584,8 +586,6 @@ _flsh_cmd:  PUSH  HL
            RET
 
 ; ----- Load a hex file (from the console input)
-_waiting: DEFB "Waiting...",0
-
 invalid:  LD    HL, _NOSTART
           CALL  PRINT
           JP    main
@@ -600,7 +600,7 @@ rec_err:  LD    HL,_REC_ERR
 LOAD:     CALL  GET_HEX           ; OFFSET to apply to hex records. Z flag set if 'break' pressed.
           LD    D,H               ; Save HL
           LD    E,L
-          LD    HL, _waiting
+          LD    HL, _WAITING
           CALL  PRINT
           WRITE_CRLF
           LD    H,D
@@ -1033,245 +1033,8 @@ REST_RGS: LD   HL,(R_AF)
           LD   IY,(R_IY)
           RET
 
-GET_CHR:  XOR   A
-          RST   10H                ; Read character
-          CP    'a'                ; Lower case -> upper case
-          RET    C
-          SUB   'a'
-          ADD   A,'A'
-          RET
+import libconsole.asm
 
-; ----------------------------------- Ouput the 16 bit value in HL
-WRITE_16:  PUSH AF
-           LD   A,H
-           CALL WRITE_8
-           LD   A,L
-           CALL WRITE_8
-           POP  AF
-           RET
-WRITE_8:   PUSH AF
-           PUSH BC
-           PUSH DE
-           PUSH HL
-           LD   DE, _HEX_CHRS
-           LD   B,A
-           SRA  A
-           SRA  A
-           SRA  A
-           SRA  A
-           AND  0Fh
-           LD   L,A
-           XOR  A
-           LD   H,A
-           ADD  HL,DE
-           LD   A,(HL)
-           RST  08H
-           ; And the second nibble
-           LD   A,B
-           AND  0Fh
-           LD   L,A
-           XOR  A
-           LD   H,A
-           ADD  HL,DE
-           LD   A,(HL)
-           RST  08H
-           POP  HL
-           POP  DE
-           POP  BC
-           POP  AF
-           RET
-
-; ------------------- GET_HEX - read in up to 4 hex digits, returned in HL
-GET_HEX:  PUSH  BC
-          LD    B,A  ; Save A
-          XOR   A
-          LD    H,A
-          LD    L,A
-          LD    C,A
-          CALL  SKIPSPC
-          ; End of input?
-next_hc:  OR    A
-          JR    NZ, cont_hc
-fin:      LD    A,C
-          OR    A
-          LD    A,B
-          POP   BC
-          RET
-cont_hc:  CALL  HEX_TO_BIN
-          JR    C,fin
-          ; Is it between 0 and 9?
-add_chr:  ADD   HL, HL
-          ADD   HL, HL
-          ADD   HL, HL
-          ADD   HL, HL
-          ADD   A, L
-          LD    L, A
-          INC   C
-          CALL  BUFCHR
-          JR    next_hc
-
-; -------- IN_HEX_2 - Return 2 hex digit value in A. Set C flag on error
-IN_HEX_2: PUSH  HL
-          LD    L,0     ; Value being built
-          CALL  BUFCHR  ; A -> character
-          CALL  HEX_TO_BIN
-          JR    C,errhex2
-          LD    L,A     ; First byte
-          CALL  BUFCHR  ; A -> character
-          CALL  HEX_TO_BIN
-          JR    C,errhex2
-          LD    H,A     ; Tmp store
-          LD    A,L     ; Current val
-          ADD   A,A
-          ADD   A,A
-          ADD   A,A
-          ADD   A,A
-          ADD   A,H     ; Which will leave carry clear
-          POP   HL
-          OR    A
-          RET
-
-errhex2:  LD    HL,_HEXERR
-          CALL  PRINT
-          RST   08h
-          POP   HL
-          SCF
-          RET
-
-IN_HEX_4: CALL  IN_HEX_2
-          RET   C
-          LD    H,A
-          CALL  IN_HEX_2
-          LD    L,A
-          RET
-
-; -------- HEX_TO_BIN Char in A - 0-15. 255 if not valid char
-HEX_TO_BIN: CP    '0'
-            JR    C, inv      ; Less than zero so invalid
-            CP    'F'+1
-            JR    NC, inv     ; > 'F' so ignore
-            CP    '9'+1
-            JR    NC, letter_hc
-            SUB   '0'
-            AND   0fh
-            RET
-letter_hc:  CP    'A'
-            JR    C, inv
-            SUB   'A'-10
-            OR    A
-            RET
-inv:        SCF
-            RET
-
-; --------------------- GET_LINE
-GET_LINE: PUSH     HL
-          PUSH     BC
-          LD       HL, INBUF
-          LD      (INPTR), HL
-          LD       BC, 0
-
-getc:     CALL     GET_CHR
-          CP       CR
-          JR       Z, eol
-          CP       BS
-          JR       Z, bspc
-
-          ; Store in buffer
-          LD      (HL), A
-
-          ; At end of buffer?
-          LD      C,A
-          LD      A,80
-          CP      B
-          JR      Z, getc       ; buffer full
-          INC     HL
-          INC     B
-          LD      A,C
-          RST     08H
-          JR      getc
-
-eol:      XOR     A
-          LD      (HL), A
-          LD      A, B
-          POP     BC
-          POP     HL
-          OR      A     ; Z flag set if no characters entered in line
-          RET
-
-bspc:     XOR      A
-          CP       B
-          JR       Z, getc
-
-          ; Delete character
-          DEC      HL
-          LD      (HL), A
-          DEC      B
-          WRITE_CHR BS;
-          ; WRITE_CHR(DEL);
-          JR       getc
-
-BUFCHR:   PUSH     HL
-          LD       HL, (INPTR)
-          LD       A, (HL)
-          OR       A
-          JR       Z, eb
-          INC      HL
-          LD       (INPTR), HL
-          POP      HL
-          RET
-
-; -------- SKIPSPC
-; Step over spaces and return first non-space character.
-SKIPSPC:  PUSH     HL
-          LD       HL, (INPTR)
-skip      LD       A, (HL)
-          OR       A
-          JR       Z, eb
-          INC      HL
-          CP       SPC
-          JR       Z,skip
-          CP       TAB
-          JR       Z,skip
-          LD       (INPTR), HL
-eb:       POP      HL
-          RET
-WASTESPC: PUSH     HL
-          LD       HL, (INPTR)
-skip2:    LD       A, (HL)
-          OR       A
-          JR       Z, eb
-          INC      HL
-          CP       SPC
-          JR       Z,skip2
-          CP       TAB
-          JR       Z,skip2
-          DEC      HL
-          LD       (INPTR), HL
-          JR       eb
-
-
-; --------- GET_HEX_2 - read 2 byte HEX value from input line to A
-; Z flag set on OK
-
-; --------------------- PRINT - write a string to the terminal
-; HL: The address of the string to print (NOT SAVED)
-; A and HL not saved
-PRINT:    LD       A,(HL)          ; Get character
-          OR       A               ; Is it $00 ?
-          RET      Z               ; Then RETurn on terminator
-          RST      08H             ; Print it
-          INC      HL              ; Next Character
-          JR       PRINT           ; Continue until $00
-
-wait:     PUSH HL
-          LD H,0ffH
-loop2:    LD L,0ffH
-loop3:    DEC L
-          JR NZ,loop3
-          DEC H
-          JR NZ,loop2
-          POP HL
-          RET
 ; --------------------- STRINGS
 _INTRO:   DEFB ESC,"[2J",ESC,"[1m",ESC,"[1;6HSTACK",ESC,"[m",ESC,"[11;50r",ESC,"[9;1H>",ESC,"[12,1HZ80 CLM 1.3",CR,LF,"Ready...",CR,LF,NULL
 _PROMPT:  DEFB "> ",0
@@ -1284,6 +1047,8 @@ _HEXERR:  DEFB CR,LF,"Bad hex character: ",CR,LF,0
 _BAD_REG: DEFB "Bad register",CR,LF,0
 _FLSH_PRG:DEFB "Flash prog",CR,LF,0
 _HEX_CHRS: DEFB  "0123456789ABCDEF"
+_WAITING: DEFB "Waiting...",0
+
 
 ; Register labels
 R_PC_DESC DEFB ESC,"[11;50r",ESC,"[2;40H  PC: ",NULL
@@ -1447,17 +1212,13 @@ R_IY       DEFW    0
 
 MON_SP:    DEFW    0    ; Monitors SP is stored here before running client code.
 
-JP_
-
-; Breakpoints. Each entry is 6 bytes:
-; Type|X|AddrX2|B1|B2
-; A breakpint in placed in memory by replacing an instruction with two bytes RST 20h ; 'idx' where 'idx'
-; is the index into the breakpoint table.
-; Type: 0 - unused slot
+; Breakpoints. Each entry is 4 bytes:
+; Type|AddrX2|Opcode
+; A breakpint in placed in memory by replacing an instruction with a single byte RST 20h (or replacement) opcode
+; Type: 0 - free slot - can be used to store a new breakpoint
 ;       1 - single shot - removed once hit
-;       2 - permanent breakpoint (TBD)
-
-BPOINTS:   .DS    NUM_BK*4
+;       2 - permanent breakpoint (WIP)
+BPOINTS:   .DS    NUM_BK*BP_SIZE
 
 LAST_ADDR: DEFB    0
 

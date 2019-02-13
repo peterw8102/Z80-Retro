@@ -73,6 +73,11 @@ async function downloadFile(lines) {
         addr = parseInt(addr, 16);
         len  = parseInt(len,16);
 
+        // The length must be > 0
+        if (len<=0){
+          // Skip to next line
+          continue;
+        }
         // Format out data
         var calcCS = len + (addr&0xff) + ((addr>>8)&0xff)+type;
         while (len-->0) {

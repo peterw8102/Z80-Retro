@@ -7,6 +7,13 @@
 ; Modifed by smbaker@smbaker.com for use as general-purpose IO for nixie tube
 ; clock. Also added support for CTC chip. Switched to SIO implementation instead
 ; of 68B50. Removed all basic-related stuff.
+; (https://github.com/sbelectronics/rc2014/blob/master/asm/intsio.asm)
+;
+; Heavily re-written and stripped down by petew@yellowhawk.co.uk to drive a minimal
+; Z80 board using a single SIO. CTC code removed and port B removed. Also added in
+; a hacky Ctrl-C tracker with call out in the SIO interrupt routine to allow my
+; debugger to break into errant code. Works fine with unmodified RC2014
+; Nascom/Microsoft BASIC.
 ;
 ; Interrupts:
 ;    RST08 - TX the character in A reg on port A
@@ -14,16 +21,20 @@
 ;    RST18 - Check port status on Port A
 ;    RST38 - Hardware interrupt from SIO
 ;
+;
 ;==================================================================================
+import config.asm
+import defs.asm
+
 RAM_FIRST       .EQU     1
 ; Full input buffering with incoming data hardware handshaking
 ; Handshake shows full before the buffer is totally filled to allow run-on from the sender
 
-#if RAM_FIRST
+if RAM_FIRST
 LIVE_PAGE       .EQU     10h
-#else
+else
 LIVE_PAGE       .EQU     98h
-#endif
+endif
 SER_BUFSIZE     .EQU     7FH
 SER_FULLSIZE    .EQU     30H
 SER_EMPTYSIZE   .EQU     5
@@ -40,10 +51,6 @@ RTS_LOW         .EQU    0EAH
 
 TEMPSTACK       .EQU     $7FF0           ; temporary stack somewhere near the
                                          ; end of high mem
-
-CR              .EQU     0DH
-LF              .EQU     0AH
-CS              .EQU     0CH             ; Clear screen
 
 _start          .EQU     $1C0
 
@@ -64,9 +71,9 @@ RST08            JP      TXA
 ; RX a character over RS232 Channel, hold here until char ready.
 ; Reg A = 0 for port A, 1 for port B
 
-                .ORG 0010H
-RST10            JP      RXA
-BRK_HANDLER:     .DW     0
+                 .ORG 0010H
+RST10             JP      RXA
+BRK_HANDLER_ADD: .DW     0
 
 ;------------------------------------------------------------------------------
 ; Check serial status
@@ -95,10 +102,10 @@ serialInt:      PUSH     HL
                 ; CTRL-C - is there a handler?
                 PUSH     AF
                 JR       NZ,proc
-                LD       A,(BRK_HANDLER)
+                LD       A,(BRK_HANDLER_ADD)
                 OR       A
                 LD       L,A
-                LD       A,(BRK_HANDLER+1)
+                LD       A,(BRK_HANDLER_ADD+1)
                 LD       H,A
                 JR       NZ,brk
                 OR       A
@@ -293,4 +300,4 @@ serBufUsed      .DB      0
 serInMask       .EQU     serInPtr&$FF
 _testaddr       .DB      0AAh
 
-.END
+;.END

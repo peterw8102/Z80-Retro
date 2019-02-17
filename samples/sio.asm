@@ -1,13 +1,25 @@
   ; Test assembler file...
 ORG 0
 
+; DEFC SIO_A_D=$0081
+; DEFC SIO_A_C=$0080
+; DEFC SIO_B_D=$0083
+; DEFC SIO_B_C=$0082
+
 DEFC SIO_A_D=$0081
-DEFC SIO_A_C=$0080
-DEFC SIO_B_D=$0083
+DEFC SIO_A_C=$0083
+DEFC SIO_B_D=$0080
 DEFC SIO_B_C=$0082
 
+DEFC LED=$00A0
+
 .start
+  LD    A,1
+  OUT   (LED),A
+
 ; Initialise SIO channel 1
+  LD  HL,$2000
+  LD  SP,HL
 
 ; WR0 - Error reset
   LD A, 00110000b
@@ -51,6 +63,9 @@ DEFC SIO_B_C=$0082
   LD A, 0h
   OUT (SIO_B_C),A
 
+  LD   A,2
+  OUT (LED),A
+
 ; Poll for inbound characters
 
 ; Start writing data OUT
@@ -59,6 +74,7 @@ DEFC SIO_B_C=$0082
   LD B,1fh
 
 .sloop_2
+  OUT (LED),A
   OUT (SIO_A_D), A
   INC A
   CALL wait

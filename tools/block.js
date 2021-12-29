@@ -4,6 +4,11 @@ const fs = require('fs');
 const raspi = require('raspi');
 const Serial = require('raspi-serial').Serial;
 
+function log(...args) {
+  console.log(...args);
+}
+
+
 // Declare a
 const resp = Buffer.alloc(134);
 resp[0] = 0x55;
@@ -70,7 +75,7 @@ function createNewFile(fname) {
       }
     });
   }).catch((err) => {
-    console.log("ERROR creating disk image file: "+fname+", creating...", err);
+    log("ERROR creating disk image file: "+fname+", creating...", err);
     return createNewFile(fname);
   });
 }
@@ -86,7 +91,7 @@ function openDiskImage(fname) {
           resolve(fd);
       });
     }).catch((err) => {
-      console.log("ERROR opening disk image file: "+fname+", creating...", err);
+      log("ERROR opening disk image file: "+fname+", creating...", err);
       return createNewFile(fname);
     });
   }
@@ -108,12 +113,12 @@ function closeFile() {
 }
 function requestFile(serial, req, payload) {
   // Payload should be the fully qualified name of file to load
-  // console.log("PAYLOAD FILE TO OPEN: ", payload.toString());
+  log("PAYLOAD FILE TO OPEN: ", payload.toString());
   // Close any existing file
   closeFile().then(() => {
     fs.open(payload.toString(), 'r', (err, fd) => {
       // Return either success or failure
-      // console.log("OPENED? ", err==null, err);
+      log("OPENED? ", err==null, err);
       blockCount = 0;
       const resBuf = Buffer.alloc(headerLength);
       resBuf[0] =  0x55;
@@ -125,9 +130,9 @@ function requestFile(serial, req, payload) {
       if (err==null)
         openFile = fd;
 
-      // console.log("SENDING: ", resBuf);
+      log("SENDING: ", resBuf);
       serial.write(resBuf, (e) => {
-        // console.log("Sent");
+        log("Sent");
         if (e!=null)
           throw e;
       });
@@ -135,7 +140,7 @@ function requestFile(serial, req, payload) {
   });
 }
 async function readFile(serial, req, payload) {
-  console.log("PAYLOAD READ OPEN: ", payload);
+  log("PAYLOAD READ OPEN: ", payload);
   // There must be an open file for this to work
   if (openFile!=null) {
     // Set the correct command response code
@@ -156,10 +161,10 @@ async function readFile(serial, req, payload) {
 
     readSectBuf[bytesPerSector+headerLength]= (cs & 0xff);
 
-    console.log("SENDING BLK: "+(blockCount++));
+    log("SENDING BLK: "+(blockCount++));
 
     serial.write(readSectBuf, (err) => {
-      // console.log("Sent");
+      log("Sent");
       if (err!=null)
         throw err;
       if (eofMarker!=0) {
@@ -170,7 +175,7 @@ async function readFile(serial, req, payload) {
     });
   }
   else {
-    console.log("FILE NOT OPEN...");
+    log("FILE NOT OPEN...");
     const resBuf = Buffer.alloc(headerLength);
     resBuf[0] =  0x55;
     resBuf[1] =  0xcc;
@@ -179,9 +184,9 @@ async function readFile(serial, req, payload) {
     resBuf[4] =  0x00;
     resBuf[5] =  0x00;        // 0: OK, 1: Error
 
-    console.log("SENDING (err): ", resBuf);
+    log("SENDING (err): ", resBuf);
     serial.write(resBuf, (e) => {
-      // console.log("Sent");
+      // log("Sent");
       if (e!=null)
         throw e;
     });
@@ -189,12 +194,12 @@ async function readFile(serial, req, payload) {
 }
 // Format is DD TT TT SS (4 bytes). Take the bytes from the start of the payload.
 function payloadToSector(payload) {
-  // console.log("EXTRACT DISK ADDR FROM: ", payload);
+  // log("EXTRACT DISK ADDR FROM: ", payload);
   const disk  = payload[0];
   const track = (payload[1] | (payload[2]<<8));
   const sect  = payload[3];
 
-  console.log("DISK: "+disk+", TRACK: "+track+", SECTOR: "+sect);
+  log("DISK: "+disk+", TRACK: "+track+", SECTOR: "+sect);
 
   return disk * sectorsPerDisk + track * sectorsPerTrack + sect;
 }
@@ -212,8 +217,8 @@ async function readSector(serial, req, payload) {
   readSectBuf[3] = 0x00;
 
   const bytesRead = fs.readSync(fd, readSectBuf, headerLength, bytesPerSector, offset);
-  // console.log("SECTOR READ ["+(readCount++)+"]: "+sect+", READ FROM FILE: ", bytesRead, readSectBuf);
-  console.log("SECTOR READ ["+(readCount++)+"]: "+sect+", READ FROM FILE: ", bytesRead);
+  // log("SECTOR READ ["+(readCount++)+"]: "+sect+", READ FROM FILE: ", bytesRead, readSectBuf);
+  log("SECTOR READ ["+(readCount++)+"]: "+sect+", READ FROM FILE: ", bytesRead);
 
   // Calculate checksum
   for (var i=headerLength, cs=0;i<bytesPerSector+headerLength;i++)
@@ -222,7 +227,7 @@ async function readSector(serial, req, payload) {
   readSectBuf[bytesPerSector+headerLength]= (cs & 0xff);
 
   serial.write(readSectBuf, (err) => {
-    // console.log("Sent");
+    // log("Sent");
     if (err!=null)
       throw err;
   });
@@ -240,10 +245,10 @@ writeSectBuf[5] = 0;
 var nextWriteSector = -1;
 async function setWriteSector(serial, req, payload) {
   nextWriteSector = payloadToSector(payload);
-  // console.log("SET WRITE ADDESS: "+nextWriteSector);
+  log("SET WRITE ADDESS: "+nextWriteSector);
   writeSectBuf[2] = 0x82;
   serial.write(writeSectBuf, (err) => {
-    // console.log("Sent");
+    // log("Sent");
     if (err!=null)
       throw err;
   });
@@ -255,13 +260,13 @@ async function writeSector(serial, req, payload) {
   // Turn this into an offset into the file and return the block.
   const offset = nextWriteSector * bytesPerSector;
 
-  // console.log("WRITE ["+(writeCount++)+"] DATA TO SECT: "+nextWriteSector, payload);
+  log("WRITE ["+(writeCount++)+"] DATA TO SECT: "+nextWriteSector, payload);
 
   fs.writeSync(fd, payload, 0, bytesPerSector, offset);
 
   writeSectBuf[2] = 0x83;
   serial.write(writeSectBuf, (err) => {
-    // console.log("Sent");
+    // log("Sent");
     if (err!=null)
       throw err;
   });
@@ -279,18 +284,18 @@ const handlers = {
 
 
 raspi.init(() => {
-  console.log("Creating serial...");
+  log("Creating serial...");
   var serial = new Serial({
-    baudRate: 230400
+    baudRate: 460800 // 230400
   });
-  console.log("...created");
+  log("...created");
   serial.open(() => {
     var currBuff = Buffer.alloc(1024);
     var offset = 0;
     function processBuffer() {
       // Check whether the command is complete
       if (offset<5) {
-        console.log("INPUT BUFFER LENGTH: ",offset);
+        log("INPUT BUFFER LENGTH: ",offset);
         return;
       }
       // Length meets minimum
@@ -311,20 +316,20 @@ raspi.init(() => {
       var blkLen = currBuff[3]+(currBuff[4] << 8);
       if (blkLen>0) {
         if (offset < blkLen+5) {
-          // console.log("Message incomplete. Actual: "+offset+", Needed: ", blkLen+5);
+          log("Message incomplete. Actual: "+offset+", Needed: ", blkLen+5);
           return;
         }
       }
-      // console.log("CMD PAYLOAD LEN: "+blkLen+", BUFFER: ", currBuff);
+      log("CMD PAYLOAD LEN: "+blkLen+", BUFFER: ", currBuff);
       handlers[currBuff[2]](serial, currBuff, blkLen>0 ? currBuff.slice(5, 5+blkLen) : null);
 
       // Reset command buffer offset.
       offset = 0;
     }
-    console.log("...Opened");
+    log("...Opened");
     serial.on('data', (data) => {
       // Append to current buffer
-      // console.log("RAW DATA: ",data);
+      log("RAW DATA: ",data);
       for (let i=0;i<data.length;i++)
         currBuff[offset++] = data[i];
       processBuffer();
@@ -333,9 +338,9 @@ raspi.init(() => {
       // if (send)
       //   serial.write('=');
     });
-    console.log("LISTENING...");
+    log("LISTENING...");
     //serial.write('Hello from raspi-serial');
-    //console.log("...written");
+    log("...written");
     // setInterval(() => {
     //  serial.write('-');
     // }, 1000);

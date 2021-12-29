@@ -1,0 +1,6 @@
+{
+  "watch": [".","../zlib"],
+  "verbose": false,
+  "ext": "asm",
+  "delay": 100
+}

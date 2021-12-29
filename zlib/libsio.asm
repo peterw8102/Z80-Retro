@@ -26,105 +26,55 @@
 ;==================================================================================
 ; import config.asm
 import defs.asm
-
-                extrn  START
-                public INITSIO
+                extrn  WRITE_16
+                public INITSIO, TXA, RXA, CKINCHAR, _ENDLIBS, BRK_HK, SERINT
 
 ; Full input buffering with incoming data hardware handshaking
 ; Handshake shows full before the buffer is totally filled to allow run-on from the sender
 
-SER_BUFSIZE     .EQU     $F8
-SER_FULLSIZE    .EQU     30H
-SER_EMPTYSIZE   .EQU     5
+; EXPORTED FUNCTIONS:
+;    TXA:       Transmit a character on port A. USUALLY INSTALLED AS RST 08h
+;    RXA:       Wait for a character on port A. USUALLY INSTALLED AS RST 10h
+;    CKINCHAR:  Check to see whether there's a character in the port A buffer. Z if no characters. NZ otherwise
+;                                               USUALLY INSTALLED AS RST 18h
+;    INITSIO:   Initialise the SIO for both ports A and B - installed on RST 20h but never used in that way!
+;    SERINT:    Interrupt handler - needs to be installed at RST 38h as part of INITSIO
 
-SIOA_D          .EQU     $81
-SIOA_C          .EQU     $83
-SIOB_D          .EQU     $80
-SIOB_C          .EQU     $82
+SER_BUFSIZE     .EQU     $F0
+SER_FULLSIZE    .EQU     SER_BUFSIZE / 2
+SER_EMPTYSIZE   .EQU     10H
 
-RTS_HIGH        .EQU    0E8H
-RTS_LOW         .EQU    0EAH
+BRK_HK:         .EQU     $16
 
-                ASEG
-                .ORG $0000
-;------------------------------------------------------------------------------
-; Reset
+                CSEG
 
-RST00           DI                ; Disable interrupts
-                JP       START    ; Initialize Hardware and go
-
-                .ORG $0008
-;------------------------------------------------------------------------------
-; TX a character over RS232
-
-;                .ORG     0008H
-RST08            JP      TXA
-
-;------------------------------------------------------------------------------
-; RX a character over RS232 Channel, hold here until char ready.
-; Reg A = 0 for port A, 1 for port B
-
-                 .ORG 0010H
-RST10             JP      RXA
-BRK_HANDLER_ADD: .DW     0
-
-;------------------------------------------------------------------------------
-; Check serial status
-; Reg A = 0 for port A, 1 for port B
-
-                .ORG 0018H
-RST18            JP      CKINCHAR
-;------------------------------------------------------------------------------
-; Initialise the SIO and return
-; Reg A = 0 for port A, 1 for port B
-
-                .ORG 0020H
-RST20            JP      INITSIO
-
-;------------------------------------------------------------------------------
-; RST 38 - INTERRUPT VECTOR [ for IM 1 ]
-
-                .ORG     0038H
-RST38
-serialInt:      PUSH     HL
-                PUSH     AF
-
-                XOR      A
+SERINT:         PUSH     AF
+nextchr:        XOR      A
                 OUT      (SIOA_C),A
-                IN       A, (SIOA_C)
+                IN       A, (SIOA_C)      ; Read Reg 0: Bit 0: Character available
                 RRCA
-                JR       NC, rts0
+                JR       NC, rts0         ; Should be a character but maybe not...
 
-                IN       A,(SIOA_D)
+                IN       A,(SIOA_D)       ; Get the character - frees the input FIFO
+
+                PUSH     HL
+                PUSH     AF              ; Make sure we have enough room for this character
                 ; Check if this is a break character and if it is has anyone registered a break handler?
-                CP       3h
-                ; CTRL-C - is there a handler?
-                PUSH     AF
-                JR       NZ,proc
-                LD       A,(BRK_HANDLER_ADD)
-                OR       A
-                LD       L,A
-                LD       A,(BRK_HANDLER_ADD+1)
-                LD       H,A
-                JR       NZ,brk
-                OR       A
-                JR       NZ,brk
+                CP       3h               ; Character still in A
 
+                ; CTRL-C - is there a handler?
+                JR       Z,brk
+
+                ; If the break handler isn't installed continue from here.
 proc:           LD       A,(serBufUsed)
                 CP       SER_BUFSIZE     ; If full then ignore
-                JR       NZ,notFull
-                POP      AF
-                JR       rts0
+                JR       Z,_full
 
-notFull:        INC      A
+                INC      A
                 LD       (serBufUsed),A
-                CP       SER_FULLSIZE
-                JR       C,norts
-                ; set rts high
-                LD       A, $05
-                OUT      (SIOA_C),A
-                LD       A,RTS_HIGH
-                OUT      (SIOA_C),A
+                CP       SER_FULLSIZE    ; Check H/W flow control
+                JR       NC,setrts
+
 norts:          LD       HL,(serInPtr)
                 INC      HL
                 LD       A,L             ; Only need to check low byte becasuse buffer<256 bytes
@@ -134,27 +84,58 @@ norts:          LD       HL,(serInPtr)
 notWrap:        LD       (serInPtr),HL
                 POP      AF
                 LD       (HL),A
-
-rts0:           POP      AF
                 POP      HL
+                ; Before leaving, check for another character to save an interrupt.
+                JR       nextchr
+
+                ; set rts high
+setrts:         LD       A, $05
+                OUT      (SIOA_C),A
+                LD       A,RTS_HIGH
+                OUT      (SIOA_C),A
+                JR       norts
+
+                ; No characters left...
+rts0:           LD       A,(useisr)
+                OR       A
+                JR       Z,_noisr1
+                POP      AF
+                ; This code is responsible for the ISR termination
                 EI
                 RETI
+
+                ; A standard subroutine. Delegate responsibility for ISR exit to the caller.
+_noisr1:        POP      AF
+                RET
+
+_full:          POP      AF
+                POP      HL
+                JR       rts0
+
                 ; There is a break handler. Hack the stack so we return to the
                 ; handler
-brk:            POP      AF  ; The character code we read (CTRL-C) no longer needed
-                POP      AF  ; AF as it was before the call
-                ; Next thing on the return stack is the pushed HL register. Swap this with the handler address
-                EX      (SP),HL
-                EI
-                RETI
+brk:            LD       A,(BRK_HK+1) ; Break handler can't be in the first 256 bytes of memory
+                OR       A
+                LD       A,3
+                JR       Z,proc
+_prbrk:         ; Implement break handler. For this we can trash all registers
+                ; because we're never going to return. Handler can't be @<100h!
+                LD       HL,(BRK_HK)
 
-                CSEG
+                ; The break handler will have a stack that looks like:
+                ;    Ret address from SERINT
+                ;    AF at start of ISR
+                ;    HL at start of ISR
+                ;    AF containing the break character
+                ;    <--- SP
+                ; Still running in the interrupt routine (needs a RETI at some point)
+                JP       (HL)
+
 ;------------------------------------------------------------------------------
 RXA:
 waitForChar:    LD       A,(serBufUsed)
                 OR       A
                 JR       Z, waitForChar
-                DI
                 PUSH     HL
                 LD       HL,(serRdPtr)
                 INC      HL
@@ -162,8 +143,8 @@ waitForChar:    LD       A,(serBufUsed)
                 CP       serInPtr
                 JR       NZ, notRdWrap
                 LD       HL,serBuf
-notRdWrap:      ; DI
-                LD       (serRdPtr),HL
+notRdWrap:      LD       (serRdPtr),HL
+                DI
                 LD       A,(serBufUsed)
                 DEC      A
                 LD       (serBufUsed),A
@@ -199,64 +180,114 @@ CKINCHAR:       LD       A,(serBufUsed)
 ; Initialise the SIO handlers. Assumed we're running from RAM and called from
 ; the application runtime and the memory paging is initialised. This library doesn't
 ; understand how the memory is managed. Alos assumg the stack has been initialised.
-INITSIO:      XOR     A                ; write 0
-              LD      C,SIOA_C
-              OUT     (C),A
-              LD      A,$18            ; reset ext/status interrupts
-              OUT     (C),A
+INITSIO:      DI
 
-              LD      A,$04            ; write 4
-              OUT     (C),A
-              LD      A,$C4            ; X64, no parity, 1 stop
-              ;LD      A,$84           ; X32, no parity, 1 stop
-              OUT     (C),A
+              ; A: Install ISR
+              ;    0: No ISR
+              ;    1: ISR
+              LD       (useisr),A
+              OR       A
+              PUSH     AF
+              JR       Z,_skpisr
 
-              LD      A,$01            ; write 1
-              OUT     (C),A
-              LD      A,$18            ; interrupt on all recv
-              OUT     (C),A
+              ; Set up RST 38H to call SERINT
+              LD        A,$C3
+              LD       (38h),A      ; JP
+              LD       HL,SERINT
+              LD       (39h),HL
 
-              LD      A,$03            ; write 3
-              OUT     (C),A
-              LD      A,$E1            ; 8 bits, auto enable, rcv enab
-              OUT     (C),A
-
-              LD      A,$05            ; write 5
-              OUT     (C),A
-              LD      A,RTS_LOW        ; dtr enable, 8 bits, tx enable, rts
-              OUT     (C),A
-
-              LD      C,SIOB_C
-              XOR     A
-              OUT     (C),A
-              LD      A,$18
-              OUT     (C),A
-
-              LD      A,$02           ; write reg 2
-              OUT     (C),A
-              LD      A,$E0           ; INTERRUPT VECTOR ADDRESS
-              OUT     (C),A
-
-              ; initialize first serial port
-              LD        HL,serBuf
+              ; initialize input buffer for Port A - Port B is NOT currently buffered
+_skpisr:      LD        HL,serBuf
               LD        (serInPtr),HL
               LD        (serRdPtr),HL
-              XOR       A               ;0 to accumulator
+              XOR       A
               LD        (serBufUsed),A
 
+              ; RESET both channel A and B
+              OUT     (SIOA_C),A
+              OUT     (SIOB_C),A
+
+              ; Channel A - RESET
+              LD      A,00110000b      ; Error reset
+              OUT     (SIOA_C),A
+              LD      A,00011000b      ; Channel reset
+              OUT     (SIOA_C),A
+
+              ; Channel B - RESET
+              LD      A,00011000b      ; Channel reset
+              OUT     (SIOA_C),A
+              LD      A,00110000b      ; Error reset
+              OUT     (SIOA_C),A
+
+              ; SET INTERRUPT VECTOR - ONLY USED FOR PORT A
+              LD      A,$02           ; write reg 2
+              OUT     (SIOB_C),A
+              LD      A,11100000b     ; INTERRUPT VECTOR ADDRESS
+              OUT     (SIOB_C),A
+
+              ; INITIALISE CHANNEL A
+              LD      A,$04            ; write 4
+              OUT     (SIOA_C),A
+              LD      A,11000100b      ; X64, no parity, 1 stop - 115200 baud
+              ;LD      A,10000100b     ; X32, no parity, 1 stop - 230400 baud
+              OUT     (SIOA_C),A
+
+              LD      A,$05            ; write 5
+              OUT     (SIOA_C),A
+              LD      A,RTS_LOW        ; dtr enable, 8 bits, tx enable, rts OFF
+              OUT     (SIOA_C),A
+
+              ; WR1 - interrupts on RX
+              LD      A,$01            ; write 1
+              OUT     (SIOA_C),A
+              LD      A,00011000b      ; interrupt on all recv
+              OUT     (SIOA_C),A
+
+              LD      A,$03            ; write 3
+              OUT     (SIOA_C),A
+              LD      A,11100001b      ; 8 bits, auto enable, rcv enable
+              OUT     (SIOA_C),A
+
+              ; INITIALISE CHANNEL B
+              ; WR4 - 32x Clock - 230400baud, 1 stop bit, no parity.
+              LD      A,$04
+              OUT     (SIOB_C),A
+              LD      A,10000100b
+              OUT     (SIOB_C),A
+
+              ; WR5 - TX 8 bits/char, Enable TX
+              LD      A,05h
+              OUT     (SIOB_C),A
+              LD      A,RTS_LOW
+              OUT     (SIOB_C),A
+
+              ; WR1 - Disable all interrupts
+              LD      A,01h
+              OUT     (SIOB_C),A
+              LD      A,00000000b
+              OUT     (SIOB_C),A
+
+              ; WR3 - Enable receiver, 8 bits per character
+              LD      A, 03h
+              OUT     (SIOB_C),A
+              LD      A,11000001b
+              OUT     (SIOB_C),A
+
+              POP     AF
+              RET     Z     ; Return now because we're not responsible for the ISR
+
               ; enable interrupts
-              IM        1
+              IM      1
               EI
               RET
 
-
+_ENDLIBS:
                 DSEG
 serBuf          .DS      SER_BUFSIZE
-serInPtr        .DW      serBuf
-serRdPtr        .DW      serBuf
-serBufUsed      .DB      0
-_testaddr       .DB      0AAh
+serInPtr        .DS      2
+serRdPtr        .DS      2
+serBufUsed      .DS      1
 
-; serInMask        DEFL    serInPtr & $FF
+useisr          .DS      1
 
 ;.END

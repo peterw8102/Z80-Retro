@@ -189,8 +189,10 @@ INHEX_4:  PUSH  DE
 
 ; -------- INHEX_2 - Return 2 hex digit value in A. Set C flag on error
 INHEX_2:  PUSH  HL
+          PUSH  DE
           CALL  INHEX
-          LD    A,L
+          LD    A,E
+          POP   DE
           POP   HL
           RET
 

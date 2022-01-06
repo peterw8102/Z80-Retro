@@ -9,7 +9,7 @@ import config.asm
 ; RST 10h - Read one character from the terminal. Block until there is a character. Returned in A
 ; RST 18h - Check whether there is a character available. Non blocking. Z flag set if there is NOT a character waiting.
 
-          extrn  PRINT,PRINT_LN,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,WRITE_8,WRITE_16,INHEX_2,INHEX_4,MAPCASE
+          extrn  PRINT,PRINT_LN,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,WRITE_8,WRITE_16,INHEX,INHEX_2,INHEX_4,MAPCASE
           extrn  BRK_HK,SETHIST,GETHIST
           extrn  CMD_B
           extrn  DISASS, SETOFF
@@ -870,7 +870,9 @@ DUMP:     LD    A,(DUMP_MODE)
           LD    B,A               ; Whatever the character is, we store this as the mode
           LD    (DUMP_MODE), A
 
-no_mode:  CALL  GET_HEX
+no_mode:  CP    'D'               ; Dump SD card block
+          JR    Z,MAPDSK
+          CALL  GET_HEX
           JR    NZ,_useval
           LD    HL,(DUMP_ADDR)
           ; Can append a '+' or '-' to set application or physical address space
@@ -890,6 +892,8 @@ _nphy:    CP    '+'
           LD    (DUMP_TX),A
 
 cnt_dump: LD    A,B
+          CP    'D'               ; Dump SD card block
+          JR    Z,MAPDSK
           CP    'M'
           JR    NZ,decode         ; Mode is not 'M' so it's an instruction level dump
 
@@ -2988,34 +2992,21 @@ _sddump: CALL  SD_INIT
          CALL  WASTESPC
          JR    Z,_sdbad
 
-         ; Expect a 16 bit number
-         CALL  INHEX_4
+         ; Expect a 32 bit number
+         CALL  INHEX
 
          JR    C,_sdbad
-         LD    D,H        ; Make DE be the least sig 16 bits
-         LD    E,L
-         XOR   A
-         LD    H,A
-         LD    L,A
-         CALL  BUFCHR
-         JR    Z,_sdump
-         CP    ':'
-         JR    NZ,_sdbad
-         ; Have a second value so read these
-_sdlow:  CALL  INHEX_4
-         JR    C,_sdbad
-         EX    DE,HL
+
          ; HLDE is the full SD card BLOCK address. Need to
          ; multiple by 512 to get a byte address for the
          ; SDcard interface.
 
-         ; Multiple by 256
-_sdump:  LD    H,L
+_sdump:  LD    H,L     ; Multiple by 256
          LD    L,D
          LD    D,E
          LD    E,0
-         ; And then by 2 to get to 512 block address
-         SLA   D
+
+         SLA   D       ; And then by 2 to get to 512 block address
          RL    L
          RL    H
 

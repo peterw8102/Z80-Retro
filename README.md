@@ -21,6 +21,7 @@ Not a very imaginative name but grew from the simplest original code to get *som
 + **loader.asm** - main entry code and implements many of the common functions
 + **commands.asm** - Pulled some functions from loader.asm. Starting to modularise the code.
 + **disassembler.asm** - Z80 disassembler that provides meta-data used by the debuger to set break points.
++ **flash.asm** - Old code that writes data to the first 16K of flash. Used before I had a PROM programmer. Obsolete now and not used but wanted to keep the code around to remind myself how to write the the flash pages.
 
 ## tools
 

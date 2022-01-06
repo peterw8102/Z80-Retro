@@ -33,7 +33,7 @@ import config.asm
           public CFG_TAB, R_PC_S
           public BRK_HDLR
 
-          extrn  FILL,CLRSCR,INPUT,OUTPUT,MODIFY,FLASH_OP,HELP
+          extrn  FILL,CLRSCR,INPUT,OUTPUT,MODIFY,HELP
 
 ; Where to put the supervisor stack/
 _SP_STK     EQU   4000h - 200h
@@ -2958,7 +2958,7 @@ NVSAV:   CALL   NVCALC
 MAPDSK: CALL  SKIPSPC
         JR    Z, _dmapd
         CP    'D'
-        JR    Z, _sddump
+        JR    Z, SDUMP
 
 _dmapd: LD    B,16
         LD    HL,DRVMAP
@@ -2985,10 +2985,10 @@ _sdbad: LD     HL,_NOSDADD
         JR     _prterr
 
 
-; -------- _sddump
+; -------- SDUMP
 ; Dump the contents of a 512 byte SD card sector. The sector number is (potentially) 32 bits
 ; Command format is SD 0000:0000. Also accept 0000 for one of the lowest 64K sectors
-_sddump: CALL  SD_INIT
+SDUMP:   CALL  SD_INIT
          CALL  WASTESPC
          JR    Z,_sdbad
 
@@ -3262,8 +3262,6 @@ CMD_TABLE:      DB       'B'
                 DW        SHWHIST
                 DB       'G'
                 DW        RUN
-                DB       '\'                ; Use a really unusual code for this - SHOULDN'T BE USED MUCH!
-                DW        FLASH_OP          ; Update monitor - USE WITH LOTS OF CARE!!!!
                 DB       '?'
                 DW        HELP
                 DB        0

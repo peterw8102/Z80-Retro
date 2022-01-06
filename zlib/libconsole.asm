@@ -2,7 +2,7 @@
 import defs.asm
 
           public PRINT,PRINT_LN,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,WRITE_8,WRITE_16,HEX_FROM_A
-          public INHEX_2,INHEX_4,GET_HEX,GET_DEC,INPTR,INBUF,MAPCASE,_ENDPRG,UPPERCASE
+          public INHEX,INHEX_2,INHEX_4,GET_HEX,GET_DEC,INPTR,INBUF,MAPCASE,_ENDPRG,UPPERCASE
           public SETHIST,GETHIST
 
           ; Utilities
@@ -133,36 +133,65 @@ cont_dc:  CALL  DEC2BIN    ; Decimal character?
           JR    next_dc
 
 
+; -------- _shft32 - Shift HLDE 4 bits left (mult. 16)
+_shft32:  PUSH  BC
+          LD    B,4
+_shn:     SLA   E
+          RL    D
+          RL    L
+          RL    H
+          DJNZ  _shn
+          POP   BC
+          RET
+
+; -------- INHEX - Read a 2 byte (16 bit) hex representation
+; number. Keeps reading characters until a non-hex digit is read.
+;
+; Output in HLDE
+; Accumulator NOT preserved
+; Carry flag set on error (no hex digits)
+INHEX:    XOR   A
+          LD    H,A
+          LD    L,A
+          LD    D,A
+          LD    E,A
+          CALL  BUFCHR  ; A -> character
+          CALL  HEX_TO_BIN
+          JR    C,errhexx ; Must be at least ON hex digit!
+
+          ; Multiple HL by 16
+nxtchr:   CALL _shft32
+
+          ; Map in the new digit
+          OR    E
+          LD    E,A
+
+          CALL  BUFCHR  ; A -> character
+          JR    Z, eonum
+          CALL  HEX_TO_BIN
+          JR    NC, nxtchr
+
+          ; Read a character that's NOT a hex char (or end of line) - unget it
+          CALL  UNGET
+
+eonum:    OR    A ; Clear carry
+          RET
+
+errhexx:  SCF
+          RET
+
+INHEX_4:  PUSH  DE
+          CALL  INHEX
+          EX    DE,HL    ; Want LS two bytes in HL
+          POP   DE
+          RET
+
+
 ; -------- INHEX_2 - Return 2 hex digit value in A. Set C flag on error
 INHEX_2:  PUSH  HL
-          LD    L,0     ; Value being built
-          CALL  BUFCHR  ; A -> character
-          CALL  HEX_TO_BIN
-          JR    C,errhex2
-          LD    L,A     ; First byte
-          CALL  BUFCHR  ; A -> character
-          CALL  HEX_TO_BIN
-          LD    H,A     ; Tmp store
-          LD    A,L     ; Current val
-          JR    C,onedig
-          ADD   A,A
-          ADD   A,A
-          ADD   A,A
-          ADD   A,A
-          ADD   A,H     ; Which will leave carry clear
-onedig:   POP   HL
-          OR    A
-          RET
-
-errhex2:  POP   HL
-          SCF
-          RET
-
-INHEX_4:  CALL  INHEX_2
-          RET   C
-          LD    H,A
-          CALL  INHEX_2
-          LD    L,A
+          CALL  INHEX
+          LD    A,L
+          POP   HL
           RET
 
 ; -------- DEC2BIN Char in A - 0-9. Carry flag set if invalid.

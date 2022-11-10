@@ -1,16 +1,42 @@
 import ../zlib/defs.asm
 
+; Functions for reading and writing to/from an SDCard. Currently only cards up
+; to 2GB are supported. The SDCards is connected/accessed via the SPI interface.
+;
+; Note that this library only currently supports the first SDCard. Version 2 of
+; the board added hardware support for a second SDCard however this is not yet
+; supported in this library.
+;
+; Exported Functions
+; SD_INIT: Initialise the SPI bus and the SDCard. MUST be called before read/write ops
+; SD_WBLK:
+; SD_RBLK:
+;
+; SDCard access is not trivial. The following references have been particularly useful
+; in reverse engineering the SDCard command interface:
+;
+;    http://elm-chan.org/docs/mmc/mmc_e.html
+;    https://www.microchip.com/forums/m530149.aspx
+
+
           extrn  SPI_BEG, SPI_END, SPI_INIT, SPI_ACMD, SPI_TXB
           extrn  SPI_RXB, SPI_RBF, SPI_CM1, SPI_CMN, SPI_BRD, SPI_BWR
 
           ; Operational exports
-          public SD_INIT, SD_BUF
-          public SD_WBLK, SD_RBLK
+          public SD_INIT, SD_WBLK, SD_RBLK
 
-          ; Debug functions
-          public _RSET, _SCND, _OCR, _AINIT, _SBLK
+          ; Debug symbols
+          public _RSET, _SCND, _OCR, _AINIT, _SBLK, _CMDBUF
           CSEG
 
+; ------ SD_INIT
+; Initialise the SDCard ready to be used. Initialises the SPI interface
+; and then sets the correct operational mode for the SDCard.
+;
+; This function MUST be called before the read/write block operations. This
+; function can be called multiple times. There are no parameters.
+;
+; The SDCard is set to have a block size of 512 bytes,
 SD_INIT:  CALL     SPI_INIT        ; Initialise the SPI interface
           CALL     SPI_END
 
@@ -25,6 +51,7 @@ SD_INIT:  CALL     SPI_INIT        ; Initialise the SPI interface
           CALL      _SBLK
           RET
 
+; _RSET: Send a card reset command.
 _RSET:    LD         BC,9540h    ; CMD0, CRC 95
           CALL       SPI_CMN
           PUSH       AF
@@ -36,13 +63,13 @@ _RSET:    LD         BC,9540h    ; CMD0, CRC 95
 
 ; ----------- SEND_IF_COND --------
 ; CMD 08
-; Response is stored in the SD_BUF structure
+; Response is stored in the _CMDBUF structure
 _SCND:    LD         BC,8740h + 8
           LD         HL,0
           LD         DE,01AAh
           CALL       SPI_CM1
 
-          LD         DE,SD_BUF
+          LD         DE,_CMDBUF
           LD         (DE),A
           INC        DE
 
@@ -52,14 +79,14 @@ _SCND:    LD         BC,8740h + 8
           CALL       SPI_BRD
           CALL       SPI_END
 
-          LD         HL,SD_BUF
+          LD         HL,_CMDBUF
           RET
 
 ; ----------- CMD58 --------
 _OCR:     LD         BC,0FF40h+58
           CALL       SPI_CMN
 
-          LD         DE,SD_BUF
+          LD         DE,_CMDBUF
           LD         (DE),A
           INC        DE
 
@@ -68,7 +95,7 @@ _OCR:     LD         BC,0FF40h+58
           CALL       SPI_BRD
           CALL       SPI_END
 
-          LD         HL,SD_BUF
+          LD         HL,_CMDBUF
           RET
 
 ;
@@ -91,7 +118,6 @@ _AINIT:   CALL       SPI_ACMD       ; Prefix command
           LD         A,1
           RET
 
-;
 ; ----------- SET BLOCK SIZE --------
 ; CMD 16 - Set 512 BYTE BLOCK SIZE
 _SBLK:    LD         BC,0FF40h+16
@@ -115,7 +141,7 @@ del_2:   DEC   L
          POP   HL
          RET
 
-;
+
 ; ----------- WRITE BLOCK -----------
 ; Note that this only currently works for BYTE addressed SD cards rather than sector address. This
 ; means it's not going to work with larger SD cards. Limited to 4G cards.
@@ -139,7 +165,8 @@ _a:       CALL       SPI_RXB
           JR         NZ,_a
 
           ; Send the start token
-          SPI_WRITE   0FEh
+          LD         A,0FEh
+          CALL       SPI_TXB
 
           ; Write out the block...
           LD         B,00h          ; 256x2 bytes
@@ -165,7 +192,6 @@ _abrt_wr: CALL       SPI_END
 ; HL  - SD address upper word...
 ; DE  - SD address lower word...
 ; BC  - Target buffer
-; CMD 17 - Read same block back
 SD_RBLK:  PUSH       BC                 ; Address of buffer to receive data
           LD         BC,0FF40h + 17     ; Command code
           CALL       SPI_CM1
@@ -190,7 +216,7 @@ _nrb:     LD         B,0                ; Number of 16 bit words to read. Read 2
 
           DSEG
 
-; -- STARTED
-SD_BUF:   DEFS     10      ; For short response data
+; _CMDBUF - small buffer for short command responses that can be returned to the caller.
+_CMDBUF:   DEFS     10      ; For short response data
 
 .END

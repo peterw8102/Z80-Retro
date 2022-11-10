@@ -1,5 +1,15 @@
 import defs.asm
 
+; Command based block protocol to communicate over SIO Port B. I use this with a matching
+; application running on a Raspberry Pi that accepts commands from the Z80 and repplies
+; with requested data.
+;
+; See the CMD_B documentation below for the structure of the protocol messages. This is
+; a fairly simple protocol and there's no error detection/correction and the two ends
+; (Z80 and Pi) can get out of sync in which case just restart both.
+;
+; CMD_B is the only exported symbol.
+
                 public CMD_B
 
                 CSEG

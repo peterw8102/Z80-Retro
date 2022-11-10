@@ -1,23 +1,14 @@
 import ../zlib/defs.asm
 import config.asm
 
-          extrn  PRINT,PRINT_LN,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,WRITE_8,WRITE_16,INHEX_2,INHEX_4,MAPCASE
-          extrn  BRK_HK
-          extrn  CMD_B
-          extrn  DISASS, SETOFF
-          extrn  GET_HEX,GET_DEC,INPTR,INBUF,INITSIO,MAPCASE,RXA,TXA,CKINCHAR,SERINT
+          ; Imports from 'zlib'
+          extrn  PRINT,PRINT_LN,WASTESPC,GET_LINE,BUFCHR,WRITE_8,WRITE_16,INHEX_2
+          extrn  GET_HEX
 
-          ; Include SPI/SDCard library
-          extrn  SD_INIT, SD_RBLK, SD_WBLK
+          ; Imports from 'zloader'
+          extrn  PGMAPX,main,BADPS,NL,OPMODE,PGMAPX
 
-          ; From the i2c library
-          extrn  I2C_WT
-
-          ; And the RTC/i2c library
-          extrn  RTC_INI, RTC_MRD, RTC_MWR
-
-          extrn  PGMAPX,main,BADPS,NL,PAGE_MASK,OPMODE,PGMAPX
-
+          ; Exports
           public FILL,INPUT,OUTPUT,MODIFY,HELP
 
 ; ------------------- _bfill
@@ -255,7 +246,8 @@ _HTEXT:         DEFB 2,"B XXXX      set BP",0
                 DEFB 3,"P bb=pp     Map page pp into bank bb",0
                 DEFB 2,"R RR=VV[VV] Set register (8 or 16) to VVVV",0
                 DEFB 2,"S           Step into next instruction",0
-                DEFB 1,"SBI         Save Bootable Image to SDCard",0
+                DEFB 1,"SD          Display SDCard drive map",0
+                DEFB 1,"SB          Save Bootable Image to SDCard",0
                 DEFB 3,"T           Toggle debugger",0
                 DEFB 1,"X [ADDR]    eXecute application [from address]",0
                 DEFB 0

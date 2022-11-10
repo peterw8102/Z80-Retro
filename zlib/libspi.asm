@@ -3,6 +3,30 @@ import ../zlib/defs.asm
           public SPI_BEG, SPI_END, SPI_INIT, SPI_ACMD, SPI_TXB
           public SPI_RXB, SPI_RBF, SPI_CM1, SPI_CMN, SPI_BRD, SPI_BWR
 
+; SPI_SBI
+; Read a single bit into the LSB of L. H contains the value to be written to the OP port (bit 1)
+SPI_SBI   MACRO
+    LD     A,H
+    OUT    (SPIPORT_L),A      ; Set Data with clock LOW
+    OUT    (SPIPORT_H),A      ; Make clock high. SD card *should* have shifted a bit out that we can sample.
+    IN     A,(SPIIN)          ; Read in the next bit.
+    RRA                       ; LSB into C...
+    RL     L                  ; ...and from C to LSB of L
+    ENDM
+
+          ; A contains SPICMD on entry
+; SPI_SBO
+; Send the MSBit of D to the slave, leaving D shifted by one position.
+SPI_SBO   MACRO
+    local _spi_tx
+    XOR    A
+    SLA    D                ; MSB into Carry
+    RLA                     ; Move that bit into the accumulator
+_spi_tx:
+    OUT    (SPIPORT_L),A    ; Output data and clock LOW
+    OUT    (SPIPORT_H),A    ; Clock high. SD car *should* have shifted out it's first bit that we can sample.
+    ENDM
+
           CSEG
 
 SPI_INIT: ; Set clock and CS LOW (inactive)

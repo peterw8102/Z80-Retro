@@ -1,32 +1,35 @@
 import ../zlib/defs.asm
 
-; import libsio.asm
-
-; External dependancies
-; RST 08h - Write a single character to the terminal, character in A
-; RST 10h - Read one character from the terminal. Block until there is a character. Returned in A
-; RST 18h - Check whether there is a character available. Non blocking. Z flag set if there is NOT a character waiting.
+; i2c driver code.
+;
+; I2C_INIT:  Initialise the I2C hardware
+; I2C_STRT:  Send an I2C START condition
+; I2C_STOP:  Send an I2C STOP condition
+; I2C_WBY:   Write a byte to the I2C interface
+; I2C_RBY:   Read a byte from the I2C interface
 
           public I2C_INIT, I2C_STRT, I2C_STOP
-          public I2C_WBY, I2C_RBY, I2C_WT
+          public I2C_WBY, I2C_RBY
+
+          extrn  PAUSE
 
           CSEG
 
 ; Definitions
-I2CPORT   EQU 64h
-I2CPORT_H EQU 65h
-I2CIN     EQU 64h
 I2CDATA   EQU 02h
 I2CDEF    EQU 03h
 I2CCLK    EQU 04h
 I2C_RD    EQU 1
 I2C_WR    EQU 0
 
+; ------ I2C_INIT
+; Initialise the I2C interface - call before using other functions to set
+; the hardware to a known state
 I2C_INIT:   PUSH  AF
             LD    A, I2CDEF
             LD    (I2C_VAL),A
             OUT   (I2CPORT+1),A   ; Data HIGH and clock HIGH
-            CALL  I2C_WT
+            CALL  PAUSE
             POP   AF
             RET
 
@@ -39,41 +42,41 @@ I2C_STRT:   ; Bus is IDLE. Send the start condition
             CALL  I2C_CHCLK     ; Clock HIGH
             LD    A,1
             CALL  I2C_CHDATA    ; Data HIGH
-            CALL  I2C_WT
+            CALL  PAUSE
             XOR   A
             CALL  I2C_CHDATA    ; Data LOW
-            CALL  I2C_WT
+            CALL  PAUSE
             XOR   A
             CALL  I2C_CHCLK     ; Clock LOW
-            CALL  I2C_WT
+            CALL  PAUSE
             RET
 
 ; I2C_STOP
-; Send an I2C start condition. Wait for both lines to go high
+; Send an I2C stop condition.
 I2C_STOP:   XOR   A
             CALL  I2C_CHDATA    ; Data LOW
-            CALL  I2C_WT
+            CALL  PAUSE
             LD    A,1
             CALL  I2C_CHCLK     ; Clock HIGH
-            CALL  I2C_WT
+            CALL  PAUSE
             LD    A,1
             CALL  I2C_CHDATA   ; Data HIGH
-            CALL  I2C_WT
+            CALL  PAUSE
             XOR   A
             CALL  I2C_CHCLK     ; Clock HIGH
-            CALL  I2C_WT
+            CALL  PAUSE
             RET
 
 ; _WBI
 ; Write bit 0 of A to the bus. A NOT preserved
 _WBI:       CALL  I2C_CHDATA    ; Data to required value
-            CALL  I2C_WT
+            CALL  PAUSE
             LD    A,1
             CALL  I2C_CHCLK     ; Clock HIGH
-            CALL  I2C_WT
+            CALL  PAUSE
             XOR   A
             CALL  I2C_CHCLK     ; Clock LOW
-            CALL  I2C_WT
+            CALL  PAUSE
             RET
 
 ; I2C_WBY
@@ -97,17 +100,17 @@ _by_nxtw:   RLC   C         ; Bit 7 -> Bit 0
 ; Write bit 0 of A to the bus
 _RBI:  LD    A,1
             CALL  I2C_CHDATA    ; Data HIGH (inactive so slave can drive)
-            CALL  I2C_WT
+            CALL  PAUSE
             LD    A,1
             CALL  I2C_CHCLK     ; Clock HIGH
-            CALL  I2C_WT
+            CALL  PAUSE
             ; Read the data bit now for device value
             IN    A,(I2CIN)
             AND   I2CDATA       ; (data bit)
             PUSH  AF
             XOR   A
             CALL  I2C_CHCLK     ; Clock LOW
-            CALL  I2C_WT
+            CALL  PAUSE
             POP   AF
             SRA   A
             RET
@@ -169,13 +172,4 @@ I2C_CHCLK:  PUSH  BC
 I2C_VAL:    DB    0FFh
 I2C_CLK:    DB    I2CPORT
 
-I2C_WT:     PUSH  HL
-            LD    H,001H
-del_1:      LD    L,0FFH
-del_2:      DEC   L
-            JR    NZ,del_2
-            DEC   H
-            JR    NZ,del_1
-            POP   HL
-            RET
 .END

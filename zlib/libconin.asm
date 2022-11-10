@@ -1,19 +1,52 @@
 ; import config.asm
 import defs.asm
 
-          public PRINT,PRINT_LN,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,WRITE_8,WRITE_16,HEX_FROM_A
-          public INHEX,INHEX_2,INHEX_4,GET_HEX,GET_DEC,INPTR,INBUF,MAPCASE,_ENDPRG,UPPERCASE
+; Large set of low to mid-level functions used to provide console input
+; and output:
+;
+; Utilies:
+; DEC2BIN:
+;
+; Input functions:
+; GET_LINE: Read in a complete line, including history butter
+; MAPCASE:  Switch on or off case folding (to upper case)
+; SETHIST:  Switch on or off cursor controls/history in GET_LINE
+; GETHIST:  Return a specific line from the history buffer
+;
+; Processing line returned by GET_LINE:
+; BUFCHR:   Consume/return one character from the input buffer
+; SKIPSPC:  Return the next non-space character.
+; WASTESPC: Step over spaces and leave input ptr at first non-space character (without reading it)
+; INHEX:    Return a 32 bit number (hex) from the input buffer -> HLDE
+; INHEX_4   Return a 16 bit number (hex) from the input buffer -> HL
+; INHEX_2:  Return an 8 bit number (hex) in the accumulator
+; GET_HEX:  Read a 16 bit hexidecimal number
+; GET_DEC:  Read in a 16 bit number in decimal
+;
+; Data values exported
+; INPTR:    Points to the current position in the input line being processed
+; INBUF:    Points to the start of the input line (returned by GET_LINE)
+; MAP_CASE: (B) Set to 1
+;
+          ; Input functions
+          public GET_LINE
+          public SKIPSPC,WASTESPC,BUFCHR
           public SETHIST,GETHIST
+          public INHEX,INHEX_2,INHEX_4,GET_HEX,GET_DEC
+
+          ; Data values
+          public INPTR,INBUF,MAPCASE,_ENDPRG,UPPERCASE
 
           ; Utilities
           public DEC2BIN
 
           CSEG
+
 ; Layer of code above the the basic driver that provides line input control and output formatting.
-GET_CHR:  LD    A,(UPPERCASE)
+_GETCHR:  LD    A,(UPPERCASE)
           OR    A
           JR    Z,_rawchr
-          RST   10H                ; Read character
+          RST   10H                ; Read character from the input stream
           CP    'a'                ; Lower case -> upper case
           RET    C
           CP    'z'+1
@@ -23,57 +56,13 @@ GET_CHR:  LD    A,(UPPERCASE)
 _rawchr:  RST   10H
           RET
 
-; ------------- HEX_FROM_A
-; IN  - A:  Number to convert to HEX
-; OUT - HL: Two character converted value - H MSB
-; HL and A NOT preserved
-HEX_FROM_A: PUSH  DE
-            PUSH  AF
-            LD    HL, _HEX_CHRS
-            PUSH  HL
-            ; LSB first
-            AND   0Fh
-            ADD   A,L
-            LD    L,A
-            JR    NC,_hs1
-            INC   H
-_hs1:       LD    E,(HL)
-            POP   HL
-            ; MSB
-            POP   AF
-            RRA
-            RRA
-            RRA
-            RRA
-            AND   $0F
-            ADD   A,L
-            LD    L,A
-            JR    NC,_hs2
-            INC   H
-_hs2:       LD    D,(HL)
-            EX    DE,HL
-            POP   DE
-            RET
-
-; ----------------------------------- Output the 16 bit value in HL
-WRITE_16:  PUSH AF
-           LD   A,H
-           CALL WRITE_8
-           LD   A,L
-           CALL WRITE_8
-           POP  AF
-           RET
-
-WRITE_8:   PUSH HL
-           CALL HEX_FROM_A
-           LD   A,H
-           RST  08H
-           LD   A,L
-           RST  08H
-           POP  HL
-           RET
-
-; ------------------- GET_HEX - read in up to 4 hex digits, returned in HL
+; ------------------- GET_HEX
+; Read in hex characters to generate a 16 bit number, returned in HL. The 'Z' flag
+; is set if the first character processed is NOT a valid hex character. If there are
+; MORE than 4 hex characters then the last 4 are used (most sig. ignored). Eg:
+; 01A2B3C4D => returns 3C4D
+;
+; AF not preserved
 GET_HEX:  PUSH  BC
           LD    B,A  ; Save A
           XOR   A
@@ -82,15 +71,10 @@ GET_HEX:  PUSH  BC
           LD    C,A           ;
           CALL  SKIPSPC
 next_hc:  OR    A             ; End of input?
-          JR    NZ, cont_hc
-fin:      LD    A,C
-          OR    A
-          LD    A,B
-          POP   BC
-          RET
+          JR    Z, _fin
 cont_hc:  CALL  HEX_TO_BIN
           CALL  C,UNGET
-          JR    C,fin
+          JR    C,_fin
           ADD   HL, HL
           ADD   HL, HL
           ADD   HL, HL
@@ -101,7 +85,6 @@ cont_hc:  CALL  HEX_TO_BIN
           CALL  BUFCHR
           JR    next_hc
 
-;
 ; -------- GET_DEC - Read a (16 bit) decimal number into HL with C flag on error
 GET_DEC:  PUSH  BC
           LD    B,A           ; Save A
@@ -111,10 +94,10 @@ GET_DEC:  PUSH  BC
           LD    C,A           ; Count number of characters
           CALL  SKIPSPC
 next_dc:  OR    A             ; End of input?
-          JR    Z, fin        ; Same end caseas GET_HEX
+          JR    Z, _fin        ; Same end caseas GET_HEX
 cont_dc:  CALL  DEC2BIN    ; Decimal character?
           CALL  C,UNGET
-          JR    C,fin
+          JR    C,_fin
           PUSH  DE            ; Muliple HL by 10
           ADD   HL, HL        ; x2
           LD    E,L
@@ -132,6 +115,11 @@ cont_dc:  CALL  DEC2BIN    ; Decimal character?
           CALL  BUFCHR
           JR    next_dc
 
+_fin:     LD    A,C
+          OR    A
+          LD    A,B
+          POP   BC
+          RET
 
 ; -------- _shft32 - Shift HLDE 4 bits left (mult. 16)
 _shft32:  PUSH  BC
@@ -144,7 +132,7 @@ _shn:     SLA   E
           POP   BC
           RET
 
-; -------- INHEX - Read a 2 byte (16 bit) hex representation
+; -------- INHEX - Read a 4 byte (32 bit) hex representation
 ; number. Keeps reading characters until a non-hex digit is read.
 ;
 ; Output in HLDE
@@ -157,7 +145,7 @@ INHEX:    XOR   A
           LD    E,A
           CALL  BUFCHR  ; A -> character
           CALL  HEX_TO_BIN
-          JR    C,errhexx ; Must be at least ON hex digit!
+          JR    C,errhexx ; Must be at least ONE hex digit!
 
           ; Multiple HL by 16
 nxtchr:   CALL _shft32
@@ -180,23 +168,41 @@ eonum:    OR    A ; Clear carry
 errhexx:  SCF
           RET
 
-INHEX_4:  PUSH  DE
-          CALL  INHEX
-          EX    DE,HL    ; Want LS two bytes in HL
-          POP   DE
+INHEX_4:  CALL  INHEX_2
+          RET   C
+          LD    H,A
+          CALL  INHEX_2
+          LD    L,A
           RET
 
 
 ; -------- INHEX_2 - Return 2 hex digit value in A. Set C flag on error
 INHEX_2:  PUSH  HL
-          PUSH  DE
-          CALL  INHEX
-          LD    A,E
-          POP   DE
-          POP   HL
+          LD    L,0     ; Value being built
+          CALL  BUFCHR  ; A -> character
+          CALL  HEX_TO_BIN
+          JR    C,errhex2
+          LD    L,A     ; First byte
+          CALL  BUFCHR  ; A -> character
+          CALL  HEX_TO_BIN
+          LD    H,A     ; Tmp store
+          LD    A,L     ; Current val
+          JR    C,onedig
+          ADD   A,A
+          ADD   A,A
+          ADD   A,A
+          ADD   A,A
+          ADD   A,H     ; Which will leave carry clear
+onedig:   POP   HL
+          OR    A
+          RET
+errhex2:  POP   HL
+          SCF
           RET
 
-; -------- DEC2BIN Char in A - 0-9. Carry flag set if invalid.
+; -------- DEC2BIN
+; Convert the (ASCII) character in A to a binary number. A contains ASCII '0' to '9' inclusive
+; Carry flag set if A contains an invalid character (out of range).
 DEC2BIN:    SUB   '0'         ; Minimum value
             JR    C,inv
             CP    10
@@ -204,7 +210,8 @@ DEC2BIN:    SUB   '0'         ; Minimum value
             OR    A           ; Clear carry
             RET
 
-; -------- HEX_TO_BIN Char in A - 0-15. 255 if not valid char
+; -------- HEX_TO_BIN
+; Char in A - 0-15. 255 if not valid char
 HEX_TO_BIN: CP    '0'
             JR    C, inv      ; Less than zero so invalid
             CP    'F'+1
@@ -235,10 +242,26 @@ chklwr:     CP    'f'+1        ; Check if it's lower a-f
 ; then no case mapping happens
 MAPCASE:  LD      (UPPERCASE),A
           RET
+
+; --------------------- SETHIST
+; If A is 1 to enable cursor controls in GET_LINE processing. If on then
+; GET_LINE understands up/down/left/right cursors and manages a history
+; buffer. Set to 0 to disabled cursor controls.
+SETHIST:  LD      (MLINE),A
+          RET
+
 ; --------------------- GET_LINE
+; Block until the user types RETURN. The entered line is in the input buffer (INBUF). The
+; line can be processed either using GETCHR/SKIPSPC/WASTESPC etc or the client code can
+; access INBUF directly.
+;
+; The accumulator and flags are NOT preserved. All other registers restored.
+;
+; On return the Z flag will be set if the entered line is empty, otherwise it
+; will be cleared.
 GET_LINE: PUSH     HL
           PUSH     BC
-          CALL     INITMLN
+          CALL     INITMLN       ; Reset the history pointer
           LD       HL, INBUF     ; Reset the line pointer
           LD      (INPTR), HL
           LD      B,LINELEN
@@ -246,14 +269,13 @@ GET_LINE: PUSH     HL
 _znxt:    LD      (HL),A
           INC     HL
           DJNZ    _znxt
-          LD       HL, INBUF     ; Reset the line pointer
+          LD       HL, INBUF     ; Reset the character pointer to start of line
           LD      (CURSOR), HL   ; Where we're currently entering content.
-          LD      (HL),0         ; Flag end of line here
           LD       BC, 0         ; B: Cursor pos, C: last character
 
-getc:     CALL     GET_CHR
+getc:     CALL     _GETCHR
           LD       C,A           ; Save last character
-          CP       ESC
+          CP       ESC           ; Check for significant control characters
           JR       Z, _esc
           CP       CR
           JR       Z, eol
@@ -264,7 +286,7 @@ getc:     CALL     GET_CHR
           CP       VT
           JR       Z, deol
 
-          ; Store in buffer, insert space if necessary
+          ; Not a control character so store in buffer, insert space if necessary
 _ext:     LD      A,LINELEN
           CP      B
           JR      Z, getc       ; buffer full so ignore this character
@@ -282,25 +304,30 @@ _ext:     LD      A,LINELEN
           RST     08H           ; Echo character
           JR      getc
 
-eol:      LD      A,(INBUF)
+eol:      LD      A,(MLINE)
           OR      A
-          CALL    NZ,ADD_HIST   ; Add current line to history buffer
-          POP     BC
+          JR      Z,nosave      ; History buffer disabled
+          LD      A,(INBUF)
+          CP      ':'           ; Skip lines starting with ':'
+          JR      Z,nosave
+          OR      A             ; Is the line empty?
+          CALL    NZ,ADD_HIST   ; Add current line to history buffer if line is not empty
+nosave:   POP     BC
           POP     HL
           LD      A,(INBUF)
           OR      A             ; Z flag set if no characters entered in line
           RET
 
-_esc:     LD      A,(MLINE)
+_esc:     LD      A,(MLINE)     ; MLINE is true if history buffer (up/down arrows) are enabled
           OR      A
           LD      A,C
           JR      Z,_ext
           ; Escapes are being processed. If it's one we know then do something otherwise ignore.
-          CALL    GET_CHR
+          CALL    _GETCHR
           LD      C,A
           CP      '['           ; The only form I understand for arrow characters
           JR      NZ,_ext
-          CALL    GET_CHR       ; It's a ESC-[ - net character must be A,B,C or D
+          CALL    _GETCHR       ; It's a ESC-[ - net character must be A,B,C,D or '3'
           LD      C,A
           CP      'A'
           JR      Z,_pline
@@ -310,25 +337,28 @@ _esc:     LD      A,(MLINE)
           JR      Z,_nchr
           CP      'D'
           JR      Z,_pchr
-          CP      '3'
+          CP      '3'           ; It's ESC[3. If the next char is $7E then delete char at current pos.
           JR      NZ,getc
-          CALL    GET_CHR
+          CALL    _GETCHR
           CP      $7E
           JR      NZ,getc
 
           ; Delete the current character
-          ; WRITE_CHR '}'
           CALL    DELETE
           JR      getc         ; Not a recognised escape sequence.
+
+; -------------------------
+; CURSOR CONTROL FUNCTIONS
+; -------------------------
 
 ; -- _pchr
 ; Move cursor one space to the left.
 _pchr:    LD      A,B
           OR      A
-          JR      Z,getc       ; At start of line
+          JR      Z,getc       ; At start of line so can't go back
           DEC     B
           DEC     HL
-          WRITE_CHR ESC
+          WRITE_CHR ESC        ; Shift cursor
           WRITE_CHR '['
           WRITE_CHR '1'
           WRITE_CHR 'D'
@@ -472,7 +502,8 @@ bspc:     XOR      A
           JR       getc
 
 ; ----- INITMLN
-; Initialise multiline
+; Set the history position to the first history line and then check whether the
+; multiline buffers have been initialised. If not then initialise now.
 INITMLN:  PUSH     HL
           LD       HL,(LPOS)
           LD       (HPOS),HL
@@ -683,7 +714,13 @@ _scope:   LD       A,3
           LD       A,(HL)
           RET
 
-
+; ------ BUFCHR
+; Consume and return the next character from the input line buffer (GET_LINE).
+; If there are no more characters in the buffer then return zero and set
+; the Z flag.
+; Return:
+;   A:  The next character from the buffer or zero if no more characters
+;   Z:  Z flag set if at end of buffer.
 BUFCHR:   PUSH     HL
           LD       HL, (INPTR)
           LD       A, (HL)
@@ -695,11 +732,12 @@ eb1:      POP      HL
           RET
 
 ; ------ UNGET
-; Wind back ONE chatacter unless at start of buffer
+; Wind back ONE character unless at start of buffer. This function is NOT currently exported.
+; All registers are preserved.
 UNGET:    PUSH     AF
           PUSH     HL
           PUSH     DE
-          LD       HL, INBUF    ; Reselt the line pointer
+          LD       HL, INBUF    ; Start of buffer
           LD       DE, (INPTR)
           LD       A,L
           CP       E
@@ -750,29 +788,6 @@ skip2:    LD       A, (HL)
           JR       eb
 
 
-; --------------------- PRINT - write a string to the terminal
-; HL: The address of the string to print (NOT SAVED)
-; A and HL not saved
-PRINT:    LD       A,(HL)          ; Get character
-          OR       A               ; Is it $00 ?
-          RET      Z               ; Then RETurn on terminator
-          RST      08H             ; Print it
-          INC      HL              ; Next Character
-          JR       PRINT           ; Continue until $00
-PRINT_LN: CALL     PRINT
-          LD       A,CR
-          RST      08H
-          LD       A,LF
-          RST      08H
-          RET
-
-; ----------- SETHIST
-; Switch history on or off. A: Boolean: 0: OFF, 1: ON
-SETHIST:  LD       (MLINE),A
-          RET
-
-; Read only data definitions that go in the code section
-_HEX_CHRS: DEFB  "0123456789ABCDEF"
 _ENDPRG:
 
 ; Data defintions for this module

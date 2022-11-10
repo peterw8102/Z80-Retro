@@ -1,6 +1,14 @@
 import ../zlib/defs.asm
 import config.asm
 
+; DEPRECATED - NOT LINKED INTO THE MONITOR.
+; This code WAS used to copy the running monitor into page zero of the
+; onboard flash device. Used before the author had access to a flash
+; programmer. Now obsolete and dangerous (can corrupt the monitor!).
+;
+; Included here because the code is interesting and took quite a while
+; to work out and _MAY_ be useful later.
+
           extrn  PRINT,PRINT_LN,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,WRITE_8,WRITE_16,INHEX_2,INHEX_4,MAPCASE
           extrn  BRK_HK
           extrn  CMD_B
@@ -9,9 +17,6 @@ import config.asm
 
           ; Include SPI/SDCard library
           extrn  SD_INIT, SD_RBLK, SD_WBLK
-
-          ; From the i2c library
-          extrn  I2C_WT
 
           ; And the RTC/i2c library
           extrn  RTC_INI, RTC_MRD, RTC_MWR

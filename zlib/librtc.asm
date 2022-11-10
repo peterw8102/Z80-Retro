@@ -1,18 +1,23 @@
 import ../zlib/defs.asm
 
 
-; import libsio.asm
+; Real Time Clock (RTC) driver
+; The RTC chip (DS1307+) is connected to the I2C bus. As wells as providing a clock the chip
+; also contains 56 bytes of non-volatile memory.
+;
+; DS1307+ Datasheet: https://www.mouser.co.uk/datasheet/2/256/DS1307-1513036.pdf
+;
+; Exports:
+; RTC_INI:  Initialise the RTC interface. Call before first use. Currently just initialises I2C
+; RTC_SOS:  Start the RTC oscilator at 1KHz
+; RTC_GET:  Return the 7 byte encoded date/time from the DS1307+ chip
+; RTC_SET:  Write the 7 byte date/time format to the DS1307+. See datasheet for format details
+; RTC_MRD:  Read some/all of the NVRAM bytes from the DS1307+, skipping the clock bytes
+; RTC_MWR:  Write to the NVRAM with protection from accidentally overwritting clock control byte
+; RTC_CL:   Clear all 56 NVRAM bytes
 
-; External dependancies
-; RST 08h - Write a single character to the terminal, character in A
-; RST 10h - Read one character from the terminal. Block until there is a character. Returned in A
-; RST 18h - Check whether there is a character available. Non blocking. Z flag set if there is NOT a character waiting.
-
-          ; extrn  PRINT,PRINT_LN,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,WRITE_8,WRITE_16,INHEX_2,INHEX_4
-          ; extrn  GET_HEX,INPTR,INBUF,INITSIO,MAPCASE,RXA,TXA,CKINCHAR
-          ; extrn  CMD_B
           extrn  I2C_INIT, I2C_STRT, I2C_STOP
-          extrn  I2C_WBY, I2C_RBY, I2C_WT
+          extrn  I2C_WBY, I2C_RBY
 
           public RTC_INI, RTC_SOS, RTC_GET, RTC_SET, RTC_MWR, RTC_MRD, RTC_CL
 
@@ -42,7 +47,7 @@ RTC_MWR:  LD       A,56
           LD       B,A     ; Limit to max available bytes
 _ok1:     LD       A,8     ; Skip clock control bytes
           ADD      C       ; Where we want to be
-          CALL     SETRDPT ; Set pointer and start write operation
+          CALL     setrdpt ; Set pointer and start write operation
 _wb:      LD       A,(HL)  ; Next byte to write
           INC      HL
           CALL     I2C_WBY
@@ -68,13 +73,14 @@ RTC_MRD:  LD       A,56
 _ok2:     LD       A,8               ; Skip clock control bytes
           ADD      C                 ; Where we want to be
           LD       C,A               ; which is 8 bytes further on.
+          ; AND CONTIUE INTO _INTRD...
 
-          ; Ready to read. Call HERE for internal reads
-_INTRD:   CALL     I2C_STRT          ; Start the read operation y setting the start address (WR op)
-          LD       A,RTC_ID | I2C_WR
-          CALL     I2C_WBY
-          LD       A,C
-          CALL     I2C_WBY           ; Write out the address we want to start reading from
+; Ready to read. Called to execute a read command to the RTC chip.
+; Inputs: B:  Number of bytes of data to read
+;         C:  The address in the RTC 64 byte address area from which to read
+;         HL: Address to which to write the data from the chip
+_INTRD:   LD       A,C               ; Set the read address
+          CALL     setrdpt
 
           CALL     I2C_STRT          ; Start read operation
           LD       A,RTC_ID | I2C_RD
@@ -98,7 +104,7 @@ _rb1:     CALL     I2C_RBY
 ; HL: Points to a 'time' configuration structure which is 7 bytes.
 RTC_SET:  PUSH     BC
           XOR      A
-          CALL     SETRDPT
+          CALL     setrdpt
           LD       B,7                ; Write out 7 bytes from (HL)
 _nextb:   LD       A,(HL)             ; write the data
           CALL     I2C_WBY
@@ -111,10 +117,13 @@ _nextb:   LD       A,(HL)             ; write the data
           RET
 
 ; -- RTC_GET
-; Get the time.
+; Get the time. This is returned as 7 buytes written to the buffer pointed at by HL.
+; The format of the time is as encoded by the DS1307+ chip, check the datasheet
+; referenced at the start of this file for details.
+;
 ; HL: Points to a buffer to receive the 7 byte time structure from the RTC
 RTC_GET:  PUSH     BC
-          LD       BC,0700h           ; Block read from address zero
+          LD       BC,0700h           ; Block read 7 bytes (B) from address zero (C)
           CALL     _INTRD
           POP      BC
           RET
@@ -129,7 +138,7 @@ RTC_INI:  JR       I2C_INIT
 ; All registers except AF are preserved.
 RTC_CL:   PUSH     BC
           LD       A,8
-          CALL     SETRDPT
+          CALL     setrdpt
 
           ; And write out 56 bytes of 55h
           LD       B,56
@@ -151,14 +160,15 @@ RTC_SOS:  CALL     I2C_STRT
           XOR      A
           CALL     I2C_WBY
 
+          ; And the data value
           XOR      A
           CALL     I2C_WBY
           CALL     I2C_STOP
           RET
 
-; SETRDPT
+; setrdpt
 ; Set the register address to the value in A
-SETRDPT:  PUSH     AF
+setrdpt:  PUSH     AF
           CALL     I2C_STRT
           LD       A,RTC_ID | I2C_WR
           CALL     I2C_WBY

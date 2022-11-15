@@ -39,3 +39,6 @@ For reference the following Raspberry Pi GPIO lines were connected to the Z80 bu
 |  A13  |  13  |    BCM27  |
 |  A14  |  19  |    BCM10  |
 |  A15  |  23  |    BCM11  |
+
+This gives the Pi write access to lower 64K of the extend Z80 address space.
+

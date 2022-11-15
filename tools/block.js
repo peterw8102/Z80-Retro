@@ -282,7 +282,10 @@ const handlers = {
 };
 
 
-
+/******************************************************************************
+Main entry point. The BAUD rate of 460800 is for a 14.74MHz clock. If the clock
+speed is 7.3528MHz then this value will need to be halved.
+*******************************************************************************/
 raspi.init(() => {
   log("Creating serial...");
   var serial = new Serial({
@@ -293,12 +296,14 @@ raspi.init(() => {
     var currBuff = Buffer.alloc(1024);
     var offset = 0;
     function processBuffer() {
-      // Check whether the command is complete
+      // Check whether the command is complete. Don't process anything if the
+      // number of characters received is less than 5.
       if (offset<5) {
         log("INPUT BUFFER LENGTH: ",offset);
         return;
       }
-      // Length meets minimum
+      // Length meets minimum. The ONLY thing expected from the Z80 end is a
+      // command. Commands are a sequence which starts with 0x55 and 0xAA.
       if (currBuff[0]!=0x55) {
         console.error("INVALID start byte: ", currBuff[0].toString(16));
         // Reset the buffer offset
@@ -309,11 +314,20 @@ raspi.init(() => {
         console.error("INVALID start message type: ", currBuff[1].toString(16));
         return;
       }
+      // The third character is the command byte:
+      //  0x10  - request file
+      //  0x11  - read file
+      //  0x81  - read sector from the virtual disk
+      //  0x82  - set the sector address for the next write request
+      //  0x83  - write a sector to the virtual disk
       if (!handlers.hasOwnProperty(currBuff[2])) {
         console.error("Unknown CMD type: ", currBuff[2].toString(16));
         return;
       }
+      // The next two bytes are a block length: the number of additional bytes to expect
+      // as part of this command.
       var blkLen = currBuff[3]+(currBuff[4] << 8);
+      log("PARAM LENGTH: ", blkLen);
       if (blkLen>0) {
         if (offset < blkLen+5) {
           log("Message incomplete. Actual: "+offset+", Needed: ", blkLen+5);
@@ -321,6 +335,7 @@ raspi.init(() => {
         }
       }
       log("CMD PAYLOAD LEN: "+blkLen+", BUFFER: ", currBuff);
+      log("PARAMTER: ", (blkLen>0 ? currBuff.slice(5, 5+blkLen) : null));
       handlers[currBuff[2]](serial, currBuff, blkLen>0 ? currBuff.slice(5, 5+blkLen) : null);
 
       // Reset command buffer offset.

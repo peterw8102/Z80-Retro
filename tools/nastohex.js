@@ -1,18 +1,12 @@
-// const io = {
-//   busRequest: function(req) {
-//     return new Promise((resolve) => {
-//       setInterval(() => resolve(), 1000);
-//     });
-//   },
-//   writeByte: function(addr, data) {
-//     console.log("WRITE BYTE....");
-//   }
-// };
+// Really simple utility that takes a file expected to e in Nascom's hex format
+// and write out the equivalent data in Intel hex format which we can then load
+// onto our board.
+
 const writeout = (...args) => process.stdout.write(...args);
 
+// Useful for debugging, but that's all!
 function log(...args) {
-  if (0)
-    console.log(...args);
+  // console.log(...args);
 }
 /* global process, console, require */
 // Intel HEX format processor. Expect a single parameter - the name of the file to load.
@@ -34,7 +28,7 @@ var fl = fs.readFileSync(args[0]);
 
 log("FILE: ", fl.toString());
 
-var lines = fl.toString().split(/\n/m);
+var inLines = fl.toString().split(/\n/m);
 
 function toHex4(val) {
   return ('0000'+val.toString(16)).substr(-4);
@@ -44,19 +38,16 @@ function toHex2(val) {
 }
 
 function convertFile(lines) {
-  var cs, outstr, byte, bytes, byteStr;
-  // Read lines
+  var cs, byte, bytes, byteStr;
+  // Process each Nascom format line to generate an equivalent Intel format line.
   for (var l=0; l<lines.length; l++) {
     var line = lines[l];
     log("Processing line: "+line);
     if (line.charAt(0)=='.') {
       // Write the end of file record
-      writeout(':00000001FF\n')
+      writeout(':00000001FF\n');
       break;
     }
-    outstr = ':';
-
-    var line = lines[l];
     // Split out the fields.
     var [,addr, data] = ((/([0-9A-F]{4})(.*)\s*$/).exec(line)||[]);
     log("ADDR STR: ["+addr+"]");
@@ -64,7 +55,8 @@ function convertFile(lines) {
     if (addr!=null && data!=null) {
       addr = parseInt(addr, 16);
 
-      // parse the byte data to wee how many we have for the length field.
+      // parse the byte data to tell how many we have for the length field
+      // and to calculate the Intel format checksum byte.
       bytes = [];
       byteStr = '';
       // If this is a
@@ -84,7 +76,7 @@ function convertFile(lines) {
       cs += (addr & 0xff);
       cs += ((addr >> 8) & 0xff);
       if (bytes.length>0) {
-        // Calculate the output record.
+        // Calculate the output record for Intel format.
         writeout(':'+toHex2(bytes.length)+toHex4(addr)+'00'+byteStr+toHex2((~cs) & 0xff)+'\n');
       }
     }
@@ -93,6 +85,6 @@ function convertFile(lines) {
   return "FINISHED";
 }
 
-if (lines!=null && lines.length>0) {
-  convertFile(lines);
+if (inLines!=null && inLines.length>0) {
+  convertFile(inLines);
 }

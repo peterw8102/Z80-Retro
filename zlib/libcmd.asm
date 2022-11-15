@@ -205,7 +205,7 @@ _nores:           LD       BC,0
 ; xx   - The response body - ll number of bytes
 ; chks - 8 bit very simple checksum
 ;
-; The checksum is simple a addition of all bytes in the body (only)
+; The checksum is simple addition of all bytes in the body (only)
 ;
 ; This function takes the following parameters
 ;   A:  The command to send

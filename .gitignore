@@ -59,3 +59,7 @@ typings/
 
 # next.js build output
 .next
+
+# Z80 assembler output files and sample code
+zout/
+samples/

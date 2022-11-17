@@ -1,6 +1,10 @@
 # Z80-Retro
 Tools and code snippets I'm playing with while building my own Z80 SBC
 
+## Toolchain
+
+I evaluated a few Z80 assemblers/loaders and settled on the `zmac` [assembler](http://48k.ca/zmac.html) and `ld80` [linker](http://48k.ca/ld80.html). These aren't perfect but at much more flexible than the other available options. This is a cross-assembler which I run on my Apple Mac.
+
 ## zlib
 
 A set of library routines to drive the various hardware elements of the board. These are 'included' in the zloader monitor programme. See the directory itself for details.

@@ -24,10 +24,14 @@ BRK_OPCODE:  .EQU     0E7h     ; The instruction to use to cause a breakpoint. T
 BRK_HANDLER: .EQU      20h     ; The address at which to origin the break point handler Must match BRK_OPCODE
 
 ; Configuring how the monitor runs.
-; IS_DEVEL should be 1h when developing new versions on the monitor (which then locates
+; IS_DEVEL should be 1h when developing new versions of the monitor (which then locates
 ; the monitor in PAGE 1 of available memory). Set IS_DEVEL to '0' and rebuild to create
-; a version to burn to FLASH.
+; a version to burn to FLASH. Here we use
+ifdef RELEASE
+IS_DEVEL    EQU    0h          ; Make adjustments if we're testing a new loader. SET THIS
+else
 IS_DEVEL    EQU    1h          ; Make adjustments if we're testing a new loader. SET THIS
+endif
 
 ; RAM_PG_0 is the first page MMU page which is RAM. Generally Flash occupies low page
 ; numbers while RAM resides from page 20h. This can be swapped with a jumper on the

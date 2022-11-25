@@ -157,6 +157,7 @@
       <div class="hex removed">
         <textarea id="hex"></textarea>
         <div>
+          <div id="asmFmt" class="removed" style="float: right">Line format: &quot;[label:] DEFB <emp>hex_data</emp>&quot; Hex format &quot;$hh&quot;</div>
           <button type="button" name="closehex" id="closehex">Close</button>
           <button type="button" name="impasm" class="removed" id="do_impasm">Import</button>
         </div>
@@ -164,14 +165,15 @@
       <div class="editor">
         <h1>Font editor</h1>
         <div class="row">
-          <form class="file-controls">
-            <div>
-              <label class="hidden" for="font">Select font file to process</label>
+          <form class="file-controls" style="border: 1px solid black">
+            <div>Import Intel/raw hex format font</div>
+            <div style="padding-left: 70px; width:auto; text-align: center; margin:0 auto">
+              <label class="hidden" for="font">Select font file to process </label>
               <input type="file" name="font" id="font">
             </div>
             <div class="controls export">
-              <label for="addr">Addr:</label><input id="addr" type="text" name="addr"  step="1" value="C000" style="width:40px">
-              <button id="export">Export Hex)</button>
+              <label for="addr" title="Address in HEX">Addr:</label><input id="addr" type="text" name="addr"  step="1" value="C000" style="width:80px">
+              <button id="export">Export Intel Hex</button>
             </div>
             <div class="controls glyph">
               <label for="st">Start:</label><input id="st" type="text" min="0" max="256" name="strt"  step="1" value="0" style="width:40px">

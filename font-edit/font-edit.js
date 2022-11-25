@@ -98,8 +98,10 @@ function exportAsm(ev) {
   if (currentCharset==null)
     return;
 
-  const hex  = document.querySelector('.hex');
+  const hex     = document.querySelector('.hex');
+  const asmDesc = document.getElementById('asmFmt');
 
+  asmDesc.classList.add('removed');
   hex.classList.remove('removed');
 
   const strt = parseInt(document.forms[0].strt.value, 10);
@@ -134,8 +136,10 @@ function exportData(ev) {
     return;
 
   const hex  = document.querySelector('.hex');
+  const asmDesc = document.getElementById('asmFmt');
 
   hex.classList.remove('removed');
+  asmDesc.classList.add('removed');
 
   // Generate the output file. Base address is 8000h.
   var addr = parseInt(document.forms[0].addr.value, 16);
@@ -175,12 +179,10 @@ function parseData(bytes, data) {
     bytes.push(parseInt(data.slice(b*2, b*2+2),16));
   return bytes;
 }
-function parseHexFile(content) {
+function parseIntelHexFile(lines) {
   // Process the Intel Hex format font definition into an internal format
   const characters = [];
 
-  // Each line is a Intel HEX format input. Each character os 16 bytes.
-  var lines = content.toString().split(/\n/m);
   const chr = [];
   for (var i=0;i<lines.length;i++) {
     const line = lines[i];
@@ -200,6 +202,44 @@ function parseHexFile(content) {
   }
   log("CHARACTERS: ", characters);
   return characters;
+}
+function parseRawHexFile(lines) {
+  // Process the Intel Hex format font definition into an internal format
+  const characters = [];
+
+  const chr = [];
+  for (var i=0;i<lines.length;i++) {
+    const line = lines[i];
+    var [,data, d1] = ((/^(([0-9A-Fa-f]{2}\s*)+)/).exec(line)||[]);
+    log("D1: ", d1);
+    if (data!=null) {
+      // Remove spaces...
+      data = data.replace(/\s+/g,'');
+      log("LINE: ",line);
+      log("RAW DATA STR: ["+data+"]");
+
+      parseData(chr, data);
+      while (chr.length>=16)
+        characters.push(chr.splice(0,16));
+    }
+  }
+  log("RAW CHARACTERS: ", characters);
+  return characters;
+}
+function parseHexFile(content) {
+  var lines = content.toString().split(/\n/m);
+  const firstLine = lines[0];
+
+  // Does it look like a raw hex file or an Intel hex format line?
+  if (firstLine.charAt(0)==':') {
+    // Assume intel format
+    log("Processing Intel hex format file");
+    return parseIntelHexFile(lines);
+  }
+  else if ((/^[\sa-zA-Z0-9]+$/).test(firstLine)) {
+    log("Processing RAW hex format file");
+    return parseRawHexFile(lines);
+  }
 }
 function fmtRow(byte) {
   const str = [];
@@ -302,10 +342,10 @@ function start() {
   const editor = document.querySelector('.editor');
   const cont   = document.querySelector('.content');
 
-  const w      = document.getElementById('w');
-  const h      = document.getElementById('h');
-  const glyph  = document.getElementById('glyph');
-  const draw   = document.getElementById('draw');
+  const w       = document.getElementById('w');
+  const h       = document.getElementById('h');
+  const glyph   = document.getElementById('glyph');
+  const draw    = document.getElementById('draw');
 
   const asmImportButton = document.getElementById('do_impasm');
 
@@ -316,7 +356,9 @@ function start() {
       return;
 
     const hex  = document.querySelector('.hex');
+    const asmDesc = document.getElementById('asmFmt');
 
+    asmDesc.classList.remove('removed');
     hex.classList.remove('removed');
     document.getElementById('do_impasm').classList.remove('removed');
   }
@@ -340,14 +382,15 @@ function start() {
     // Split input into lines
     const lines = asm.split(/[\n\r]+/g);
     log("VALUE: ", lines);
-    const lineTest = /^\s*DEFB\s+/;
-    const lineFix = /^\s*DEFB\s+|\s+;.*$/g;
+    const lineTest = /^.*DEFB\s+/;
+    const lineFix = /^.*DEFB\s+|\s+;.*$/g;
     const bytes = [];
     while (lines.length>0) {
       let line = lines.shift();
       if (lineTest.test(line)) {
         line = line.replace(lineFix, '');
         const toks = line.split(/\s*,\s*/);
+        log("ACCEPTED: ", toks);
 
         // Each token *should* be a byte. Only accept $ hex format.
         toks.forEach((t) => {
@@ -623,7 +666,7 @@ function start() {
     const meta = loadMeta();
 
     if (meta.addr!=null)
-      document.forms[0].addr.value = meta.addr;
+      document.forms[0].addr.value = meta.addr.toString(16);
     if (meta.start!=null)
       document.forms[0].strt.value = meta.start;
     if (meta.length!=null)

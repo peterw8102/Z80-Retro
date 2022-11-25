@@ -1,0 +1,215 @@
+<html>
+  <head>
+    <title>Font editor</title>
+    <style type="text/css">
+      @font-face {
+        font-family: 'editor';
+        src:  url('file:font-edit.ttf') format('truetype');
+        font-weight: normal;
+        font-style: normal;
+        font-display: block;
+      }
+
+      [class^="icon-"], [class*=" icon-"] {
+        /* use !important to prevent issues with browser extensions that change fonts */
+        font-family: 'editor' !important;
+        speak: never;
+        font-style: normal;
+        font-weight: normal;
+        font-variant: normal;
+        text-transform: none;
+        line-height: 1;
+
+        /* Better Font Rendering =========== */
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      .icon-square2:before {
+        content: "\e900";
+      }
+      .icon-square:before {
+        content: "\e901";
+      }
+      body {
+        font-family: sans-serif;
+      }
+      .file-controls {
+        margin-bottom: 50px;
+      }
+      .content, row {
+        display: flex;
+        flex-direction: row;
+      }
+      .content > div, col {
+        flex: 0 1 auto
+      }
+      .hidden {
+        position: absolute;
+        left: 0;
+        top: -10000px;
+      }
+      html>body .removed {display: none !important}
+      .error {
+        font-weight: 700;
+        color: #ff000
+      }
+      .viewer {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+      .viewer .char {
+        flex: 0;
+        padding-bottom: 10px;
+        padding-right: 10px;
+        letter-spacing: -1;
+      }
+      .viewer .char > div:last-child {
+        text-align: center;
+        font-size: 10px;
+        white-space: nowrap
+      }
+      .viewer .render {
+        font-family: editor;
+        font-size: 4px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .viewer .current {
+        outline: 5px solid red;
+        color: #6f00ff;
+      }
+      html>body .hex {
+        flex: 1 !important;
+        font-family: monospace;
+        position: absolute;
+        top: 5%; left: 5%;
+        width: 90%;
+        background-color: #fff;
+        border: 1px solid black;
+        box-shadow: 1px 3px 3px 1px #ccc;
+      }
+      html>body .hex div {
+        padding: 10px
+      }
+
+      #hex {
+        width: 100%; height: 800px;
+      }
+      .editor {
+        xflex: 1 !important;
+      }
+      .pixels .char > div,
+      .editor .char > div {
+        white-space: nowrap
+      }
+      .pixels span, .editor span {
+        display: inline-block;
+        padding: 0; margin: 0;
+        border: 1px solid #e0e0e0;
+        cursor: pointer;
+      }
+      .pixels span {
+        width: 15px; height: 12px;
+      }
+      .editor span {
+        width: 30px; height: 25px;
+      }
+      .pixels .set, .editor .set {
+        background-color: #000
+      }
+      .editor .info {
+        text-align: center;
+        margin-top: 0px 20px;
+      }
+      .file-controls > div,
+      .editor .controls > div {
+        margin: 10px auto;
+        width: fit-content;
+      }
+      .controls {
+        border-top: 1px solid #000;
+        padding-top: 10px;
+        margin-top: 10px;
+      }
+      #draw {
+        position: absolute;
+        top: 5%; left: 5%;
+        width: 90%;
+        background-color: #fff;
+        border: 1px solid black;
+        box-shadow: 1px 3px 3px 1px #ccc;
+      }
+      .pixels {
+        width: fit-content;
+        padding: 20px;
+        margin: 0 auto;
+      }
+      #draw .controls {
+        padding: 10px; text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="content">
+      <div class="viewer">
+      </div>
+      <div class="hex removed">
+        <textarea id="hex"></textarea>
+        <div>
+          <button type="button" name="closehex" id="closehex">Close</button>
+          <button type="button" name="impasm" class="removed" id="do_impasm">Import</button>
+        </div>
+      </div>
+      <div class="editor">
+        <h1>Font editor</h1>
+        <div class="row">
+          <form class="file-controls">
+            <div>
+              <label class="hidden" for="font">Select font file to process</label>
+              <input type="file" name="font" id="font">
+            </div>
+            <div class="controls export">
+              <label for="addr">Addr:</label><input id="addr" type="text" name="addr"  step="1" value="C000" style="width:40px">
+              <button id="export">Export Hex)</button>
+            </div>
+            <div class="controls glyph">
+              <label for="st">Start:</label><input id="st" type="text" min="0" max="256" name="strt"  step="1" value="0" style="width:40px">
+              <label for="len">Len:</label><input id="len" type="text" min="0" max="256" name="len" step="1" value="256" style="width:40px">
+              <button type="button" id="expasm">Asm Export</button>
+            </div>
+            <div class="control export">
+              <div><button id="reverse">Reverse all bits in font</button></div>
+            </div>
+            <div class="controls glyph">
+              <label for="w">W:</label><input id="w" type="number" min="1" max="8" name="width"  step="1" value="5" disabled>
+              <label for="h">H:</label><input id="h" type="number" min="1" max="8" name="height" step="1" value="2" disabled>
+              <button type="button" id="glyph" disabled>Glyph</button>
+            </div>
+          </form>
+          <div class="fdesc"></div>
+          <div class="fcont"></div>
+        </div>
+        <div class="char">
+        </div>
+        <div class="info">
+        </div>
+        <div class="controls">
+          <div><button id="revert">Undo changes</button></div>
+          <div><button id="copy">Copy to clipboard</button></div>
+          <div><button id="paste">Paste from clipboard</button></div>
+          <div><button id="clear">Clear clipboard</button></div>
+          <div><button id="impasm">Import ASM</button></div>
+          <div><button id="save">Save</button></div>
+        </div>
+      </div>
+    </div>
+    <div id="draw" class="removed">
+      <div class="pixels"></div>
+      <div class="controls">
+        <div><button id="saveg">Save</button></div>
+      </div>
+    </div>
+    <script type="text/javascript" src="file:font-edit.js"></script>
+  </body>
+</html>

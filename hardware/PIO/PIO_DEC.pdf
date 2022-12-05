@@ -1,0 +1,175 @@
+{COMPONENT C:\GIT\Z80\HARDWARE\PIO\PIO_DEC.SYM
+
+ {ENVIRONMENT
+  {PDIFvrev 3.00}
+  {Program "CUPL(WM) Version 5.0a"}
+  {DBtype "Schematic"}
+  {DBvrev 1.01}
+  {DBtime "Thu Dec 01 20:18:06 2022 "}
+  {DBunit "MIL"}
+  {DBgrid 10}
+  {Lyrstr "WIRES" 1 "BUS" 1 "GATE" 2 "IEEE" 2 "PINFUN" 3 "PINNUM" 1 
+          "PINNAM" 6 "PINCON" 4 "REFDES" 2 "ATTR" 6 "SDOT" 1 
+          "DEVICE" 5 "OUTLIN" 5 "ATTR2" 6 "NOTES" 6 "NETNAM" 4 
+          "CMPNAM" 5 "BORDER" 5}
+ }
+
+ {USER
+  {VIEW
+   {Mode SYMB}
+   {Nlst OPEN}
+   {Vw 0 0 2}
+   {Lv 12 2 2 2 0 0 2 2 2 2 0 0 2 1 2 0 0 0 0}
+   {Gs 10 10}
+  }
+ }
+
+ {DISPLAY
+  [Ly "PINNUM"]
+  [Ls "SOLID"][Wd 0]
+  [Ts 15][Tj "LC"][Tr 0][Tm "N"]
+ }
+
+ {SYMBOL
+  {PIN_DEF
+   [Ly "PINCON"]
+   {P GST {Pt "INPUT"}{Lq 0}{Ploc 100 180}}
+   {P A0 {Pt "INPUT"}{Lq 0}{Ploc 100 160}}
+   {P A1 {Pt "INPUT"}{Lq 0}{Ploc 100 140}}
+   {P A2 {Pt "INPUT"}{Lq 0}{Ploc 100 120}}
+   {P COL0 {Pt "INPUT"}{Lq 0}{Ploc 100 100}}
+   {P ARDY {Pt "INPUT"}{Lq 0}{Ploc 100 80}}
+   {P SNDSEL {Pt "INPUT"}{Lq 0}{Ploc 100 60}}
+   {P RD {Pt "INPUT"}{Lq 0}{Ploc 100 40}}
+   {P WR {Pt "INPUT"}{Lq 0}{Ploc 100 20}}
+   {P ALWR {Pt "I/O"}{Lq 0}{Ploc 320 20}}
+   {P ACE {Pt "I/O"}{Lq 0}{Ploc 320 40}}
+   {P L0 {Pt "I/O"}{Lq 0}{Ploc 320 60}}
+   {P WR_OUT {Pt "I/O"}{Lq 0}{Ploc 320 80}}
+   {P RD_IN {Pt "I/O"}{Lq 0}{Ploc 320 100}}
+   {P PIOSEL {Pt "I/O"}{Lq 0}{Ploc 320 120}}
+  }
+
+  {PKG
+   [Ly "REFDES"]
+   [Ts 25][Tj "CB"][Tr 0][Tm "N"]
+   {Rdl 210 210}
+
+   [Ly "PINNUM"]
+   [Ts 15][Tj "RC"]
+   {Pnl 120 190}
+   {Pnl 120 170}
+   {Pnl 120 150}
+   {Pnl 120 130}
+   {Pnl 120 110}
+   {Pnl 120 90}
+   {Pnl 120 70}
+   {Pnl 120 50}
+   {Pnl 120 30}
+   [Ts 15][Tj "LC"]
+   {Pnl 300 30}
+   {Pnl 300 50}
+   {Pnl 300 70}
+   {Pnl 300 90}
+   {Pnl 300 110}
+   {Pnl 300 130}
+
+   {Sd A 1 2 3 4 5 6 7 8 9 14 15 16 17 18 19}
+  }
+
+  {PIC
+   [Ly "GATE"]
+   [Ts 15][Tj "LC"][Tr 0][Tm "N"]
+   {R 130 200 290 0}
+   {L 130 180 100 180}
+   {L 130 160 100 160}
+   {L 130 140 100 140}
+   {L 130 120 100 120}
+   {L 130 100 100 100}
+   {L 130 80 100 80}
+   {L 130 60 100 60}
+   {L 130 40 100 40}
+   {L 130 20 100 20}
+   {L 290 20 320 20}
+   {L 290 40 320 40}
+   {L 290 60 320 60}
+   {L 290 80 320 80}
+   {L 290 100 320 100}
+   {L 290 120 320 120}
+   [Ly "PINNAM"]
+   [Tj "LC"]
+   {T "GST" 140 180}
+   {T "A0" 140 160}
+   {T "A1" 140 140}
+   {T "A2" 140 120}
+   {T "COL0" 140 100}
+   {T "ARDY" 140 80}
+   {T "SNDSEL" 140 60}
+   {T "RD" 140 40}
+   {T "WR" 140 20}
+   [Tj "RC"]
+   {T "ALWR" 280 20}
+   {T "ACE" 280 40}
+   {T "L0" 280 60}
+   {T "WR_OUT" 280 80}
+   {T "RD_IN" 280 100}
+   {T "PIOSEL" 280 120}
+   [Ly "DEVICE"]
+   [Tj "CT"]
+   {T "G16V8AS" 210 -10}
+  }
+
+  {ATR
+   {IN
+    {Org 100 20}
+    {Ty 255}
+   }
+   {EX
+    [Ly "ATTR2"]
+    [Ts 12][Tj "CT"][Tr 0][Tm "N"]
+    {At PLD C:\GIT\Z80\HARDWARE\PIO\PIO_DEC 210 200}
+   }
+  }
+ }
+
+ {DETAIL
+  {ANNOTATE
+  }
+
+  {NET_DEF
+   {N GST
+   }
+   {N A0
+   }
+   {N A1
+   }
+   {N A2
+   }
+   {N COL0
+   }
+   {N ARDY
+   }
+   {N SNDSEL
+   }
+   {N RD
+   }
+   {N WR
+   }
+   {N ALWR
+   }
+   {N ACE
+   }
+   {N L0
+   }
+   {N WR_OUT
+   }
+   {N RD_IN
+   }
+   {N PIOSEL
+   }
+  }
+
+  {SUBCOMP
+  }
+ }
+}

@@ -1,0 +1,66 @@
+CSIM(WM): CUPL Simulation Program
+Version 5.0a Serial# 60008009
+Copyright (c) 1983, 1998 Logical Devices, Inc.
+CREATED Thu Dec 01 20:18:06 2022
+
+LISTING FOR SIMULATION FILE: PIO_DEC.si
+
+   1: Name     PIO_DEC ;
+   2: PartNo   PIO_DEC ;
+   3: Date     30/11/2022 ;
+   4: Revision 01 ;
+   5: Designer Peter Wilson ;
+   6: Company  Home ;
+   7: Assembly None ;
+   8: Location  ;
+   9: Device   G16V8A ;
+  10: 
+  11: /****************************************************************/
+  12: /*                                                              */
+  13: /* General File Comments                                        */
+  14: /*                                                              */
+  15: /****************************************************************/
+  16: /* Order: define order, polarity, and output spacing of stimulus and response values */
+  17: /* Vectors: define stimulus and response values, with header
+  18: * and intermediate messages for the simulator listing.
+  19: *
+  20: * Note: Don't Care state (X) on inputs is reflected in outputs where appropriate.
+  21: */
+  22: /* Order: define order, polarity, and output spacing of stimulus and response values */
+  23: 
+  24: ORDER: GST, %1, A2, A1, A0, %4, RD, %2, WR, %2, SNDSEL, %6, COL0, %4, ARDY, %4, PIOSEL, %6, RD_IN, %5, WR_OUT, %6, ACE, %3, ALWR, %2, L0;
+  25: 
+  26: 
+
+=====================================================================
+                     S                P            W                 
+                     N                I      R     R                 
+                     D      C    A    O      D     _          A      
+      G              S      O    R    S      _     O      A   L      
+      S AAA    R  W  E      L    D    E      I     U      C   W  L   
+      T 210    D  R  L      0    Y    L      N     T      E   R  0   
+=====================================================================
+       Vertical line tests
+      G ADDR RD WR SNDSEL COL0 ARDY PIOSEL RD_IN WR_OUT L0 ACE ALWR
+      - ---- -- -- ------ ---- ---- ------ ----- ------ -- --- ----
+0001: 1 XXX    X  X  X      X    X    H      H     L      H   L  X
+0002: 0 000    X  X  X      X    X    L      H     L      H   L  X
+0003: 0 001    X  X  X      X    X    L      H     L      H   L  X
+0004: 0 010    X  X  X      X    X    L      H     L      H   L  X
+0005: 0 011    X  X  X      X    X    L      H     L      H   L  X
+0006: 0 100    1  1  X      X    X    H      H     L      H   L  X
+0007: 0 100    0  1  X      X    X    H      L     L      H   L  X
+0008: 0 100    1  0  X      X    X    H      H     H      H   L  X
+0009: 0 100    0  0  X      X    X    H      H     L      H   L  X
+0010: 0 101    1  1  X      X    X    H      H     L      L   L  X
+0011: 0 101    0  1  X      X    X    H      H     L      L   L  X
+0012: 0 101    1  0  X      X    X    H      H     L      L   H  X
+0013: 0 101    0  0  X      X    X    H      H     L      L   L  X
+0014: X XXX    X  X  0      0    0    X      X     X      X   X  L
+0015: X XXX    X  X  0      1    0    X      X     X      X   X  H
+0016: X XXX    X  X  0      0    1    X      X     X      X   X  L
+0017: X XXX    X  X  0      1    1    X      X     X      X   X  H
+0018: X XXX    X  X  1      0    0    X      X     X      X   X  L
+0019: X XXX    X  X  1      1    0    X      X     X      X   X  L
+0020: X XXX    X  X  1      0    1    X      X     X      X   X  H
+0021: X XXX    X  X  1      1    1    X      X     X      X   X  H

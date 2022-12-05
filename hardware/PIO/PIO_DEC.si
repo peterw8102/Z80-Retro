@@ -1,0 +1,62 @@
+Name     PIO_DEC ;
+PartNo   PIO_DEC ;
+Date     30/11/2022 ;
+Revision 01 ;
+Designer Peter Wilson ;
+Company  Home ;
+Assembly None ;
+Location  ;
+Device   G16V8A ;
+
+/****************************************************************/
+/*                                                              */
+/* General File Comments                                        */
+/*                                                              */
+/****************************************************************/
+/* Order: define order, polarity, and output spacing of stimulus and response values */
+/* Vectors: define stimulus and response values, with header
+* and intermediate messages for the simulator listing.
+*
+* Note: Don't Care state (X) on inputs is reflected in outputs where appropriate.
+*/
+/* Order: define order, polarity, and output spacing of stimulus and response values */
+
+ORDER: GST, %1, A2, A1, A0, %4, RD, %2, WR, %2, SNDSEL, %6, COL0, %4, ARDY, %4, PIOSEL, %6, RD_IN, %5, WR_OUT, %6, ACE, %3, ALWR, %2, L0;
+
+
+VECTORS:
+$MSG  "       Vertical line tests";
+$MSG  "      G ADDR RD WR SNDSEL COL0 ARDY PIOSEL RD_IN WR_OUT L0 ACE ALWR";
+$MSG  "      - ---- -- -- ------ ---- ---- ------ ----- ------ -- --- ----";
+
+/* INPUTS: GST ADDR RDWR               SNDSEL COL0 ARDY  */
+/* OUPUTS: PIOSEL   RD_IN WR_OUT       ACE     ALWR L0   */
+
+1 XXX XX XXX    H HL HLX
+0 000 XX XXX    L HL HLX
+0 001 XX XXX    L HL HLX
+0 010 XX XXX    L HL HLX
+0 011 XX XXX    L HL HLX
+
+/* READ/WRITE to the keyboard registers */
+0 100 11 XXX    H HL HLX
+0 100 01 XXX    H LL HLX
+0 100 10 XXX    H HH HLX
+0 100 00 XXX    H HL HLX
+
+/* READ/WRITE to the sound chip */
+0 101 11 XXX    H HL LLX
+0 101 01 XXX    H HL LLX
+0 101 10 XXX    H HL LHX
+0 101 00 XXX    H HL LLX
+
+/* Checks for L0 */
+X XXX XX 000    X XX XXL
+X XXX XX 010    X XX XXH
+X XXX XX 001    X XX XXL
+X XXX XX 011    X XX XXH
+
+X XXX XX 100    X XX XXL
+X XXX XX 110    X XX XXL
+X XXX XX 101    X XX XXH
+X XXX XX 111    X XX XXH

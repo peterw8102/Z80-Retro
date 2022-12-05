@@ -1,0 +1,44 @@
+Name     PIO_DEC ;
+PartNo   PIO_DEC ;
+Date     30/11/2022 ;
+Revision 01 ;
+Designer Peter Wilson ;
+Company  Home ;
+Assembly None ;
+Location  ;
+Device   G16V8A ;
+
+/*
+ *  I/O and signal decoder for I/O PIO card.
+ */
+
+/** input pins **/
+PIN 1	 = GST;           /* Generic I/O range select from the CPU board */
+PIN 2  = A0;            /* Address lines: 1xx should be the PIO */
+PIN 3  = A1;
+PIN 4  = A2;
+PIN 5  = COL0;          /* The COL0 input from the keyboard */
+PIN 6  = ARDY;          /* The ARDY line from the sound chip */
+PIN 7  = SNDSEL;        /* Bit 7 from the keyboard board output control register */
+PIN 8  = RD;            /* Z80 RD */
+PIN 9  = WR;            /* Z80 WR */
+
+/** output pins **/
+PIN 19  = PIOSEL;        /* Low to select PIO */
+PIN 18  = RD_IN;         /* Read strobe (active low) for input latch */
+PIN 17  = WR_OUT;        /* Write strobe (active high) to output 8 bit port register */
+PIN 16  = L0;            /* Either COL0 if SNDSEL=0 or ARDY if SNDSEL=1 */
+PIN 15  = ACE;           /* Chip select for the sound chip */
+PIN 14  = ALWR;          /* Strobe data to the 8 bit audio data latch */
+
+PIOSEL  = !(!GST & !A2);  /* PIO is selected for all 0XXb addresses */
+RD_IN   = !(!GST & WR & !RD & A2 & !A1 & !A0);
+                         /* Active LOW read of the keyboard input register on address 100b */
+WR_OUT  = !GST & !WR & RD & A2 & !A1 & !A0;
+                         /* Active HIGH write to keyboard port latch  on port 100b*/
+L0      = (!SNDSEL & COL0) # (SNDSEL & ARDY);
+                         /* Select either COL0 or ARDY depending on SNDSEL */
+ACE     = !(!GST & A2 & !A1 & A0);
+                         /* Sound chip selected at address 101b */
+ALWR    = !GST & A2 & !A1 & A0 & !WR & RD;
+                         /* Active high write to the sound chip latch register on 101b */

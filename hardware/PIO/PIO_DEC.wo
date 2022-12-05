@@ -1,0 +1,48 @@
+#WAVEFORM
+#H Name     PIO_DEC ;
+#H PartNo   PIO_DEC ;
+#H Date     30/11/2022 ;
+#H Revision 01 ;
+#H Designer Peter Wilson ;
+#H Company  Home ;
+#H Assembly None ;
+#H Location  ;
+#H Device   G16V8A ;
+#H 
+#H /****************************************************************/
+#H /*                                                              */
+#H /* General File Comments                                        */
+#H /*                                                              */
+#H /****************************************************************/
+#H /* Order: define order, polarity, and output spacing of stimulus and response values */
+#H /* Vectors: define stimulus and response values, with header
+#H * and intermediate messages for the simulator listing.
+#H *
+#H * Note: Don't Care state (X) on inputs is reflected in outputs where appropriate.
+#H */
+#H /* Order: define order, polarity, and output spacing of stimulus and response values */
+#H 
+#H ORDER: GST, %1, A2, A1, A0, %4, RD, %2, WR, %2, SNDSEL, %6, COL0, %4, ARDY, %4, PIOSEL, %6, RD_IN, %5, WR_OUT, %6, ACE, %3, ALWR, %2, L0;
+#H 
+#H 
+#V 0001 1XXXXXXXXHHLHLX
+#V 0002 0000XXXXXLHLHLX
+#V 0003 0001XXXXXLHLHLX
+#V 0004 0010XXXXXLHLHLX
+#V 0005 0011XXXXXLHLHLX
+#V 0006 010011XXXHHLHLX
+#V 0007 010001XXXHLLHLX
+#V 0008 010010XXXHHHHLX
+#V 0009 010000XXXHHLHLX
+#V 0010 010111XXXHHLLLX
+#V 0011 010101XXXHHLLLX
+#V 0012 010110XXXHHLLHX
+#V 0013 010100XXXHHLLLX
+#V 0014 XXXXXX000XXXXXL
+#V 0015 XXXXXX010XXXXXH
+#V 0016 XXXXXX001XXXXXL
+#V 0017 XXXXXX011XXXXXH
+#V 0018 XXXXXX100XXXXXL
+#V 0019 XXXXXX110XXXXXL
+#V 0020 XXXXXX101XXXXXH
+#V 0021 XXXXXX111XXXXXH

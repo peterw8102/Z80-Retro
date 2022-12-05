@@ -1,0 +1,42 @@
+%SIGNAL
+PIN   2 =  A0 
+PIN   3 =  A1 
+PIN   4 =  A2 
+PIN  15 =  ACE 
+PIN  14 =  ALWR 
+PIN   6 =  ARDY 
+PIN   5 =  COL0 
+PIN   1 =  GST 
+PIN  16 =  L0 
+PIN  19 =  PIOSEL 
+PIN   8 =  RD 
+PIN  18 =  RD_IN 
+PIN   7 =  SNDSEL 
+PIN   9 =  WR 
+PIN  17 =  WR_OUT 
+%END
+
+%FIELD
+%END
+
+%EQUATION
+ACE =>
+    A0 & !A1 & A2 & !GST
+
+ALWR =>
+    A0 & !A1 & A2 & !GST & RD & !WR
+
+L0 =>
+    COL0 & !SNDSEL
+  # ARDY & SNDSEL
+
+PIOSEL =>
+    !A2 & !GST
+
+RD_IN =>
+    !A0 & !A1 & A2 & !GST & !RD & WR
+
+WR_OUT =>
+    !A0 & !A1 & A2 & !GST & RD & !WR
+
+%END

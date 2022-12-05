@@ -36,3 +36,28 @@ I find my Mac a much nicer environment for development than the Raspeberry Pi. I
 
 For development I use a block-level protocol (see *libcmd* above). `nodemon` on my Mac assembles software being developed and transfers to the Pi, the zloader **BO** command on the Z80 board loads and runs the code over serial port B using the block protocol.
 
+## Next steps...
+
+### Hardware
+
+I've just designed an I/O card which is currently on it's way to me. This will provide a keyboard interface (using the Omega MSX heyboard), dual joysticks, a Z80 PIO interface and a SN76489 sound chip. The system will then comprise three cards and have all the functionality I probably need. It might be interesting to add a legacy floppy disk interface though...
+
+### Core Operating Software
+
+I'll be documenting intended improvements/features to the software using GitHub issues. Here's a summary of what I want to do:
+
++ Replace the IM0 mode interrupt model with IM2 and 'reserve' the top 512 bytes for ZLoader use.
++ Generalise the keyboard I/O so, with the Omega keyboard and video card, have the option of a completely standalone system like we had in the old days!
++ Provide 'virtual disks' that can be used by guest operating systems. The core of this is already there but it's not usable at the moment. Needs additions to the core and then utilities to make the mappings.
++ Make use of more of the hardware features
+
+### Third party options
+
+There are a couple of cools third party systems which would be interesting to port:
+
++ [Small Computer Monitor](https://smallcomputercentral.com/small-computer-monitor/) (SCM). This looks like a nice system with a reasonable hardware abstraction which should be moderately straightforward to port.
++ [RomWBW](https://github.com/wwarthen/RomWBW). A more feature rich solution that includes an HBIOS hardware abstraction. The abstraction relies on quite a lot of conditional assembly making it somewhat messy to put together and it's not going to be a quick port.
++ CP/M 3 - I've ported CP/M 2.2, version 3 doesn't really seem to offer many advantages.
++ [Fuzix](https://github.com/EtchedPixels/FUZIX) - I really like the idea of a Z80 Unix-like OS!
+
+It appears a number of people have bought PCBs for this system from eBay (not sold by me or anyone associated with me!). I'm hoping one or more of those might port some software over. If it's you and you need help then get in touch!

@@ -179,7 +179,7 @@ CKINCHAR:       LD       A,(serBufUsed)
 ;------------------------------------------------------------------------------
 ; Initialise the SIO handlers. Assumed we're running from RAM and called from
 ; the application runtime and the memory paging is initialised. This library doesn't
-; understand how the memory is managed. Alos assumg the stack has been initialised.
+; understand how the memory is managed. Also assumg the stack has been initialised.
 INITSIO:      DI
 
               ; A: Install ISR
@@ -208,28 +208,28 @@ _skpisr:      LD        HL,serBuf
               OUT     (SIOB_C),A
 
               ; Channel A - RESET
-              LD      A,00110000b      ; Error reset
-              OUT     (SIOA_C),A
               LD      A,00011000b      ; Channel reset
+              OUT     (SIOA_C),A
+              LD      A,00110000b      ; Error reset
               OUT     (SIOA_C),A
 
               ; Channel B - RESET
               LD      A,00011000b      ; Channel reset
-              OUT     (SIOA_C),A
+              OUT     (SIOB_C),A
               LD      A,00110000b      ; Error reset
-              OUT     (SIOA_C),A
+              OUT     (SIOB_C),A
 
               ; SET INTERRUPT VECTOR - ONLY USED FOR PORT A
               LD      A,$02           ; write reg 2
               OUT     (SIOB_C),A
-              LD      A,11100000b     ; INTERRUPT VECTOR ADDRESS
+              LD      A,SIO_INTV      ; INTERRUPT VECTOR ADDRESS
               OUT     (SIOB_C),A
 
               ; INITIALISE CHANNEL A
               LD      A,$04            ; write 4
               OUT     (SIOA_C),A
-              LD      A,11000100b      ; X64, no parity, 1 stop - 115200 baud
-              ;LD      A,10000100b     ; X32, no parity, 1 stop - 230400 baud
+              LD      A,11000100b      ; X64, no parity, 1 stop - 230400 baud with 14MHz sys clock
+              ;LD      A,10000100b     ; X32, no parity, 1 stop - 230400 baud with 7MHz sys clock
               OUT     (SIOA_C),A
 
               LD      A,$05            ; write 5
@@ -249,7 +249,7 @@ _skpisr:      LD        HL,serBuf
               OUT     (SIOA_C),A
 
               ; INITIALISE CHANNEL B
-              ; WR4 - 32x Clock - 230400baud, 1 stop bit, no parity.
+              ; WR4 - 32x Clock - 460800 baud with 14MHz sys clock, 1 stop bit, no parity.
               LD      A,$04
               OUT     (SIOB_C),A
               LD      A,10000100b
@@ -261,10 +261,10 @@ _skpisr:      LD        HL,serBuf
               LD      A,RTS_LOW
               OUT     (SIOB_C),A
 
-              ; WR1 - Disable all interrupts
+              ; WR1 - Disable all interrupts for channel B but enable interrupt vectors for channel A
               LD      A,01h
               OUT     (SIOB_C),A
-              LD      A,00000000b
+              LD      A,00000100b ; Uses different vectors for each interrupt. Not really used right now!
               OUT     (SIOB_C),A
 
               ; WR3 - Enable receiver, 8 bits per character

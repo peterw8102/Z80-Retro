@@ -47,7 +47,7 @@ _SEND_CMD:      LD       D,A             ; Save the command for later
                 ; And now the number of bytes from the TX buffer, if the length>0
                 OR       C
                 LD       A,D             ; Restore the command register
-                RET      Z
+                RET      Z               ; If BC is zero then there's no body to send
 
                 ; -- Write the body - number of bytes in BC
                 PUSH     BC

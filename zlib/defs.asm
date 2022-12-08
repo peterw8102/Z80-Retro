@@ -28,8 +28,27 @@ SIOA_C          .EQU     $83
 SIOB_D          .EQU     $80
 SIOB_C          .EQU     $82
 
-RTS_HIGH        .EQU    11101000b ; 0E8H
-RTS_LOW         .EQU    11101010b ; 0EAH
+RTS_HIGH        .EQU     11101000b ; 0E8H
+RTS_LOW         .EQU     11101010b ; 0EAH
+
+; Interuupt vector if operating in IM2. Make these the last 8 vectors in the table.
+SIO_INTV        .EQU     0F8h
+
+; Z80 CTC ports
+CTC_IV          .EQU      $40
+CTC_CH0         .EQU      $40
+CTC_CH1         .EQU      $41
+CTC_CH2         .EQU      $42
+CTC_CH3         .EQU      $43
+
+; Z80 PIO ports (PIO daughter card)
+PIOA_D          .EQU      $C0
+PIOB_D          .EQU      $C1
+PIOA_C          .EQU      $C2
+PIOA_C          .EQU      $C3
+
+; Video card VSYNC port (bit 7 HIGH during vsync)
+VGA_HSYN        .EQU      $E0
 
 ; I2C HARDWARE
 I2CPORT   EQU 64h

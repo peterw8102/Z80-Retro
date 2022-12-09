@@ -31,6 +31,7 @@ import config.asm
           public DRVMAP
           public SDPAGE
           public PRTERR
+          public END_RES
 
 ; OP Code to use in RST vectors
 VEC_CODE    EQU   $C3
@@ -66,10 +67,11 @@ _DIS:     JR      DISPATCH     ; Where I really wanted to go. Not efficient exce
 ; or the other!!! If installed then RST 30h invokes the OS services See '_DIS2' for available
 ; services and parameters.
           ORG    30h           ; OS entry point
-          DI                   ; have to disable interrupts for IO calls because we're about to
+          ; DI                   ; have to disable interrupts for IO calls because we're about to
                                ; switch out page 0
           LD    A,(MON_MP)     ; Page mask for page zero monitor
           OUT   (PG_PORT0),A
+          ; EI
           JR    _DIS           ; Short jump because not enough space for absolute
 
 ; ----- Generic interrupt handler for MODE 1. Need to eventually move to MODE 2 and use more
@@ -77,6 +79,9 @@ _DIS:     JR      DISPATCH     ; Where I really wanted to go. Not efficient exce
           ORG    38H
           ; ----- _EISR
 _EISR:    PUSH   AF
+
+          LD     A,0f1h;               ; DEBUG
+          OUT    (64h),A
 
           LD     A,(CONTXT)          ; Are we running in Supervisor mode?
           OR     A
@@ -86,7 +91,7 @@ _EISR:    PUSH   AF
           LD     A,(MON_MP)
           OUT    (PG_PORT0),A        ; Supervisor in CPU memory page 0
           LD     (APP_STK),SP        ; Save the application stack
-          LD     SP,SP_STK          ; Get our supervisor stack
+          LD     SP,SP_STK           ; Get our supervisor stack
 
           CALL   _doisr_             ; Do the interrupt
           LD     SP,(APP_STK)        ; Restore the application stack
@@ -403,9 +408,12 @@ _nxtdrv:    LD     (HL),E
             ; LD     (NVRAM),A
 
             ; Initialise the serial IO module
-            XOR    A              ; Initialise SIO without implicit interrupt vectors (we do it).
+            XOR    A              ; Initialise SIO without setting up interrupt vectors.
             CALL   INITSIO
-            IM     1              ; Using interrupt mode 1 AT THE MOMENT. Need to move to vectored at some point
+
+
+
+            IM     2              ; Using interrupt mode 1 AT THE MOMENT. Need to move to vectored at some point
             EI
 
             ; Really simple CLI now. Display
@@ -1384,12 +1392,6 @@ _absjp:   EX    DE,HL
           DEC   HL
           LD    E,(HL)
           EX    DE,HL      ; HL is now the target of the jump (or call)
-          PUSH  AF
-          PUSH  HL
-          WRITE_CHR '+'
-          CALL  WRITE_16
-          POP   HL
-          POP   AF
           JR    _setbp
 
 _type3:   DEC   A
@@ -2934,7 +2936,7 @@ DECCHR:     RST      10h
             JR       DECCHR
 
 ; --------------------- STRINGS
-_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.17.3",NULL
+_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.17.4",NULL
 _CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r",NULL
 
 ; Set scroll area for debug

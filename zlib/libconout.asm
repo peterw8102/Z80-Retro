@@ -9,7 +9,7 @@ import defs.asm
 ; PRINT_LN: As 'PRINT' but append CR/LF
 ;
           ; Output functions
-          public HEX_FROM_A,PRINT,PRINT_LN,WRITE_8,WRITE_16
+          public HEX_FROM_A,PRINT,PRINT_LN,WRITE_8,WRITE_16, WRITE_D
 
           CSEG
 
@@ -69,6 +69,42 @@ WRITE_8:   PUSH HL
            POP  HL
            RET
 
+; ------ WRITE_D
+; Convert a 16 bit number in HL to an ASCII decimal number and print out
+WRITE_D:  PUSH   HL
+          PUSH   DE
+          PUSH   BC
+          CALL   _NUM2D
+          POP    BC
+          POP    DE
+          POP    HL
+          RET
+
+_NUM2D:   LD     D,' '
+          LD     BC,-10000
+          CALL   NUM1
+          LD     BC,-1000
+          CALL   NUM1
+          LD     BC,-100
+          CALL   NUM1
+          LD     C,-10
+          CALL   NUM1
+          LD     C,B
+
+NUM1      LD     A,'0'-1
+NUM2      INC    A
+          ADD    HL,BC
+          JR     C,NUM2
+          SBC    HL,BC
+          CP     A,'0'
+          JR     NZ,_isnotz
+          LD     A,D
+          RST    08H
+          RET
+
+_isnotz:  LD     D,'0'
+          RST    08h
+          RET
 ; --------------------- PRINT - write a string to the terminal
 ; HL: The address of the string to print (NOT SAVED)
 ; A and HL not saved

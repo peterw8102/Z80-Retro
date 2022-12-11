@@ -3,7 +3,7 @@ import config.asm
 
           extrn  PAUSE
 
-          extrn  PRINT,PRINT_LN,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,WRITE_8,WRITE_16,INHEX,INHEX_2,INHEX_4
+          extrn  PRINT,PRINT_LN,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,WRITE_D,WRITE_8,WRITE_16,INHEX,INHEX_2,INHEX_4
           extrn  BRK_HK,SETHIST,GETHIST
           extrn  CMD_B
           extrn  DISASS, SETOFF
@@ -168,7 +168,7 @@ _AENDH:    POP     AF
 ENDDIS:   LD     SP,(APP_STK)   ; Got the appication stack back but it might not be in our address space so can't use
           LD     A,(PAGE_MP)
           OUT    (PG_PORT0),A   ; Back into application space
-          EI                    ; Safe to allow interrupts again
+          ; EI                    ; Safe to allow interrupts again
           RET                   ; And carry on
 
 
@@ -382,7 +382,7 @@ _wrn:       LD    (HL),A         ; Initialise the application page map
             ; the physical address << 6 (Upper 10 bits of the 32 bit SD card address).
             LD     HL,DRVMAP
             LD     B,16
-            LD     DE,0000h        ; 0000 0000 0100 0000
+            LD     DE,0040h        ; 0000 0000 0100 0000
 _nxtdrv:    LD     (HL),E
             INC    HL
             LD     (HL),D
@@ -394,6 +394,12 @@ _nxtdrv:    LD     (HL),E
             ADC    D
             LD     D,A
             DJNZ   _nxtdrv
+
+            ; Set UI drive map
+            XOR    A
+            LD     (DEFDRV),A
+            LD     A, 'A'
+            LD     (DEFDRV_L),A
 
             ; Initialise i2c and read the NV RAM
             CALL   RTC_INI
@@ -1659,12 +1665,12 @@ INSTDRV:  LD    A,(PAGE_MP)          ; Application page 0
 
           ; Check configuration to see whether we're meant to be installing drivers
 if IS_DEVEL
-          LD     A,1            ; For driver load for debug version
+          LD     A,1 ; ALWAYS load drivers if this is a development build
 else
           LD     A,(NVRAM)
 endif
           RRCA
-          RET    NC
+          RET    NC  ; This application doesn'twant drivers
 
           ; LD    HL,_wrdrv
           ; CALL  PRINT_LN
@@ -2523,8 +2529,10 @@ _cfnch:   INC    HL
 
 ; ------------ _PGCALC
 ; Take a 16 bit address in application space and translate that into a block number (0-3)
-; and an offset.
-; HL - load address. Translate into a page and offset return the offset in HL
+; and a 16 offset. Arrange for the 16 bit offset to point into a block one address. This
+; then allows us to map the application space page into block one regardless of where it
+; is in the application space.
+; HL - load address. Translate into an offset  and return the offset in HL
 ; Return:
 ; A  - The block number (0-3) in application space
 ; HL - The adjusted offset into that page, mapped as though in block 1.
@@ -2711,26 +2719,30 @@ NVSAV:   CALL   NVCALC
 
 ; ------- MAPDSK
 ; Either:
-;    S LL=PPPP - Map Physical drive PPPP to logical drive LL
-;    S         - Display current mapped drives
+;    S         - Show current drive mappings
+;    SM L PPPP - Map Physical drive (decimal 0-511) to logical drive letter L
+;    SD        - Display current mapped drives
 MAPDSK: CALL  SKIPSPC
         JR    Z, _dmapd
         CP    'D'
         JR    Z, SDUMP
+        CP    'M'
+        JR    Z, SMAP
 
 _dmapd: LD    B,16
         LD    HL,DRVMAP
-        LD    A,0
+        LD    A,'A'
 _dmapn: PUSH  AF
-        CALL  WRITE_8
-        LD    A,'='
+        RST   08h
+        LD    A,':'
         CALL  TXA
         LD    E,(HL)
         INC   HL
         LD    D,(HL)
         INC   HL
         EX    DE,HL
-        CALL  WRITE_16
+        CALL  _div64
+        CALL  WRITE_D
         EX    DE,HL
         CALL  NL
         POP   AF
@@ -2738,14 +2750,100 @@ _dmapn: PUSH  AF
         DJNZ  _dmapn
         JR    main
 
+; ----- Divide HL by 64 (6 bits)
+_div64: XOR   A
+        RL    L
+        RL    H
+        RLA          ; Bit that drops off H
+        RL    L
+        RL    H
+        RLA          ; Bit that drops off H
+        LD    L,H
+        LD    H,A
+        RET
 
 _sdbad: LD     HL,_NOSDADD
         JR     _prterr
 
 
+
+; Want a drive letter (a-p) and a logical drive number (0-512)
+SMAP:     CALL  SKIPSPC
+          JR    Z,_dmapd
+          CP    'A'
+          JR    C,_baddrv
+          CP    'A'+16
+          JR    C,_gotdrv
+
+        ; Report bad drive letter
+_baddrv:  LD    HL,_NODRIVE
+          JR     _prterr
+
+          ; Want a physical drive (0-511 decimal)
+_gotdrv:  LD     (DEFDRV_L),A
+          SUB    'A'
+          LD     (DEFDRV),A
+
+          CALL   GET_DEC
+
+          ; Number from 0-511
+          LD     A,$FE
+          AND    H
+          JR     NZ,_sdbad
+
+          PUSH   HL
+          LD     HL,_MAPD
+          CALL   PRINT
+          LD     A,(DEFDRV_L)
+          RST    08H
+          LD     HL,_MAPD_TO
+          CALL   PRINT
+          POP    HL
+          CALL   WRITE_D
+          CALL   NL
+
+          ; Want to do this, but RST 30h broken for calls from the monitor at the moment! Needs to
+          ; understand the call context. Or different dispatcher for monitor and application.
+          ; LD     A,(DEFDRV)
+          ; LD     C,5             ; Map drive
+          ; RST    30h
+          ;
+          ; JR     main
+
+          EX     DE,HL         ; Logical drive number (0-511)
+          ; Store the results in the drive map. Need to convert the offset to the upper
+          ; 10 bits of a 16 bit number.
+          XOR    A
+          RR     D
+          RR     E             ; LSB of D now in MSB of E and LSB E in Carry (divide by2)
+          RRA
+          RR     D
+          RR     E
+          RRA                  ; A now contains the new content of E and E contains the new content for D
+          LD     D,E
+          LD     E,A           ; *64
+
+          LD     HL,DRVMAP
+          LD     A,(DEFDRV)
+          ADD    A,A           ; *2
+          ADD    L             ; Find the correct offset
+          LD     L,A
+          LD     A,0
+          ADC    H
+          LD     H,A           ; HL now points to where to store the new physical block map for this logical drive
+
+          LD     (HL),E
+          INC    HL
+          LD     (HL),D
+          JR     main
+
 ; -------- SDUMP
-; Dump the contents of a 512 byte SD card sector. The sector number is (potentially) 32 bits
-; Command format is SD 0000:0000. Also accept 0000 for one of the lowest 64K sectors
+; Dump the contents of a 512 byte SD card sector. By default this is an absolute sector
+; number on the SDCard. Alternatively you can specify an offset into a logical drive letter.
+; Formats for the display are:
+;   NNNNNNNN - 32 bit sector address into the whole SDCard
+;   NNNNNNN: - 32 bit sector offset into the currently selected default drive (last mapped)
+;   NNNNNN:L - 32 bit offset into the specified logical drive (L becomes the default)
 SDUMP:   CALL  SD_INIT
          CALL  WASTESPC
          JR    Z,_sdbad
@@ -2755,9 +2853,14 @@ SDUMP:   CALL  SD_INIT
 
          JR    C,_sdbad
 
-         ; HLDE is the full SD card BLOCK address. Need to
-         ; multiple by 512 to get a byte address for the
+         ; HLDE is the full SD card BLOCK address. This is either absolute OR relative to a
+         ; specific logical mapped drive. Need to multiple by 512 to get a byte address for the
          ; SDcard interface.
+         CALL  SKIPSPC
+         JR    Z,_sdump    ; Absolute address
+
+         ; Relative to a specific logical drive.
+
 
 _sdump:  LD    H,L     ; Multiple by 256
          LD    L,D
@@ -2934,7 +3037,7 @@ DECCHR:     RST      10h
             JR       DECCHR
 
 ; --------------------- STRINGS
-_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.17.3",NULL
+_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.17.5",NULL
 _CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r",NULL
 
 ; Set scroll area for debug
@@ -2977,7 +3080,10 @@ _DMAP        DEFB "MAPPED: ", NULL
 _DMAAD       DEFB "DMA ADDR: ", NULL
 _BRK         DEFB "BREAK...", NULL
 _NOSDADD     DEFB "No SDcard sector address", NULL
+_NODRIVE     DEFB "Specify drive A-", 'A'+15, NULL
 _BTADD       DEFB "Byte address: ", NULL
+_MAPD        DEFB "Map logical drive: ",NULL
+_MAPD_TO:    DEFB " to SD drive slot ", NULL
 
 ; Alternate command table format: LETTER:ADDRESS
 BDG_TABLE:      DB       'B'
@@ -3187,7 +3293,8 @@ SDPAGE     DEFS    512
 ;
 ;THIS SPACE NEEDS TO BE INITIALISED ON RESTART.
 DRVMAP     DEFS    16*2
-
+DEFDRV     DEFS    1
+DEFDRV_L   DEFS    1
 
 ; Breakpoints. Each entry is 4 bytes:
 ; Type|AddrX2|Opcode

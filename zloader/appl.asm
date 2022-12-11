@@ -25,7 +25,10 @@ AP_ST:    LD    A,(CONTXT)
           OUT   (PG_PORT0),A
 
           ; Save the application stack
+          ; -------------------ZMAC-----------------------------
           LD     (APP_STK),SP   ; Save the application stack
+          ; LD     (1000),SP     ; Save the application stack
+
           LD     SP,SP_STK      ; Replace with supervisor stack
           EI
 
@@ -34,12 +37,14 @@ AP_ST:    LD    A,(CONTXT)
           PUSH   HL
 
           ; And go the the dispatcher
+          ; -------------------ZMAC-----------------------------
           JR     AP_DISP
+          ; JR     _dis
 
 ; Request make from within the ZLoader so no complicated memory changes. Just invoke the dispatcher.
 _issup:   LD     HL, Z_END          ; How to restore context
           PUSH   HL
-          JR     AP_DISP
+_dis:     JR     AP_DISP
 
 ; At the end of a dispatch called by the application, map application memory back and repair the stack
 AP_END:   DI

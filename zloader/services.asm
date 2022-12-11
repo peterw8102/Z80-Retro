@@ -9,7 +9,7 @@ import config.asm
           extrn  ENDDIS,ERRDIS
           extrn  DRVMAP
 
-          public DISPATCH
+          public  AP_DISP
 
 CSEG
 
@@ -26,7 +26,7 @@ CSEG
 ;  8: SD Card Write
 ;
 ; All other registers are command specific.
-DISPATCH: DEC    C
+AP_DISP:  DEC    C
           JR     Z,LD_PGSEL     ; CMD 1 - RAM Page Select (map)
           DEC    C
           JR     Z,TX_CHR       ; CMD 2 - Send character to serial port A

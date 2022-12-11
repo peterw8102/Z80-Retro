@@ -20,9 +20,12 @@ import config.asm
 
           extrn  FILL,CLRSCR,INPUT,OUTPUT,MODIFY,HELP
 
+          ; Code dispatch in application code
+          extrn  AP_ST, END_APP
+
           public main,BADPS,NL,OPMODE
 
-          public PAGE_MP
+          public PAGE_MP, MON_MP
           public OPMODE
 
           public ENDDIS, ERRDIS
@@ -31,6 +34,7 @@ import config.asm
           public DRVMAP
           public SDPAGE
           public PRTERR
+          public CONTXT
 
 ; OP Code to use in RST vectors
 VEC_CODE    EQU   $C3
@@ -58,7 +62,6 @@ MN_PG       EQU   IS_DEVEL
 ; Install a breakpoint handler.
           ORG     BRK_HANDLER
 BP_RST:   JR      DO_BP_S      ; Immediately jump to the correct BP handler.
-_DIS:     JR      DISPATCH     ; Where I really wanted to go. Not efficient except in memory
 
 ; 30h is the OS entry point. This allows applications running in other pages to request
 ; a low level OS function (eg page mapping). Installed code can optionally handle all the
@@ -66,11 +69,7 @@ _DIS:     JR      DISPATCH     ; Where I really wanted to go. Not efficient exce
 ; or the other!!! If installed then RST 30h invokes the OS services See '_DIS2' for available
 ; services and parameters.
           ORG    30h           ; OS entry point
-          DI                   ; have to disable interrupts for IO calls because we're about to
-                               ; switch out page 0
-          LD    A,(MON_MP)     ; Page mask for page zero monitor
-          OUT   (PG_PORT0),A
-          JR    _DIS           ; Short jump because not enough space for absolute
+          JP    AP_ST          ; Do the work in application space.
 
 ; ----- Generic interrupt handler for MODE 1. Need to eventually move to MODE 2 and use more
 ; flexible vectoring. For now though stick with mode 1.

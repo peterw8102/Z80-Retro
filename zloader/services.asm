@@ -26,11 +26,7 @@ CSEG
 ;  8: SD Card Write
 ;
 ; All other registers are command specific.
-DISPATCH: LD     (APP_STK),SP   ; Save the application stack
-          LD     SP,SP_STK      ; Replace with supervisor stack
-          EI
-          ; A selects the function.
-          DEC    C
+DISPATCH: DEC    C
           JR     Z,LD_PGSEL     ; CMD 1 - RAM Page Select (map)
           DEC    C
           JR     Z,TX_CHR       ; CMD 2 - Send character to serial port A
@@ -48,21 +44,21 @@ DISPATCH: LD     (APP_STK),SP   ; Save the application stack
           JR     Z,LD_SDWR      ; CMD 8 - SDCard Write
 
           ; Unknown function
-          JR     ENDDIS
+          RET
 
 ; Transmit the character in E
 TX_CHR:   LD     A,E
           RST    08h
-          JR     ENDDIS
+          RET
 
 ; Return next character in A
 RX_CHR:   RST    10h
           LD     C,A
-          JR     ENDDIS
+          RET
 
 ; If there are any characters in the buffer then return the first one in A
 CHK_CHR:  RST    18h
-          JR     ENDDIS
+          RET
 
 ; ---------- LD_PGSEL (CMD 1)
 ; Map memory page
@@ -82,7 +78,7 @@ LD_PGSEL: LD     A,E
           LD     C,A            ; C has the port number
           LD     A,D            ; The page to select
           OUT    (C),A          ; Make the change
-          JR     ENDDIS
+          RET
 
 ; --------- LD_STDSK (CMD 5)
 ; Map an application disk number (0-15) to a physical address (1024). By default each
@@ -118,7 +114,7 @@ LD_STDSK: LD     A,D
           LD     (HL),E        ; Store in the address map
           INC    HL
           LD     (HL),D
-          JR     ENDDIS
+          RET
 
 ; --------- LD_STDMA (CMD 6)
 ; Record the address (in application space) of the SD Card DMA buffer
@@ -128,7 +124,7 @@ LD_STDSK: LD     A,D
 LD_STDMA: CALL   PGADJ
           LD     (DMA_PAGE),A
           LD     (DMA_ADDR),HL
-          JR     ENDDIS
+          RET
 
 ; --------- LD_SDRD (CMD 7)
 ; SDCard Read Block.
@@ -144,7 +140,7 @@ LD_SDRD:  CALL   _mapdsk              ; HLDE is now the physical offset into the
           CALL   SD_RBLK             ; Get the SDCard data
 
           CALL   PGREST              ; Reset the application memory page
-          JR     ENDDIS
+          RET
 
 ; --------- LD_SDWR (CMD 8)
 ; SDCard Write Block.
@@ -160,7 +156,7 @@ LD_SDWR:  CALL   _mapdsk
           CALL   SD_WBLK
 
           CALL   PGREST               ; Reset the application memory page
-          JR     ENDDIS
+          RET
 
 ; --------- _mapdsk
 ; Application is writing to logical 32 bit address in HLDE. The upper 10 bits is the logical

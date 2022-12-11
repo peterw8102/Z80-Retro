@@ -45,7 +45,7 @@ CTC_CH3         .EQU      $43
 PIOA_D          .EQU      $C0
 PIOB_D          .EQU      $C1
 PIOA_C          .EQU      $C2
-PIOA_C          .EQU      $C3
+PIOB_C          .EQU      $C3
 
 ; Video card VSYNC port (bit 7 HIGH during vsync)
 VGA_HSYN        .EQU      $E0

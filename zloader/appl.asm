@@ -13,21 +13,20 @@ import config.asm
             ORG   $3E00
             PHASE $FE00
 
+
 ; Entry point for the command handler. Action depends on whether this is called
 ; from ZLoader or from the application. Use the CONTXT to decide.
 AP_ST:    LD    A,(CONTXT)
           OR    A
-          JR    Z,_issup       ; Running in ZLoader context so no changes required.
+          JR    Z,_issup        ; Running in ZLoader context so no changes required.
 
           ; Map ZLoader into memory (Block 0)
           DI
-          LD    A,(MON_MP)     ; Page mask for page zero monitor
+          LD    A,(MON_MP)      ; Page mask for page zero monitor
           OUT   (PG_PORT0),A
 
           ; Save the application stack
-          ; -------------------ZMAC-----------------------------
-          LD     (APP_STK),SP   ; Save the application stack
-          ; LD     (1000),SP     ; Save the application stack
+          LD     (APP_STK),SP       ; Save the application stack
 
           LD     SP,SP_STK      ; Replace with supervisor stack
           EI
@@ -37,9 +36,7 @@ AP_ST:    LD    A,(CONTXT)
           PUSH   HL
 
           ; And go the the dispatcher
-          ; -------------------ZMAC-----------------------------
           JR     AP_DISP
-          ; JR     _dis
 
 ; Request make from within the ZLoader so no complicated memory changes. Just invoke the dispatcher.
 _issup:   LD     HL, Z_END          ; How to restore context

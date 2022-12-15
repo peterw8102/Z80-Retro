@@ -44,6 +44,8 @@ AP_DISP:  LD     A,C
           DEC    C
           JR     Z,LD_SDRD      ; CMD 7 - SDCard Read
           DEC    C
+          JR     Z,LD_RWRD      ; CMD 8 - SDCard Raw read - absolute sector (512 byte) address
+          DEC    C
           JR     Z,LD_SDWR      ; CMD 8 - SDCard Write
 
           ; System requests (internal calls from ZLoader context)
@@ -92,7 +94,7 @@ LD_PGSEL: LD     A,E
 ; Map an application disk number (0-15) to a physical address (1024). By default each
 ; logical disk maps to a physical disk in the same location. This allows the map to change.
 ; This in turn allows an application to 'mount' logical drives
-; HL - the target slot on the SD card to be mapped (0-511)
+; HL - the target slot on the SD card to be mapped (0-1023)
 ; D  - the logical disk to map to this physical block. 0-15
 ; Translate into a page and offset and store in local memory
 LD_STDSK: LD     A,D
@@ -108,20 +110,21 @@ LD_STDSK: LD     A,D
           ADC    H
           LD     H,A           ; HL now points to where to store the new physical block map for this logical drive
 
-          ; Need to multiply DE by 64 (<<6)
-          XOR    A
-          RR     D
-          RR     E             ; LSB of D now in MSB of E and LSB E in Carry (divide by2)
-          RRA
-          RR     D
-          RR     E
-          RRA                  ; A now contains the new content of E and E contains the new content for D
-          LD     D,E
-          LD     E,A           ; *64
-
+          ; Need to multiply DE by 32 (<<5)
+          LD     A,D
+          SLA    E             ; *2
+          RLA
+          SLA    E             ; *4
+          RLA
+          SLA    E             ; *8
+          RLA
+          SLA    E             ; *16
+          RLA
+          SLA    E             ; *32
+          RLA
           LD     (HL),E        ; Store in the address map
           INC    HL
-          LD     (HL),D
+          LD     (HL),A
           RET
 
 ; --------- LD_STDMA (CMD 6)
@@ -146,7 +149,7 @@ LD_EDMA:  LD     A,(MON_MP)
 
 ; --------- LD_SDRD (CMD 7)
 ; SDCard Read Block.
-;   HLDE is the **SECTOR ADDRESS** (32 bits)
+;   HLDE is the logical address (H: virtual disk 0-15, DE sector offset into drive)
 ; The result will be written to the currently defined DMA address
 LD_SDRD:  CALL   _mapdsk              ; HLDE is now the physical offset into the SDCard
 
@@ -159,7 +162,20 @@ LD_SDRD:  CALL   _mapdsk              ; HLDE is now the physical offset into the
           CALL   PGREST              ; Reset the application memory page
           RET
 
-; --------- LD_SDWR (CMD 8)
+; --------- LD_SDRD (CMD 8)
+; SDCard Read Block.
+;   HLDE is the raw **SECTOR ADDRESS** (32 bits)
+; The result will be written to the currently defined DMA address
+LD_RWRD:  LD     BC,(DMA_ADDR)
+          LD     A,(DMA_PAGE)         ; Get the buffer page into block 1
+          OUT    (PG_PORT0+1),A
+
+          CALL   SD_RBLK             ; Get the SDCard data
+
+          CALL   PGREST              ; Reset the application memory page
+          RET
+
+; --------- LD_SDWR (CMD 9)
 ; SDCard Write Block.
 ;   HLDE is the **SECTOR ADDRESS** (32 bits)
 ; The result will be written to the currently defined DMA address
@@ -175,31 +191,50 @@ LD_SDWR:  CALL   _mapdsk
           RET
 
 ; --------- _mapdsk
-; Application is writing to logical 32 bit address in HLDE. The upper 8 bits are the logical
-; disk number which needs to be mapped to a physical 4MB block. The logical disk number is
-; only 4 bits allowing 16 logical drives.
-_mapdsk:  LD     A,H        ; The upper 8 bits needs to be mapped to the upper 10 bits
-          ADD    A
+; Application is addressing a logical sector address, where a sector is 512 bytes. The
+; address comprises a 13 bit sector offset and an 4 bit virtual disk number which provides
+; an additional 10 bits to generate a 23 bit full sector address. 23 bits addressing
+; 512 byte sectors gives total addressible space of 2^9 x 2^23 = 2^32 = 4GB. Input format
+; for these commands:
+;
+;  +------ H -------+------ L -------+------ D -------+------ E -------+
+;  |    0  | vdisk  |   0000 0000    |  000s  ssss    |  ssss  ssss    |
+;  +----------------+----------------+----------------+----------------+
+;
+; vdisk gets expanded to 9 bits resulting in a sector address:
+;
+;  +------ H -------+------ L -------+------ D -------+------ E -------+
+;  |    0  |   0    |   0vvv vvvv    |  vvvs  ssss    |  ssss  ssss    |
+;  +----------------+----------------+----------------+----------------+
+;
+; 22 bit sector address which is then multiplied by 512 by the SDCard
+; driver to give a byte address range of 4GB.
+;
+; DRVMAP contains the values to replace 'v' in the resultant address.
+;
+_mapdsk:  LD     A,H        ; The upper 8 bits contain logical drive, needs to be mapped
+                            ; fully qualified upper 10 bits of the sector number.
+          ADD    A          ; x2 to give offset into DRVMAP
 
           ; A is now the offset into DRVMAP
           PUSH   DE         ; Stack <= LSWord
-          PUSH   HL         ; Stack <= MSWord
           LD     HL,DRVMAP
           ADD    L
           LD     L,A
           LD     A,0
           ADC    H
-          LD     H,A        ; HL points to the correct logical drive.
+          LD     H,A        ; HL points to the correct logical drive offset.
           LD     E,(HL)
           INC    HL
-          LD     D,(HL)     ; DE is the content of the drive table: replacement upper 10 bits of absolute address
-          POP    HL
-          LD     A,L
-          AND    $3F        ; Merge mapped bits into the provided address
-          OR     E
-          LD     L,A
-          LD     H,D
-          POP    DE         ; Get the low order address bits back from the stack
+          LD     D,(HL)     ; DE is the content of the drive table: replacement upper 10 bits of sector address
+          EX     DE,HL
+
+          POP    DE
+          LD     A,$1F
+          AND    D          ; Bottom 5 bits of sector number
+          OR     L          ; Merge in the drive offset
+          LD     D,A        ; Put back into D
+          LD     L,H        ; And HL comes straight from the offset table
           RET
 
 

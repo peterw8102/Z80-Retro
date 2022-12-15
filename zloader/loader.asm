@@ -1,5 +1,6 @@
 import ../zlib/defs.asm
 import config.asm
+import api.asm
 
           extrn  PAUSE
 
@@ -20,17 +21,22 @@ import config.asm
 
           extrn  FILL,CLRSCR,INPUT,OUTPUT,MODIFY,HELP
 
+          ; Code dispatch in application code
+          extrn  AP_ST, END_APP
+
           public main,BADPS,NL,OPMODE
 
-          public PAGE_MP
+          public PAGE_MP, MON_MP
           public OPMODE
 
-          public ENDDIS, ERRDIS
           public APP_STK
           public PGADJ, PGMAP, PGMAPX, PGREST
           public DRVMAP
           public SDPAGE
           public PRTERR
+          public CONTXT
+          public END_RES
+          public _IOERR
 
 ; OP Code to use in RST vectors
 VEC_CODE    EQU   $C3
@@ -58,7 +64,6 @@ MN_PG       EQU   IS_DEVEL
 ; Install a breakpoint handler.
           ORG     BRK_HANDLER
 BP_RST:   JR      DO_BP_S      ; Immediately jump to the correct BP handler.
-_DIS:     JR      DISPATCH     ; Where I really wanted to go. Not efficient except in memory
 
 ; 30h is the OS entry point. This allows applications running in other pages to request
 ; a low level OS function (eg page mapping). Installed code can optionally handle all the
@@ -66,11 +71,7 @@ _DIS:     JR      DISPATCH     ; Where I really wanted to go. Not efficient exce
 ; or the other!!! If installed then RST 30h invokes the OS services See '_DIS2' for available
 ; services and parameters.
           ORG    30h           ; OS entry point
-          DI                   ; have to disable interrupts for IO calls because we're about to
-                               ; switch out page 0
-          LD    A,(MON_MP)     ; Page mask for page zero monitor
-          OUT   (PG_PORT0),A
-          JR    _DIS           ; Short jump because not enough space for absolute
+          JP     AP_ST          ; Do the work in application space.
 
 ; ----- Generic interrupt handler for MODE 1. Need to eventually move to MODE 2 and use more
 ; flexible vectoring. For now though stick with mode 1.
@@ -162,16 +163,6 @@ _AENDH:    POP     AF
            POP     HL
            RET
 
-; ------------- ENDDIS
-; Jump here at the end of an IO call to reinstate the application environment. All registers need to be
-; carefully saved at this point and this code MUST be present in both the application space.
-ENDDIS:   LD     SP,(APP_STK)   ; Got the appication stack back but it might not be in our address space so can't use
-          LD     A,(PAGE_MP)
-          OUT    (PG_PORT0),A   ; Back into application space
-          ; EI                    ; Safe to allow interrupts again
-          RET                   ; And carry on
-
-
 ; Debugger. Storage must be in page 0 reserved space
 ; JP_RUN - C3 is the JP opcode. By jumping to JP_RUN execution will
 ; continue from the current value of the PC. This avoids us having to
@@ -235,11 +226,6 @@ _ENDHND:  PUSH   DE
           OUT    (PG_PORT0),A        ; Back into application space
           JR     _AENDH
 
-ERRDIS:   LD     HL,_IOERR
-          CALL   PRINT_LN
-          JR     ENDDIS
-
-
 ; ------------------------------ START ------------------------------------
 ; Entry point. Psuedo code - this needs to be done BEFORE we use any RAM
 ; including for a stack.
@@ -277,7 +263,7 @@ if IS_DEVEL
            JR    SET_FLASH          ; THIS LINE SHOULD BE IN FOR DEVELOPMENT BUT OUT BEFORE PROGRAMMING TO FLASH
 endif
            XOR   A
-           OUT   (PG_PORT0),A            ; Page 0 - might be Flash, might be RAM
+           OUT   (PG_PORT0),A       ; Page 0 - might be Flash, might be RAM
            LD    A,$03              ; Switch to page mode
            OUT   (PG_CTRL),A
            ; Page 0 mapped to block 0. If it's read only then we have flash low, normal operation
@@ -357,11 +343,10 @@ _wrn:       LD    (HL),A         ; Initialise the application page map
             LD     A,'I'
             LD     (DUMP_MODE),A
 
-            ; Initialise the memory map
-            LD     A,(PAGE_MASK)
-            ADD    MN_PG
-            LD     (MON_MP),A         ; The page we're running in
-
+if CSET
+            ; Install character set
+            CALL  INITCSET
+endif
             ; Set up initialisation vectors - explicitly handled in code now
             LD     A,VEC_CODE      ; Set up RST jump table
             LD     ($08),A
@@ -375,6 +360,15 @@ _wrn:       LD    (HL),A         ; Initialise the application page map
             LD     HL,CKINCHAR
             LD     ($19),HL
 
+            ; Initialise the memory map
+            LD     A,(PAGE_MASK)
+            ADD    MN_PG
+            LD     (MON_MP),A         ; The page we're running in
+
+            ; Make our functional page map to block 3 (mirror of block 1). This makes sure
+            ; that the driver code at 3E00 also appears at FE00.
+            OUT    (PG_PORT0+3),A
+
             ; Initialise the SD card library
             CALL  SD_INIT
 
@@ -382,12 +376,12 @@ _wrn:       LD    (HL),A         ; Initialise the application page map
             ; the physical address << 6 (Upper 10 bits of the 32 bit SD card address).
             LD     HL,DRVMAP
             LD     B,16
-            LD     DE,0040h        ; 0000 0000 0100 0000
+            LD     DE,0020h        ; 0000 0000 0010 0000
 _nxtdrv:    LD     (HL),E
             INC    HL
             LD     (HL),D
             INC    HL
-            LD     A,40h         ; Add 40h to get to the next logical drive.
+            LD     A,20h           ; Add 20h to get to the next logical drive.
             ADD    E
             LD     E,A
             LD     A,0
@@ -418,10 +412,6 @@ _nxtdrv:    LD     (HL),E
 NOSIO:      LD    HL, _INTRO
             CALL  PRINT_LN
             CALL  SH_DTIME
-
-if CSET
-            CALL  INITCSET
-endif
 
 if !IS_DEVEL
           ; Check the state of the DIL switches and look for autoboot mode
@@ -1390,12 +1380,6 @@ _absjp:   EX    DE,HL
           DEC   HL
           LD    E,(HL)
           EX    DE,HL      ; HL is now the target of the jump (or call)
-          PUSH  AF
-          PUSH  HL
-          WRITE_CHR '+'
-          CALL  WRITE_16
-          POP   HL
-          POP   AF
           JR    _setbp
 
 _type3:   DEC   A
@@ -1652,7 +1636,7 @@ _lemp:    POP   HL
 ; ------- INSTDRV
 ; Check whether drivers are installed. If not check if they should be installed. Then intall them if reqjuired.
 INSTDRV:  LD    A,(PAGE_MP)          ; Application page 0
-          OUT   (PG_PORT0+1),A       ; Temp map to page 1 to install drivers
+          OUT   (PG_PORT0+1),A       ; Temp map to block 1 to install drivers
 
           ; This will check whether the drivers are installed BUT this causes problems on a reload
           ; or if memory is filled. To avoid this always install the drivers.
@@ -1670,13 +1654,14 @@ else
           LD     A,(NVRAM)
 endif
           RRCA
-          RET    NC  ; This application doesn'twant drivers
+          RET    NC  ; This application doesn't want drivers
 
           ; LD    HL,_wrdrv
           ; CALL  PRINT_LN
 
-          ; Install the break driver
-          LD    HL,BRK_HDLR  ; Our break handler - was DO_BP_S but that's wrong now. Will need to get there at some point though
+          ; Install the break driver. Our break handler - was DO_BP_S but that's wrong
+          ; now. Will need to get there at some point though.
+          LD    HL,BRK_HDLR
           LD    (BRK_HK),HL
 
           ; Copy my page zero data EXCEPT the first 8 bytes to application space
@@ -1688,6 +1673,15 @@ endif
           ; And FORCE the CONTXT value to be 1 to identify application context
           LD   A,1
           LD   (CONTXT+$4000),A
+
+          ; Install our reserved handlers in the top 512 bytes of application space.
+          LD    A,(PAGE_MP+3)        ; Application page 3
+          OUT   (PG_PORT0+1),A       ; Temp map to block 1 to install drivers
+
+          LD    HL,$3E00
+          LD    DE,$7E00
+          LD    BC,512               ; Transfer 512 bytes
+          LDIR
 
           RET
 
@@ -2741,7 +2735,7 @@ _dmapn: PUSH  AF
         LD    D,(HL)
         INC   HL
         EX    DE,HL
-        CALL  _div64
+        CALL  _div32
         CALL  WRITE_D
         EX    DE,HL
         CALL  NL
@@ -2750,16 +2744,19 @@ _dmapn: PUSH  AF
         DJNZ  _dmapn
         JR    main
 
-; ----- Divide HL by 64 (6 bits)
-_div64: XOR   A
-        RL    L
-        RL    H
-        RLA          ; Bit that drops off H
-        RL    L
-        RL    H
-        RLA          ; Bit that drops off H
-        LD    L,H
-        LD    H,A
+; ----- Divide HL by 32 (5 bits)
+_div32: LD    A,L
+        SRL   H
+        RRA
+        SRL   H
+        RRA
+        SRL   H
+        RRA
+        SRL   H
+        RRA
+        SRL   H
+        RRA
+        LD    L,A
         RET
 
 _sdbad: LD     HL,_NOSDADD
@@ -2775,19 +2772,19 @@ SMAP:     CALL  SKIPSPC
           CP    'A'+16
           JR    C,_gotdrv
 
-        ; Report bad drive letter
+          ; Report bad drive letter
 _baddrv:  LD    HL,_NODRIVE
           JR     _prterr
 
-          ; Want a physical drive (0-511 decimal)
+          ; Want a physical drive (0-1023 decimal)
 _gotdrv:  LD     (DEFDRV_L),A
           SUB    'A'
           LD     (DEFDRV),A
 
           CALL   GET_DEC
 
-          ; Number from 0-511
-          LD     A,$FE
+          ; Number from 0-1024
+          LD     A,$FC
           AND    H
           JR     NZ,_sdbad
 
@@ -2802,39 +2799,12 @@ _gotdrv:  LD     (DEFDRV_L),A
           CALL   WRITE_D
           CALL   NL
 
-          ; Want to do this, but RST 30h broken for calls from the monitor at the moment! Needs to
-          ; understand the call context. Or different dispatcher for monitor and application.
-          ; LD     A,(DEFDRV)
-          ; LD     C,5             ; Map drive
-          ; RST    30h
-          ;
-          ; JR     main
-
-          EX     DE,HL         ; Logical drive number (0-511)
-          ; Store the results in the drive map. Need to convert the offset to the upper
-          ; 10 bits of a 16 bit number.
-          XOR    A
-          RR     D
-          RR     E             ; LSB of D now in MSB of E and LSB E in Carry (divide by2)
-          RRA
-          RR     D
-          RR     E
-          RRA                  ; A now contains the new content of E and E contains the new content for D
-          LD     D,E
-          LD     E,A           ; *64
-
-          LD     HL,DRVMAP
+          ; Tell the API the mapping we want.
           LD     A,(DEFDRV)
-          ADD    A,A           ; *2
-          ADD    L             ; Find the correct offset
-          LD     L,A
-          LD     A,0
-          ADC    H
-          LD     H,A           ; HL now points to where to store the new physical block map for this logical drive
+          LD     D,A
+          LD     C,A_DSKMP       ; Map drive
+          RST    30h
 
-          LD     (HL),E
-          INC    HL
-          LD     (HL),D
           JR     main
 
 ; -------- SDUMP
@@ -2842,53 +2812,61 @@ _gotdrv:  LD     (DEFDRV_L),A
 ; number on the SDCard. Alternatively you can specify an offset into a logical drive letter.
 ; Formats for the display are:
 ;   NNNNNNNN - 32 bit sector address into the whole SDCard
-;   NNNNNNN: - 32 bit sector offset into the currently selected default drive (last mapped)
+;   NNNNNNN: - 32 bit sector offset into the currently selected default drive (last mapped or listed)
 ;   NNNNNN:L - 32 bit offset into the specified logical drive (L becomes the default)
 SDUMP:   CALL  SD_INIT
          CALL  WASTESPC
          JR    Z,_sdbad
+
+         ; Set standard ZLoader DMA buffer
+         LD    C,S_DSKDM
+         RST   30h
 
          ; Expect a 32 bit number
          CALL  INHEX
 
          JR    C,_sdbad
 
-         ; HLDE is the full SD card BLOCK address. This is either absolute OR relative to a
-         ; specific logical mapped drive. Need to multiple by 512 to get a byte address for the
-         ; SDcard interface.
+         ; HLDE is the 512 sector address. This is either absolute OR relative to a specific
+         ; mapped logical drive.
          CALL  SKIPSPC
+         LD    C,7
+
          JR    Z,_sdump    ; Absolute address
 
          ; Relative to a specific logical drive.
+         CP    ':'
+         JR    NZ,_sdump
+         CALL  SKIPSPC
+         JR    Z,_defdrv
 
+         ; This needs to be a logical drive number (0-15)
+         SUB   'A'
+         JR    C,BADPS
+         CP    16
+         JR    NC,BADPS
 
-_sdump:  LD    H,L     ; Multiple by 256
-         LD    L,D
-         LD    D,E
-         LD    E,0
+         ; Valid drive so make this the default.
+         LD    (DEFDRV),A
 
-         SLA   D       ; And then by 2 to get to 512 block address
-         RL    L
-         RL    H
+_defdrv: LD    A,(DEFDRV)
 
-         PUSH  DE
-         PUSH  HL
-         LD    HL,_BTADD
-         CALL  PRINT
-         POP   HL
-         PUSH  HL
-         CALL  WRITE_16
-         WRITE_CHR ':'
-         LD    H,D
-         LD    L,E
-         CALL  WRITE_16
-         POP   HL
-         POP   DE
+_ddump:  ; Get the drive offset which is 13 bits in DE
+         LD    H,A
+         LD    A,$1F
+         AND   D
+         LD    D,A      ; H: drive number, L:0, DE: truncated to 13 bits (8192 sectors = 4MB)
+         LD    L,0
 
-         LD    BC,SDPAGE  ; Use our default buffer for the input
-         CALL  SD_RBLK
+         ; READ THE DATA
+         JR    _sdexec
+
+_sdump:  INC   C        ; Use command 8 (raw sector read)
+_sdexec: RST   30h
+
          ; And dump the read block.
-         CALL  NL
+
+_do_dmp: CALL  NL
          ; 512 bytes to dump in blocks of 32 bytes
          LD    HL,0       ; The block offset to display
          LD    DE,SDPAGE  ; Source for data
@@ -2922,7 +2900,25 @@ _sdnx3:  POP   BC
          DJNZ  _sdnxt
          JR    main
 
-
+; -----  DRVMAP
+; Return the value in the drive map for the logical drive in 'A'. Return in HL
+TXLDRV:  PUSH  AF
+         LD    HL,DRVMAP
+         ADD   A             ; A * 2
+         ADD   L             ; Add to the base
+         LD    L,A
+         LD    A,0
+         ADC   H
+         LD    H,A
+         LD    A,(HL)
+         PUSH  AF
+         INC   HL
+         LD    A,(HL)
+         LD    H,A
+         POP   AF
+         LD    L,A
+         POP   AF
+         RET
 
 ; --------------------- SH_DTIME
 ; Display date/time from RTC
@@ -3037,7 +3033,7 @@ DECCHR:     RST      10h
             JR       DECCHR
 
 ; --------------------- STRINGS
-_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.17.5",NULL
+_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.17.8",NULL
 _CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r",NULL
 
 ; Set scroll area for debug
@@ -3081,7 +3077,7 @@ _DMAAD       DEFB "DMA ADDR: ", NULL
 _BRK         DEFB "BREAK...", NULL
 _NOSDADD     DEFB "No SDcard sector address", NULL
 _NODRIVE     DEFB "Specify drive A-", 'A'+15, NULL
-_BTADD       DEFB "Byte address: ", NULL
+_BTADD       DEFB "Sector address: ", NULL
 _MAPD        DEFB "Map logical drive: ",NULL
 _MAPD_TO:    DEFB " to SD drive slot ", NULL
 

@@ -143,15 +143,18 @@ del_2:   DEC   L
 
 
 ; ----------- WRITE BLOCK -----------
-; Note that this only currently works for BYTE addressed SD cards rather than sector address. This
-; means it's not going to work with larger SD cards. Limited to 4G cards.
+; SDCard address is a 512byte sector number which needs to be scaled up to
+; a byte address. Eventually the scaling will depend on the SDCard formats
+; supported. Right now we only support the original cards which have a
+; byte addressing scheme.
 ;
 ; ALL WRITES ARE 512 BYTES!!!
 ;
 ; HL  - SD address upper word...
 ; DE  - SD address lower word...
 ; BC  - Points to the buffer containing the data to write.
-SD_WBLK:  PUSH       BC             ; Save buffer address
+SD_WBLK:  CALL       SCL_AD
+          PUSH       BC             ; Save buffer address
           ; Send command...
           LD         BC,0FF40h + 24
           CALL       SPI_CM1
@@ -189,10 +192,15 @@ _abrt_wr: CALL       SPI_END
           RET
 
 ; ----------- READ BLOCK -----------
+; SDCard address is a 512byte sector number which needs to be scaled up to
+; a byte address. Eventually the scaling will depend on the SDCard formats
+; supported. Right now we only support the original cards which have a
+; byte addressing scheme.
 ; HL  - SD address upper word...
 ; DE  - SD address lower word...
 ; BC  - Target buffer
-SD_RBLK:  PUSH       BC                 ; Address of buffer to receive data
+SD_RBLK:  CALL       SCL_AD
+          PUSH       BC                 ; Address of buffer to receive data
           LD         BC,0FF40h + 17     ; Command code
           CALL       SPI_CM1
 
@@ -213,6 +221,19 @@ _nrb:     LD         B,0                ; Number of 16 bit words to read. Read 2
           CALL       SPI_END
           RET
 
+; -------------- SCALE BLOCK ADDRESS ------------
+; This library currently only supports the original byte addressed SDCards with a maximum
+; size of 4GB. The address accepted by the API is a 512 byte sector address so need to
+; left shift 9 bits.
+SCL_AD:  LD    H,L     ; Multiple by 256
+         LD    L,D
+         LD    D,E
+         LD    E,0
+
+         SLA   D       ; And then by 2 to get to 512 block address
+         RL    L
+         RL    H
+         RET
 
           DSEG
 

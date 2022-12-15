@@ -1,5 +1,6 @@
 import ../zlib/defs.asm
 import config.asm
+import api.asm
 
           extrn  PAUSE
 
@@ -375,12 +376,12 @@ endif
             ; the physical address << 6 (Upper 10 bits of the 32 bit SD card address).
             LD     HL,DRVMAP
             LD     B,16
-            LD     DE,0040h        ; 0000 0000 0100 0000
+            LD     DE,0020h        ; 0000 0000 0010 0000
 _nxtdrv:    LD     (HL),E
             INC    HL
             LD     (HL),D
             INC    HL
-            LD     A,40h         ; Add 40h to get to the next logical drive.
+            LD     A,20h           ; Add 20h to get to the next logical drive.
             ADD    E
             LD     E,A
             LD     A,0
@@ -2734,7 +2735,7 @@ _dmapn: PUSH  AF
         LD    D,(HL)
         INC   HL
         EX    DE,HL
-        CALL  _div64
+        CALL  _div32
         CALL  WRITE_D
         EX    DE,HL
         CALL  NL
@@ -2743,16 +2744,19 @@ _dmapn: PUSH  AF
         DJNZ  _dmapn
         JR    main
 
-; ----- Divide HL by 64 (6 bits)
-_div64: XOR   A
-        RL    L
-        RL    H
-        RLA          ; Bit that drops off H
-        RL    L
-        RL    H
-        RLA          ; Bit that drops off H
-        LD    L,H
-        LD    H,A
+; ----- Divide HL by 32 (5 bits)
+_div32: LD    A,L
+        SRL   H
+        RRA
+        SRL   H
+        RRA
+        SRL   H
+        RRA
+        SRL   H
+        RRA
+        SRL   H
+        RRA
+        LD    L,A
         RET
 
 _sdbad: LD     HL,_NOSDADD
@@ -2772,15 +2776,15 @@ SMAP:     CALL  SKIPSPC
 _baddrv:  LD    HL,_NODRIVE
           JR     _prterr
 
-          ; Want a physical drive (0-511 decimal)
+          ; Want a physical drive (0-1023 decimal)
 _gotdrv:  LD     (DEFDRV_L),A
           SUB    'A'
           LD     (DEFDRV),A
 
           CALL   GET_DEC
 
-          ; Number from 0-511
-          LD     A,$FE
+          ; Number from 0-1024
+          LD     A,$FC
           AND    H
           JR     NZ,_sdbad
 
@@ -2795,11 +2799,10 @@ _gotdrv:  LD     (DEFDRV_L),A
           CALL   WRITE_D
           CALL   NL
 
-          ; Want to do this, but RST 30h broken for calls from the monitor at the moment! Needs to
-          ; understand the call context. Or different dispatcher for monitor and application.
+          ; Tell the API the mapping we want.
           LD     A,(DEFDRV)
           LD     D,A
-          LD     C,5             ; Map drive
+          LD     C,A_DSKMP       ; Map drive
           RST    30h
 
           JR     main
@@ -2809,14 +2812,14 @@ _gotdrv:  LD     (DEFDRV_L),A
 ; number on the SDCard. Alternatively you can specify an offset into a logical drive letter.
 ; Formats for the display are:
 ;   NNNNNNNN - 32 bit sector address into the whole SDCard
-;   NNNNNNN: - 32 bit sector offset into the currently selected default drive (last mapped)
+;   NNNNNNN: - 32 bit sector offset into the currently selected default drive (last mapped or listed)
 ;   NNNNNN:L - 32 bit offset into the specified logical drive (L becomes the default)
 SDUMP:   CALL  SD_INIT
          CALL  WASTESPC
          JR    Z,_sdbad
 
          ; Set standard ZLoader DMA buffer
-         LD    C,86h
+         LD    C,S_DSKDM
          RST   30h
 
          ; Expect a 32 bit number
@@ -2824,10 +2827,11 @@ SDUMP:   CALL  SD_INIT
 
          JR    C,_sdbad
 
-         ; HLDE is the full SD card BLOCK address. This is either absolute OR relative to a
-         ; specific logical mapped drive. Need to multiply by 512 to get a byte address for the
-         ; SDcard interface.
+         ; HLDE is the 512 sector address. This is either absolute OR relative to a specific
+         ; mapped logical drive.
          CALL  SKIPSPC
+         LD    C,7
+
          JR    Z,_sdump    ; Absolute address
 
          ; Relative to a specific logical drive.
@@ -2842,58 +2846,24 @@ SDUMP:   CALL  SD_INIT
          CP    16
          JR    NC,BADPS
 
-         JR    _ddump         ; dump drive...
+         ; Valid drive so make this the default.
+         LD    (DEFDRV),A
 
 _defdrv: LD    A,(DEFDRV)
 
-_ddump:  ; Get the drive offset (A is the logical drive)
+_ddump:  ; Get the drive offset which is 13 bits in DE
          LD    H,A
-         LD    A,$3F
-         AND   L
-         LD    L,A
+         LD    A,$1F
+         AND   D
+         LD    D,A      ; H: drive number, L:0, DE: truncated to 13 bits (8192 sectors = 4MB)
+         LD    L,0
 
          ; READ THE DATA
-         PUSH  HL
-         PUSH  DE
-         LD    A,'>'
-         RST   08h
-         CALL  WRITE_16
-         CALL  NL
-         POP   DE
-         LD    L,E
-         LD    H,D
-         CALL  WRITE_16
-         POP   HL
+         JR    _sdexec
 
-         LD    C,7
-         RST   30h
-         JR    _do_dmp
+_sdump:  INC   C        ; Use command 8 (raw sector read)
+_sdexec: RST   30h
 
-_sdump:  LD    H,L     ; Multiple by 256
-         LD    L,D
-         LD    D,E
-         LD    E,0
-
-         SLA   D       ; And then by 2 to get to 512 block address
-         RL    L
-         RL    H
-
-         PUSH  DE
-         PUSH  HL
-         LD    HL,_BTADD
-         CALL  PRINT
-         POP   HL
-         PUSH  HL
-         CALL  WRITE_16
-         WRITE_CHR ':'
-         LD    H,D
-         LD    L,E
-         CALL  WRITE_16
-         POP   HL
-         POP   DE
-
-         LD    BC,SDPAGE  ; Use our default buffer for the input
-         CALL  SD_RBLK
          ; And dump the read block.
 
 _do_dmp: CALL  NL
@@ -3107,7 +3077,7 @@ _DMAAD       DEFB "DMA ADDR: ", NULL
 _BRK         DEFB "BREAK...", NULL
 _NOSDADD     DEFB "No SDcard sector address", NULL
 _NODRIVE     DEFB "Specify drive A-", 'A'+15, NULL
-_BTADD       DEFB "Byte address: ", NULL
+_BTADD       DEFB "Sector address: ", NULL
 _MAPD        DEFB "Map logical drive: ",NULL
 _MAPD_TO:    DEFB " to SD drive slot ", NULL
 

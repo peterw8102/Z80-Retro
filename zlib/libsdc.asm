@@ -23,7 +23,7 @@ import ../zlib/defs.asm
           extrn  SPI_RXB, SPI_RBF, SPI_CM1, SPI_CMN, SPI_BRD, SPI_BWR
 
           ; Operational exports
-          public SD_INIT, SD_WBLK, SD_RBLK
+          public SD_INIT, SD_WBLK, SD_RBLK, SD_PRES
 
           ; Debug symbols
           public _RSET, _SCND, _OCR, _AINIT, _SBLK, _CMDBUF
@@ -37,7 +37,10 @@ import ../zlib/defs.asm
 ; function can be called multiple times. There are no parameters.
 ;
 ; The SDCard is set to have a block size of 512 bytes,
-SD_INIT:  CALL     SPI_INIT        ; Initialise the SPI interface
+SD_INIT:  IN        A,(SPIIN)
+          AND       SDC0_PR
+          RET       Z
+          CALL     SPI_INIT        ; Initialise the SPI interface
           CALL     SPI_END
 
           ; SD Card initialisation sequence
@@ -49,6 +52,20 @@ SD_INIT:  CALL     SPI_INIT        ; Initialise the SPI interface
 
           ; Set block size to 512 bytes
           CALL      _SBLK
+          XOR       A
+          INC       A
+          RET
+
+; ------ SD_PRES
+; Report the presence for the two available SD card slots.
+; Return
+;  A - bit 0: SDCard 0, bit 1: SDCard 1
+SD_PRES:  IN         A,(SPIIN)
+          AND        SDC0_PR | SDC1_PR
+          RRCA
+          RRCA
+          RRCA
+          AND        3
           RET
 
 ; _RSET: Send a card reset command.
@@ -153,7 +170,10 @@ del_2:   DEC   L
 ; HL  - SD address upper word...
 ; DE  - SD address lower word...
 ; BC  - Points to the buffer containing the data to write.
-SD_WBLK:  CALL       SCL_AD
+SD_WBLK:  IN        A,(SPIIN)
+          AND       SDC0_PR
+          RET       Z
+          CALL       SCL_AD
           PUSH       BC             ; Save buffer address
           ; Send command...
           LD         BC,0FF40h + 24
@@ -199,7 +219,11 @@ _abrt_wr: CALL       SPI_END
 ; HL  - SD address upper word...
 ; DE  - SD address lower word...
 ; BC  - Target buffer
-SD_RBLK:  CALL       SCL_AD
+SD_RBLK:  IN        A,(SPIIN)
+          AND       SDC0_PR
+          RET       Z
+
+          CALL       SCL_AD
           PUSH       BC                 ; Address of buffer to receive data
           LD         BC,0FF40h + 17     ; Command code
           CALL       SPI_CM1

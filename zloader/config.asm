@@ -21,7 +21,7 @@ SP_STK:      .EQU     4000h - 200h
 ; Breakpoints in code are handled by replacing the opcode at the break location with a RST instruction. The
 ; default is RST 20h. You can change this if your system is using RST 20 for something else.
 BRK_OPCODE:  .EQU     0E7h     ; The instruction to use to cause a breakpoint. This must be a RST xx single byte op. Default RST 20h
-BRK_HANDLER: .EQU      20h     ; The address at which to origin the break point handler Must match BRK_OPCODE
+BRK_HANDLER: .EQU      28h     ; The address at which to origin the break point handler Must match BRK_OPCODE
 
 ; Configuring how the monitor runs.
 ; IS_DEVEL should be 1h when developing new versions of the monitor (which then locates

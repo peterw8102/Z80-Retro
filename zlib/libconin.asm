@@ -337,6 +337,10 @@ _esc:     LD      A,(MLINE)     ; MLINE is true if history buffer (up/down arrow
           JR      Z,_nchr
           CP      'D'
           JR      Z,_pchr
+          ; CP      '1'
+          ; JR      Z,_stln
+          ; CP      '4'
+          ; JR      Z,_endl
           CP      '3'           ; It's ESC[3. If the next char is $7E then delete char at current pos.
           JR      NZ,getc
           CALL    _GETCHR
@@ -350,6 +354,15 @@ _esc:     LD      A,(MLINE)     ; MLINE is true if history buffer (up/down arrow
 ; -------------------------
 ; CURSOR CONTROL FUNCTIONS
 ; -------------------------
+
+; -- _stln
+; Start of line
+; TBD
+
+; -- _endl
+; End of line
+; TBD
+
 
 ; -- _pchr
 ; Move cursor one space to the left.

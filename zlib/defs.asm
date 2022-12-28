@@ -65,4 +65,7 @@ SPICS_DS  EQU 01h             ; Disable CS to SDCard
 SPIMASK   EQU 00h             ; Keep I2C clock high and inactive!!
 SPICMD    EQU SPIMASK         ; I2C clock OFF, CS active, CLK low
 
+; INPUT SDCard values (read port 64)
+SDC0_PR   EQU 08h             ; 1 if there's an SDCard present in SDCard 0
+SDC1_PR   EQU 10h             ; 1 if there's an SDCard present in SDCard 1
 import macros.asm

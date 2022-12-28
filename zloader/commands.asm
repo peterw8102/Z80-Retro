@@ -2,8 +2,8 @@ import ../zlib/defs.asm
 import config.asm
 
           ; Imports from 'zlib'
-          extrn  PRINT,PRINT_LN,WASTESPC,GET_LINE,BUFCHR,WRITE_8,WRITE_16,INHEX_2
-          extrn  GET_HEX
+          extrn  PRINT,PRINT_LN,SKIPSPC,WASTESPC,GET_LINE,BUFCHR,WRITE_8,WRITE_16,INHEX_2
+          extrn  GET_HEX, SDPAGE
 
           ; Imports from 'zloader'
           extrn  PGMAPX,main,BADPS,NL,OPMODE,PGMAPX
@@ -151,8 +151,30 @@ INPUT:   CALL  WASTESPC
          JR    main
 
 ;
+; ------------------- SDMOD
+; Modify data in the SDCard buffer. The parameter is the offset into the SDCard buffer
+; with a base of zero.
+SDMOD:   CALL  SKIPSPC
+         CALL  GET_HEX          ; Offset into the SDCard buffer
+         JR    Z, BADPS
+
+         ; Sector size is 512 buyes so anthing greater than 0x200 is out of range.
+         LD    A,$FE
+         AND   H
+         JR    NZ,BADPS
+
+         ; Set up the addresses to display and use
+         LD    DE,SDPAGE        ; Calculate the address in the buffer (SDPAGE+offset)
+         EX    DE,HL
+         ADD   HL,DE            ; HL now actual address, DE is display offset
+         JR    _nextln
+
+;
 ; ------------------- MODIFY
-MODIFY:  CALL  GET_HEX          ; Start address (in application space)
+MODIFY:  CALL  WASTESPC
+         CP    'S'
+         JR    Z,SDMOD          ; Write data into the SDCard buffer
+         CALL  GET_HEX          ; Start address (in application space)
          JR    Z, BADPS
          ; Sit in a loop processing lines.
          ; LD    (DUMP_ADDR),HL

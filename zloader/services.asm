@@ -1,15 +1,15 @@
 import ../zlib/defs.asm
 import config.asm
 
-          extrn  SD_INIT, SD_RBLK, SD_WBLK
-          extrn  APP_STK, PAGE_MP
+          extrn  SD_INIT,SD_RBLK,SD_WBLK,SD_PRES
+          extrn  APP_STK,PAGE_MP
           extrn  PGADJ
           extrn  PRTERR
 
           extrn  DRVMAP
           extrn  PRINT_LN
           extrn  _IOERR
-          extrn  MON_MP, SDPAGE
+          extrn  MON_MP,SDPAGE
           extrn  WRITE_16
 
           public  AP_DISP
@@ -52,6 +52,10 @@ AP_DISP:  LD     A,C
           JR     Z,LD_SDWR      ; CMD 9  - SDCard Write
           DEC    C
           JR     Z,LD_RWWR      ; CMD 10 - SDCard Write to raw sector (unmapped)
+          DEC    C
+          JR     Z,SD_PRES      ; CMD 11 - SDCard card status
+          DEC    C
+          JR     Z,LD_VDU       ; CMD 12 - Video card status
 
           ; System requests (internal calls from ZLoader context)
           AND    7Fh
@@ -198,6 +202,47 @@ LD_RWWR:  PUSH   BC
           CALL   SD_WBLK
           POP    BC
           RET
+
+
+; --------- LD_SDSTT (CMD 11)
+; SDCard presense
+; Returns the presense or absense of the two SDCards slots. NOTE:
+; The hardware can't distinguish between card present and adaptor
+; missing due to the way the adaptor hardware works. As such it's
+; recommended that slot 0 at least have an SDCard adaptor even if
+; not used.
+;
+; The API takes no parameters and returns a two bit result in the
+; accumulator:
+;  Bit 0: Card 0 presense
+;  Bit 1: Card 1 presense
+; The value of each bit will be either:
+;     0: There is an adaptor fitted but there's no card inserted
+;     1: Either there's no adaptor OR there is an adaptor and there
+;        is a card inserted into the adaptor.
+; NOTE This function is implemented directly by SD_PRES in the
+; SDCard library so currently no implementation here!
+
+
+; --------- LD_VDU (CMD 12)
+; VDU/Graphic Card Presense
+; Returns the presense or absense of the video card with the
+; `Z` flag. `Z` is true if there's a video card installed.
+LD_VDU:     LD       A,$FF
+            OUT      (PG_PORT0+1), A  ; Map VDU memory into CPU space
+
+            ; Try to write to memory
+            LD       HL,$55AA
+            LD       ($7FFE),HL
+            LD       DE,($7FFE)
+            LD       A,E
+            CP       $AA
+            RET      NZ
+            LD       A,D
+            CP       $55
+            RET
+
+
 
 ; --------- _mapdsk
 ; Application is addressing a logical sector address, where a sector is 512 bytes. The

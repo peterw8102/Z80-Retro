@@ -4,12 +4,13 @@ import config.asm
           extrn  SD_INIT, SD_RBLK, SD_WBLK
           extrn  APP_STK, PAGE_MP
           extrn  PGADJ
+          extrn  PRTERR
 
-          extrn  PGREST
           extrn  DRVMAP
           extrn  PRINT_LN
           extrn  _IOERR
           extrn  MON_MP, SDPAGE
+          extrn  WRITE_16
 
           public  AP_DISP
 
@@ -29,24 +30,28 @@ CSEG
 ;
 ; All other registers are command specific.
 AP_DISP:  LD     A,C
+          OR     A
+          JR     Z,LD_MON       ; CMD 0  - Jump back to ZLoader
           DEC    C
-          JR     Z,LD_PGSEL     ; CMD 1 - RAM Page Select (map)
+          JR     Z,LD_PGSEL     ; CMD 1  - RAM Page Select (map)
           DEC    C
-          JR     Z,TX_CHR       ; CMD 2 - Send character to serial port A
+          JR     Z,TX_CHR       ; CMD 2  - Send character to serial port A
           DEC    C
-          JR     Z,RX_CHR       ; CMD 3 - Rx character from serial port A, wait if none available
+          JR     Z,RX_CHR       ; CMD 3  - Rx character from serial port A, wait if none available
           DEC    C
-          JR     Z,CHK_CHR      ; CMD 4 - Check for a character, return if available
+          JR     Z,CHK_CHR      ; CMD 4  - Check for a character, return if available
           DEC    C
-          JR     Z,LD_STDSK     ; CMD 5 - Map logical disk number
+          JR     Z,LD_STDSK     ; CMD 5  - Map logical disk number
           DEC    C
-          JR     Z,LD_STDMA     ; CMD 6 - Set memory address to receive SDCard data
+          JR     Z,LD_STDMA     ; CMD 6  - Set memory address to receive SDCard data
           DEC    C
-          JR     Z,LD_SDRD      ; CMD 7 - SDCard Read
+          JR     Z,LD_SDRD      ; CMD 7  - SDCard Read
           DEC    C
-          JR     Z,LD_RWRD      ; CMD 8 - SDCard Raw read - absolute sector (512 byte) address
+          JR     Z,LD_RWRD      ; CMD 8  - SDCard Raw read - absolute sector (512 byte) address
           DEC    C
-          JR     Z,LD_SDWR      ; CMD 8 - SDCard Write
+          JR     Z,LD_SDWR      ; CMD 9  - SDCard Write
+          DEC    C
+          JR     Z,LD_RWWR      ; CMD 10 - SDCard Write to raw sector (unmapped)
 
           ; System requests (internal calls from ZLoader context)
           AND    7Fh
@@ -55,6 +60,11 @@ AP_DISP:  LD     A,C
 
           ; Unknown function
           RET
+
+; Jump to monitor. Basically an abort from the application. The monitor page is
+; already mapped into CPU space so just restart the monitor
+LD_MON:   LD     HL, _M_MONS
+          JR     PRTERR
 
 ; Transmit the character in E
 TX_CHR:   LD     A,E
@@ -72,12 +82,14 @@ CHK_CHR:  RST    18h
 
 ; ---------- LD_PGSEL (CMD 1)
 ; Map memory page
-; D:  Physical memory block to map into the page (0-255)
-; E:  The page number into which to map the physical memory (0-3).
-; NOTE: Mapping page 0 is likely to be a problem!
+; D:  Physical memory page to map into the page (0-255)
+; E:  The block number into which to map the physical memory (0-3).
+; NOTE: Mapping page 0 and 3 are likely to be a problem!
 LD_PGSEL: LD     A,E
           CP     3
           RET    NC             ; There are 4 pages but the last one can't be changed by the application
+          PUSH   HL
+          PUSH   BC
           LD     HL,PAGE_MP
           ADD    L
           LD     L,A            ; PAGE_MP will always be low in data store and not on a 256 byte boundary
@@ -88,6 +100,8 @@ LD_PGSEL: LD     A,E
           LD     C,A            ; C has the port number
           LD     A,D            ; The page to select
           OUT    (C),A          ; Make the change
+          POP    BC
+          POP    HL
           RET
 
 ; --------- LD_STDSK (CMD 5)
@@ -152,27 +166,18 @@ LD_EDMA:  LD     A,(MON_MP)
 ;   HLDE is the logical address (H: virtual disk 0-15, DE sector offset into drive)
 ; The result will be written to the currently defined DMA address
 LD_SDRD:  CALL   _mapdsk              ; HLDE is now the physical offset into the SDCard
-
-          LD     BC,(DMA_ADDR)
-          LD     A,(DMA_PAGE)         ; Get the buffer page into block 1
-          OUT    (PG_PORT0+1),A
-
-          CALL   SD_RBLK             ; Get the SDCard data
-
-          CALL   PGREST              ; Reset the application memory page
-          RET
+          ; Drop through to a raw read
 
 ; --------- LD_SDRD (CMD 8)
 ; SDCard Read Block.
 ;   HLDE is the raw **SECTOR ADDRESS** (32 bits)
 ; The result will be written to the currently defined DMA address
-LD_RWRD:  LD     BC,(DMA_ADDR)
+LD_RWRD:  PUSH   BC
+          LD     BC,(DMA_ADDR)
           LD     A,(DMA_PAGE)         ; Get the buffer page into block 1
           OUT    (PG_PORT0+1),A
-
           CALL   SD_RBLK             ; Get the SDCard data
-
-          CALL   PGREST              ; Reset the application memory page
+          POP    BC
           RET
 
 ; --------- LD_SDWR (CMD 9)
@@ -180,14 +185,18 @@ LD_RWRD:  LD     BC,(DMA_ADDR)
 ;   HLDE is the **SECTOR ADDRESS** (32 bits)
 ; The result will be written to the currently defined DMA address
 LD_SDWR:  CALL   _mapdsk
+          ; Drop through to a raw write
 
+; --------- LD_RWWR (CMD 10)
+; SDCard Write Block.
+;   HLDE is the **SECTOR ADDRESS** (32 bits)
+; The result will be written to the currently defined DMA address
+LD_RWWR:  PUSH   BC
           LD     BC,(DMA_ADDR)
           LD     A,(DMA_PAGE)         ; Get the buffer address into page 1
           OUT    (PG_PORT0+1),A
-
           CALL   SD_WBLK
-
-          CALL   PGREST               ; Reset the application memory page
+          POP    BC
           RET
 
 ; --------- _mapdsk
@@ -237,7 +246,7 @@ _mapdsk:  LD     A,H        ; The upper 8 bits contain logical drive, needs to b
           LD     L,H        ; And HL comes straight from the offset table
           RET
 
-
+_M_MONS:  DEFB   10,13,"Monitor...", 0
 
           DSEG
 

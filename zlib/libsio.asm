@@ -58,7 +58,7 @@ nextchr:        XOR      A
                 IN       A,(SIOA_D)       ; Get the character - frees the input FIFO
 
                 PUSH     HL
-                PUSH     AF              ; Make sure we have enough room for this character
+
                 ; Check if this is a break character and if it is has anyone registered a break handler?
                 CP       3h               ; Character still in A
 
@@ -66,7 +66,8 @@ nextchr:        XOR      A
                 JR       Z,brk
 
                 ; If the break handler isn't installed continue from here.
-proc:           LD       A,(serBufUsed)
+proc:           PUSH     AF              ; Make sure we have enough room for this character
+                LD       A,(serBufUsed)
                 CP       SER_BUFSIZE     ; If full then ignore
                 JR       Z,_full
 
@@ -119,7 +120,7 @@ brk:            LD       A,(BRK_HK+1) ; Break handler can't be in the first 256 
                 LD       A,3
                 JR       Z,proc
 _prbrk:         ; Implement break handler. For this we can trash all registers
-                ; because we're never going to return. Handler can't be @<100h!
+                ; because we're never going to return.
                 LD       HL,(BRK_HK)
 
                 ; The break handler will have a stack that looks like:

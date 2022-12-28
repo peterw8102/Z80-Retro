@@ -57,9 +57,19 @@ SD_INIT:  IN        A,(SPIIN)
           RET
 
 ; ------ SD_PRES
-; Report the presence for the two available SD card slots.
-; Return
-;  A - bit 0: SDCard 0, bit 1: SDCard 1
+; The function takes no parameters and returns a two bit result
+; in the accumulator (A):
+;    Bit 0: Card 0 presense
+;    Bit 1: Card 1 presense
+; The value of each bit will be either:
+;     0: There is an adaptor fitted but there's no card inserted
+;     1: Either there's no adaptor OR there is an adaptor and there
+;        is a card inserted into the adaptor.
+; NOTE:
+; The hardware can't distinguish between card present and adaptor
+; missing due to the way the adaptor hardware works. As such it's
+; recommended that slot 0 at least have an SDCard adaptor even if
+; not used.
 SD_PRES:  IN         A,(SPIIN)
           AND        SDC0_PR | SDC1_PR
           RRCA

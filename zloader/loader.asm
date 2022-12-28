@@ -275,8 +275,7 @@ _nxtdrv:    LD     (HL),E
             ; Really simple CLI now. Display
 NOSIO:      LD    HL, _INTRO
             CALL  PRINT_LN
-            CALL  SH_DTIME
-            CALL  SH_SDC
+            CALL  SH_HW
 
 if !IS_DEVEL
           ; Check the state of the DIL switches and look for autoboot mode
@@ -2975,13 +2974,13 @@ SH_SDC:     LD       HL,_SDIS
             CALL     PRINT
             LD       A,'1'
             RST      08h
-            XOR      A
-            CALL     SD_PRES
+            LD       C,10
+            RST      30h
             PUSH     AF
-            LD       HL,_SDEMP
+            LD       HL,_EMP
             AND      1
             JR       Z,_sd1emp
-            LD       HL,_SDPRE
+            LD       HL,_PRE
 _sd1emp:    CALL     PRINT_LN
             LD       HL,_SDIS
             CALL     PRINT
@@ -2989,11 +2988,29 @@ _sd1emp:    CALL     PRINT_LN
             RST      08h
             POP      AF
             AND      2
-            LD       HL,_SDEMP
+            LD       HL,_EMP
             JR       Z,_sd2emp
-            LD       HL,_SDPRE
+            LD       HL,_PRE
 _sd2emp:    CALL     PRINT_LN
             RET
+
+; ---- SH_VDU
+; Show the status of the VDU card (installed or not)
+SH_VDU:     LD       HL,_VDIS
+            CALL     PRINT
+            LD       HL,_EMP
+            LD       C,A_VSTAT
+            RST      30h
+            JR       NZ,_prterr
+_novdu:     LD       HL,_PRE
+            JR       _prterr
+
+
+SH_HW:      CALL  SH_DTIME
+            CALL  NL
+            CALL  SH_SDC
+            JR    SH_VDU
+
 
 ; Only need this code if we're configured to load a user defined default character set to
 ; the graphics card. If there is no graphic card then the monitor image can be smaller.
@@ -3006,17 +3023,17 @@ INITCSET:   PUSH     AF
             PUSH     HL
 
             LD       A,$FF     ; Where to write the data (Video memory)
-            OUT      (PG_PORT0+3), A
-            LD       A,CSET_PG ; Where to get the character set data
             OUT      (PG_PORT0+2), A
+            LD       A,CSET_PG ; Where to get the character set data
+            OUT      (PG_PORT0+1), A
 
             LD       BC,$1000  ; The character set is 4K
-            LD       HL,$8000  ; Source address
-            LD       DE,$C000  ; Desitnation address
+            LD       HL,$4000  ; Source address
+            LD       DE,$8000  ; Desitnation address
             LDIR
 
             ; Set up test data in video memory
-            LD       HL,$E000  ; Start of display memory
+            LD       HL,$A000  ; Start of display memory
             XOR      A         ; Character to write
             LD       B,$10     ; Outer loop
 
@@ -3045,7 +3062,7 @@ DECCHR:     RST      10h
 ; Write a memory image to the SDCard virtual disk. Parameters are:
 ;   W ssss:d start end
 ;     ssss:d - location on SDCard
-;     start  - 16 bit address for start of image
+;     start  - 16 bit address for start of image (in application space)
 ;     end    - last byte to write
 IMG:        CALL  SADDR      ; Sets up the target write address
             JR    C,BADPS
@@ -3082,15 +3099,6 @@ _nxblk:     PUSH  BC
             LD    HL,(SDMP_L+2)   ; HLDE is the logical address
             LD    A,(SDMP_MD)     ; The read command - turn into write command
             ADD   A_DSKWR-A_DSKRD
-            PUSH  AF
-            LD    A,'{'
-            RST   08h
-            POP   AF
-            PUSH  AF
-            CALL  WRITE_8
-            LD    A,'}'
-            RST   08h
-            POP   AF
             LD    C,A
             RST   30h             ; Write sector
 
@@ -3116,7 +3124,7 @@ _noov:      POP   HL              ; Move read address forward 512 bytes.
             JR    main
 
 ; --------------------- STRINGS
-_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.18.0",NULL
+_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.18.1",NULL
 _CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r",NULL
 
 ; Set scroll area for debug
@@ -3163,9 +3171,11 @@ _NODRIVE     DEFB "Specify drive A-", 'A'+15, NULL
 _BTADD       DEFB "Sector address: ", NULL
 _MAPD        DEFB "Map logical drive: ",NULL
 _MAPD_TO:    DEFB " to SD drive slot ", NULL
-_SDIS:       DEFB "SDCard ", NULL
-_SDEMP:      DEFB " Empty", NULL
-_SDPRE:      DEFB " Present", NULL
+_VDIS:       DEFB "Video Card", NULL
+_SDIS:       DEFB "SDCard   ", NULL
+_PDIS:       DEFB "PIO Card  ", NULL
+_EMP:        DEFB " Missing", NULL
+_PRE:        DEFB " Present", NULL
 
 ; Alternate command table format: LETTER:ADDRESS
 BDG_TABLE:      DB       'B'

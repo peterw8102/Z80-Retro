@@ -119,8 +119,7 @@ brk:            LD       A,(BRK_HK+1) ; Break handler can't be in the first 256 
                 OR       A
                 LD       A,3
                 JR       Z,proc
-_prbrk:         ; Implement break handler. For this we can trash all registers
-                ; because we're never going to return.
+_prbrk:         ; Implement break handler. HL is still on the stack so can be used.
                 LD       HL,(BRK_HK)
 
                 ; The break handler will have a stack that looks like:

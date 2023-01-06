@@ -3,13 +3,14 @@ import config.asm
 import api.asm
 
           ; Utilities
-          extrn  PAUSE,STRCMP,ADD8T16
+          extrn  PAUSE,STRCMP,ADD8T16,TOUPPER
 
-          extrn  PRINT,PRINT_LN,NL,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,UNGET,WRITE_D,WRITE_8,WRITE_16,INHEX,INHEX_2,INHEX_4
+          extrn  PRINT,PRINT_LN,NL,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,BUFCHUP,UNGET,RESINP
+          extrn  WRITE_D,WRITE_8,WRITE_16,INHEX,INHEX_2,INHEX_4
           extrn  BRK_HK,SETHIST,GETHIST
           extrn  CMD_B
           extrn  DISASS, SETOFF
-          extrn  GET_HEX,GET_DEC,INPTR,INBUF,INITSIO,MAPCASE,RXA,TXA,CKINCHAR,SERINT
+          extrn  GET_HEX,GET_DEC,INPTR,INBUF,INITSIO,RXA,TXA,CKINCHAR,SERINT
           extrn  DEC2BIN
           extrn  SD_PRES
 
@@ -54,6 +55,7 @@ import api.asm
           public SCRATCH
           public ISRCTXT
           public R_PC
+          public CMD_TABLE
 
           public START,_STRTDS,_ENDDS
 
@@ -258,6 +260,8 @@ else
           JR      main
 endif
 
+E_NOSD:   LD    HL,_NOSDADD
+          JR    _prterr
 E_NEMPT:  LD    HL,_NOTEMP
           JR    _prterr
 E_REC:    LD    HL,_REC_ERR
@@ -278,53 +282,55 @@ PRTERR:
 _prterr:  CALL  PRINT_LN
 
 main:     LD    SP,SP_STK       ; Dump the stack and restart on *main*
-          LD    A,1
-          CALL  MAPCASE         ; Map all letters to uppercase
           LD    HL, _PROMPT
           CALL  PRINT
           CALL  GET_LINE
           CALL  NL
-          CALL  SKIPSPC
-          OR    A
-          JR    NZ, _newcmd
-          ; empty line so check if we have a 'LAST_CMD'
-          LD    A,(LAST_CMD)
-          OR    A
-          JR    Z,main ; No last command
 
-          LD    HL,CURS_UP
-          CALL  PRINT
-          LD    A,(LAST_CMD)
+          CALL  WASTESPC
+          JR    Z, main
 
-          ; Which command?
-_newcmd:  LD    C,A
-          CP    'D'  ; 'D', 'N', 'S' and 'G' are repeatable
-          JR    Z,_cancnt
-          CP    'S'
-          JR    Z,_cancnt
-          CP    'N'
-          JR    Z,_cancnt
-          CP    'G'
-          JR    Z,_cancnt
-          XOR   A
-_cancnt:  LD    (LAST_CMD),A   ; Store for next time
-          LD    HL,(CMDTAB)
-_nxtcmd:  LD    A,(HL)
+; Process an unbroken chain of characters looking for a command match
+FNDCMD:   LD    HL,(CMDTAB)
+_nxtchr:  CALL  BUFCHR
+          JR    Z,_miss
+          CALL  TOUPPER        ; Need uppercase only
+          LD    C,A            ; Save the input character
+          LD    A,(HL)
+
+          LD    B,A            ; Save the test character$
+          AND   $7f            ; Ignore MSB
+
+          CP    C              ; Compare with input character
+          JR    NZ,_miss
+
+          ; Input character matched test character. End of command if MSB of B is set.
           INC   HL
+          RLC   B
+          JR    NC,_nxtchr     ; Step to next command
+
+          ; Next two bytes are the target address.
           LD    E,(HL)
           INC   HL
           LD    D,(HL)
-          INC   HL
-          OR    A
-          JR    Z,err      ; End of table
-          CP    C
-          JR    NZ,_nxtcmd
-          ; Found the command, address in DE
           EX    DE,HL
-          JP    (HL)
+          CALL  WASTESPC       ; Set buffer ready for next token
+          JP    (HL)           ; Call with A being the next character
 
-err:      LD    (LAST_CMD),A   ; Clear last command on error
-          JR    E_UNKWN
+          ; Command mismatch. Step to next command, reset input buffer and try again.
+_miss:    LD    A,$80
+          AND   (HL)
+          INC   HL
+          JR    Z,_miss
+          ; Step over the two address bytes
+          INC   HL
+          INC   HL
+          CALL  RESINP
+          CALL  WASTESPC
+          LD    A,(HL)
+          OR    A
+          JR    Z,E_UNKWN
+          JR    _nxtchr          ; Check against the next command...
 
 ; ------------------- _GDECNUM
 ; Read two decimal digits into the A register. The high nibble contains the first digit,
@@ -428,28 +434,25 @@ _ncnv:    LD     A,(HL)
           JR     NZ,_nrnv
           JR     main
 
+; ------------------- DUMPM - Block dump memory
+DUMPM:    LD     A,'M'
+          JR     _dodmp
+
+; ------------------- DUMPI - Disassembler
+DUMPI:    LD     A,'I'
+          JR     _dodmp
+
 ; ------------------- DUMP
-DUMP:     LD    A,(DUMP_MODE)
-          LD    B,A               ; Accepted mode in 'B'
-          LD    HL, (DUMP_ADDR)   ; HL will be the last dumped address+1
-          CALL  WASTESPC
-          JR    Z,cnt_dump
-          CP    'N'               ; Dump NV RAM (all 56 bytes)
-          JR    Z,DNVRAM
-          CP    'T'               ; Dump date time
-          JR    Z,DTIME
-          CP    'G'               ; If >= 'G' then it can't be the start of a hex number so it must be mode.
-          JR    C,no_mode
-          CALL  SKIPSPC
-          LD    B,A               ; Whatever the character is, we store this as the mode
-          LD    (DUMP_MODE), A
+DUMP:     LD    A,(DUMP_MODE)     ; Use previous/default dump mode
+_dodmp:   LD    B,A               ; Accepted mode in 'B'
+          LD    (DUMP_MODE),A     ; Store mode
 
 no_mode:  CALL  GET_HEX           ; Get the address to dump
           JR    NZ,_useval        ; If no value then use previously stored address
-          LD    HL,(DUMP_ADDR)
+cnt_dump: LD    HL,(DUMP_ADDR)
 
 _useval:  LD    (DUMP_ADDR),HL
-cnt_dump: LD    A,B               ; Get the mode character back
+          LD    A,B               ; Get the mode character back
           CP    'M'
           JR    NZ,decode         ; Mode is not 'M' so it's an instruction level dump
 
@@ -507,21 +510,10 @@ writeout: INC   DE
           POP   BC
           RET
 
-
-BOOT:     CALL  WASTESPC
-          CP    'O'                ; To boot MUST use 'BO' to avoid conflict with BP in debug mode
-          JR    NZ,BP
-          CALL  BUFCHR             ; Step over the O
-          CALL  SKIPSPC
-          CP    'S'                ; Load from SD card
-          JR    Z,SDLOAD           ; Use SDCard loader
-BOOTPI:   CP    '-'
-          JR    Z,_bootihx         ; Don't autorun
-
-          LD    A,1
+BOOT:     LD    A,1
           LD    (AUTO_RUN),A       ; Set auto-run mode
 
-_bootihx: XOR   A
+BOOTIX:   XOR   A
           LD    (LOAD_MODE),A      ; Force Intel Hex format load
           LD    HL,_BOOTHEX        ; From the default file
           LD    BC,8
@@ -650,20 +642,24 @@ cmd_bin:  LD    A,1
           LD    (PROGADD),HL
           JR    cmd_load
 
-; ---------------- LOAD
-; Process all lines starting with a ':'
-LOAD:     LD    HL,100h           ; Default load address for binary data
+
+PREPLD:   LD    HL,100h           ; Default load address for binary data
           LD    (PROGADD),HL
           XOR   A
           LD    (AUTO_RUN),A      ; Cancel auto-run mode
           LD    (LOAD_MODE),A     ; Default to HEX mode
-          CALL  SKIPSPC
-          JR    Z,_hex_ld         ; End of command line. Default to HEX from stdin
-          CP    'F'               ; Load from file
-          JR    Z,cmd_bin         ; Use CMD_B to load
-          CP    'H'               ; Load from file (HEX format)
-          JR    Z,cmd_load        ; Use CMD_B to load, HEX format
-_hex_ld:  XOR   A
+          RET
+
+LDF:      CALL  PREPLD
+          JR    cmd_bin
+
+LDH:      CALL  PREPLD
+          JR    cmd_load
+
+; ---------------- LOAD
+; Process all lines starting with a ':'
+LDT:      CALL  PREPLD
+          XOR   A
           CALL  SETHIST
           LD    HL, _WAITING      ; Command line HEX input
           CALL  PRINT_LN
@@ -682,11 +678,7 @@ nextline: CALL  GET_LINE
 ; Use the CMD_B loader to read blocks of data. Rest of line is the name of the file
 cmd_load: LD    HL,_FNAME
           CALL  PRINT
-          XOR   A
-          CALL  MAPCASE    ; Don't map case
           CALL  GET_LINE
-          LD    A,1
-          CALL  MAPCASE    ; Map lowercase to uppercase
           CALL  NL
           LD    BC,0
           LD    HL,INBUF
@@ -812,11 +804,11 @@ _eofhxok: LD    A,(AUTO_RUN)
 ; CMD: Set register value. R reg=val
 ; reg is A,B,C,D,E,H,L,BC,DE,HL,IX,IY
 ; val is an 8 or 16 bit hex value
-SET_RGS:  CALL  SKIPSPC    ; Get the name of the register, one or two characters
+SET_RGS:  CALL  BUFCHUP    ; Get the name of the register, one or two characters
           JR    Z,SHOW_RGS ; nothing to use
           LD    D,A        ; First character (required)
           LD    E,0
-          CALL  BUFCHR     ; either a space or '=' otherwise use it
+          CALL  BUFCHUP    ; either a space or '=' otherwise use it
           CP    '='
           JR    Z,_getval
           CP    ' '
@@ -1002,10 +994,7 @@ _nextstk: PUSH  HL             ; HL is now the physical address, DE application 
           RET
 
 ; ----- Single Step
-SSTEP:    CALL  WASTESPC
-          CP    '9'
-          JR    NC,MAPDSK      ; Access SDCard functions
-          CALL  GET_DEC        ; Get optional step count
+SSTEP:    CALL  GET_DEC        ; Get optional step count
           JR    C,_stp1
           INC   HL
 _stp1:    LD    (STP_CNT),HL   ; By default step once
@@ -1346,6 +1335,7 @@ REST_RGS: LD   HL,(R_AF)
 ; Get address from command line. If not specfied then BP at the current PC value
 BP:       CALL  WASTESPC
           JR    Z,_LISTBP
+
           LD    E,1
           CP    '-'              ; Removing a breakpoint
           JR    NZ,_gadd
@@ -1354,7 +1344,7 @@ BP:       CALL  WASTESPC
 _gadd:    CALL  GET_HEX          ; Address for breakpoint
           JR    Z, BADPS
 
-          ; Have an address. Set or clear a BL
+          ; Have an address. Set or clear a BP
           DEC   E
 
           JR    Z,_doadbp
@@ -1370,10 +1360,11 @@ _gadd:    CALL  GET_HEX          ; Address for breakpoint
           ; Set a BP at the address in HL
 _doadbp:  EX    DE,HL
           CALL  FINDBP           ; Already have a BP at this location?
-          JR    NZ,_LISTBP
+          JR    NZ,_LISTBP       ; Duplicate so list (no change)
           EX    DE,HL
           LD    A,2              ; BP type
           CALL  SETBP
+
           ; Drop through and display set breakpoints
 _LISTBP:  LD    HL,BPOINTS
           LD    B,NUM_BK
@@ -1410,7 +1401,7 @@ INSTDRV:  LD    A,(PAGE_MP)          ; Application page 0
           OUT   (PG_PORT0+1),A       ; Temp map to block 1 to install drivers
 
           ; Check configuration to see whether we're meant to be installing drivers
-if !IS_DEVEL
+if IS_DEVEL
           LD     A,3 ; ALWAYS load drivers and break mode if this is a development build
 else
           LD     A,(NVRAM)
@@ -1546,6 +1537,9 @@ SHOWBCNT:  PUSH  HL
            POP   HL
            RET
 
+; ------- SDDIR
+; List the set of bootable images
+;
 ; Running from monitor in bank 0. Map ourselves into bank 3.
 ; Map application into banks 1 and 2, map monitor into
 ; bank 3 and add init code to the end of page page.
@@ -1560,6 +1554,7 @@ SHOWBCNT:  PUSH  HL
 ; 10 (2): LENGTH            : Number of bytes to load
 ; 12 (2): EXEC_ADDR         : Once loaded, execure from this address
 ; 14 (1): FLAGS             : Bit 0. If bit 0 set then load libraries, otherwise DON'T
+SDDIR:    CALL  BTPREP
 _dumpbs:  ; List all known boot sectors
           LD    HL,_SDINFO
           CALL  PRINT_LN
@@ -1769,31 +1764,28 @@ _nxt1:    POP    HL
           LDIR                        ; Copy
           RET
 
-;
+
+; ------- SDLOAD
+; Load a bootable image but DON'T run it!
+SDLOAD:   XOR   A
+          LD    (AUTO_RUN),A   ; Auto-run off
+          JR    _sdcont
+
 ; ------- SDLOAD
 ; SD Card Load. Options:
 ;    No parameters - Load OS type 01 - which is CP/M
 ;    With a digit (0-9) look for and load a specific type
 ;    With '?' - display all available options and exit
-SDLOAD:   CALL  BTPREP
-
-          ; Default to auto-run
+SDRUN:    ; Default to auto-run
           LD    A,1
           LD    (AUTO_RUN),A
+
+_sdcont:  CALL  BTPREP
 
           ; Calculate the checksum
           JR    NZ,E_ERROR
 
-          CALL  WASTESPC       ; Next character to decide what to do
-          JR    Z,_ld01        ; Boot OS with ID 01
-          CP    '?'
-          JR    Z,_dumpbs
-          CP    '-'
-          JR    NZ,_sdauto
-          XOR   A
-          LD    (AUTO_RUN),A   ; Auto-run off
-
-          CALL  SKIPSPC
+          CALL  WASTESPC
           LD    C,1
           JR    Z,_bsload      ; Boot OS with ID 01
 
@@ -2574,25 +2566,9 @@ NVSAV:   CALL   NVCALC
 ; ------- MAPDSK
 ; Either:
 ;    S         - Show current drive mappings
-;    SM L PPPP - Map Physical drive (decimal 0-511) to logical drive letter L
 ;    SD        - Display current mapped drives
 ;    SW        - Write sector buffer to SDCard
-MAPDSK:  CALL  SKIPSPC
-         JR    NZ, _sdqual
-
-         LD    A,(DDMP_MDE)
-
-        ; There is a character, this is going to be the mode.
-_sdqual: CP    'M'
-         JR    Z, SMAP
-
-         LD    (DDMP_MDE),A
-         CP    'W'
-         JR    Z, SWRITE
-         CP    'D'
-         JR    Z, SDUMP
-
-_dmapd:  LD    BC,1000h
+MAPDSK:  LD    BC,1000h
          LD    A,'A'
 _dmapn:  PUSH  AF
          RST   08h
@@ -2608,14 +2584,12 @@ _dmapn:  PUSH  AF
          DJNZ  _dmapn
          JR    main
 
-_sdbad: LD     HL,_NOSDADD
-        JR     _prterr
-
-
-
-; Want a drive letter (a-p) and a logical drive number (0-1023)
-SMAP:     CALL  SKIPSPC
-          JR    Z,_dmapd
+; ----- SMAP
+; Map a logical dic
+; SM L PPPP - Map Physical drive (decimal 0-511) to logical drive letter L
+SMAP:     JR    Z,MAPDSK
+          CALL  BUFCHUP
+          CALL  TOUPPER
           CP    'A'
           JR    C,_baddrv
           CP    'A'+16
@@ -2626,16 +2600,19 @@ _baddrv:  LD    HL,_NODRIVE
           JR     _prterr
 
           ; Want a physical drive (0-1023 decimal)
-_gotdrv:  PUSH   AF
+_gotdrv:  PUSH   AF          ; Push DRIVE letter
           CALL   GET_DEC
+          JR     Z,E_ERROR
 
           ; Number from 0-1024
           LD     A,$FC
           AND    H
-          JR     NZ,_sdbad
+          JR     NZ,E_NOSD
 
-          PUSH   HL         ; disk number
           POP    AF         ; Drive letter
+          PUSH   AF
+          PUSH   HL         ; disk number
+          PUSH   AF
           PUSH   HL         ; disk number
           LD     HL,_MAPD
           CALL   PRINT
@@ -2644,14 +2621,12 @@ _gotdrv:  PUSH   AF
           LD     HL,_MAPD_TO
           CALL   PRINT
           POP    AF         ; drive
-          PUSH   AF
           RST    08H
           CALL   NL
           POP    HL
           POP    AF         ; drive
 
           ; Tell the API the mapping we want.
-          POP    AF
           SUB    'A'
           LD     D,A
           LD     C,A_DSKMP       ; Map drive
@@ -2706,7 +2681,7 @@ _ginp:   CALL  INHEX
          JR    NZ,_sabs
 
          ; relative to a specific drive (or default)
-         CALL  SKIPSPC
+         CALL  BUFCHUP
          JR    Z,BADPS    ; Missing drive letter
 
          ; This needs to be a logical drive number (0-15)
@@ -2737,7 +2712,7 @@ _sderes: LD    A,C            ; Store command and address for writebacks
 SWRITE:  CALL  WASTESPC
 
          CALL  SADDR
-         JR    C,_sdbad
+         JR    C,E_NOSD
 
          ; Special case if this is raw write to address 0:0. In this
          ; case patch up the reserved page checksum.
@@ -2781,7 +2756,8 @@ _nocs:
 ;   NNNNNNNN - 32 bit sector address into the whole SDCard
 ;   NNNNNNN: - 32 bit sector offset into the currently selected default drive (last mapped or listed)
 ;   NNNNNN:L - 32 bit offset into the specified logical drive (L becomes the default)
-SDUMP:   LD    C,S_DSKDM
+SDUMP:   JR    Z,E_NOSD
+         LD    C,S_DSKDM
          RST   30h
          CALL  WASTESPC
          JR    NZ,_getsd      ; By default load the next available sector
@@ -2801,7 +2777,7 @@ SDUMP:   LD    C,S_DSKDM
          JR    _ldsd
 
 _getsd:  CALL  SADDR
-         JR    C,_sdbad
+         JR    C,E_NOSD
 
 _ldsd:   PUSH  HL
          PUSH  DE
@@ -2810,11 +2786,6 @@ _ldsd:   PUSH  HL
          LD    A,':'
          RST   08h
          CALL  WRITE_16
-         LD    A,':'
-         RST   08h
-         LD    A,C
-         CALL  WRITE_8
-         CALL  NL
          POP   DE
          POP   HL
 
@@ -3028,12 +2999,7 @@ DECCHR:     RST      10h
 ;      end    - last byte to write
 ;   WB - Write a boot image
 ;
-IMG:        CALL  SKIPSPC
-            CP    'B'        ; Write a boot image
-            JR    Z,WBOOT
-            CP    'I'
-            JR    NZ,BADPS
-            CALL  SADDR      ; Sets up the target write address
+IMG:        CALL  SADDR      ; Sets up the target write address
             JR    C,BADPS
             CALL  WASTESPC
             CALL  INHEX_4    ; Start address
@@ -3278,7 +3244,7 @@ HOME:      DEFB ESC,"[H",NULL
 STK_NXT:   DEFB CR,LF,ESC,"[3C",NULL ; Down one line then to character 2
 
 _FNAME:      DEFB "File? ",0
-_ERROR      DEFB CR,LF,"Error",0
+_ERROR       DEFB "Error",0
 _nxtblk$     DEFB CR,"Block: ",0
 _BOOTHEX     DEFB "boot.ihx",0
 _BSD         DEFB "Image: ", 0
@@ -3291,7 +3257,7 @@ _NODRV       DEFB "No OS", NULL
 _TMPBC       DEFB "Temp: @", NULL
 _PRMBC       DEFB "BP:   @", NULL
 _BRK         DEFB "BREAK...", NULL
-_NOSDADD     DEFB "No SDcard address", NULL
+_NOSDADD     DEFB "Bad SDcard address", NULL
 _NODRIVE     DEFB "Drive A-", 'A'+15, NULL
 _MAPD        DEFB "Map disk: ",NULL
 _MAPD_TO:    DEFB " to drive ", NULL
@@ -3309,55 +3275,82 @@ _NOTEMP:     DEFB "Not empty", NULL
 _TODEL:      DEFB "Delete image: ", NULL
 
 ; Alternate command table format: LETTER:ADDRESS
-BDG_TABLE:      DB       'B'
+BDG_TABLE:      DB       'B'+80h
                 DW        BP
-                DB       'N'
+                DB       'N'+80h
                 DW        NSTEP
-                DB       'R'
+                DB       'R'+80h
                 DW        SET_RGS
-                DB       'S'
+                DB       'S'+80h
                 DW        SSTEP
-                DB       'G'
+                DB       'G'+80h
                 DW        GO
 
-CMD_TABLE:      DB       'B'
+CMD_TABLE:      DB       'B','O','S','?'+80h
+                DW        SDDIR
+                DB       'B','O','S','-'+80h
+                DW        SDLOAD
+                DB       'B','O','S'+80h
+                DW        SDRUN
+                DB       'B','O','-'+80h
+                DW        BOOTIX
+                DB       'B','O'+80h
                 DW        BOOT
-                DB       'C'
+                DB       'C'+80h
                 DW        CONFIG
-                DB       'D'
+                DB       'D','M'+80h
+                DW        DUMPM
+                DB       'D','I'+80h
+                DW        DUMPI
+                DB       'D','N'+80h
+                DW        DNVRAM
+                DB       'D','T'+80h
+                DW        DTIME
+                DB       'D'+80h
                 DW        DUMP
-                DB       'F'
+                DB       'F'+80h
                 DW        FILL
-                DB       'H'
+                DB       'H'+80h
                 DW        CLS
-                DB       'I'
+                DB       'I'+80h
                 DW        INPUT
-                DB       'L'
-                DW        LOAD
-                DB       'M'
+                DB       'L','F'+80h
+                DW        LDF
+                DB       'L','H'+80h
+                DW        LDH
+                DB       'L'+80h
+                DW        LDT
+                DB       'M'+80h
                 DW        MODIFY
-                DB       'N'
+                DB       'N'+80h
                 DW        NSTEP
-                DB       'O'
+                DB       'O'+80h
                 DW        OUTPUT
-                DB       'P'
+                DB       'P'+80h
                 DW        PAGE              ; Display/change application page assignment
-                DB       'Q'
+                DB       'Q'+80h
                 DW        DECCHR
-                DB       'S'
+                DB       'S','D'+80h
+                DW        SDUMP             ; Display SDCard sector contents
+                DB       'S','M'+80h
+                DW        SMAP              ; Map a logical to physical SD card.
+                DB       'S','W'+80h
+                DW        SWRITE            ; Write to an SDCard sesctor
+                DB       'S'+80h
                 DW        MAPDSK            ; Map a logical to physical SD card.
-                DB       'T'
+                DB       'T'+80h
                 DW        EXDBG
-                DB       '.'
+                DB       '.'+80h
                 DW        SHWHIST
-                DB       'G'
+                DB       'G'+80h
                 DW        RUN
-                DB       'W'
+                DB       'W','B'+80h
+                DW       WBOOT
+                DB       'W','I'+80h
                 DW       IMG
-                DB       '?'
+                DB       '?'+80h
                 DW        HELP
                 DB        0
-
 
 ; ---------- CFG_TAB
 ; Set of boolean flags that can be configured in NVRAM. Format is:

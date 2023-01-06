@@ -9,7 +9,7 @@ import defs.asm
 ; PRINT_LN: As 'PRINT' but append CR/LF
 ;
           ; Output functions
-          public HEX_FROM_A,PRINT,PRINT_LN,WRITE_8,WRITE_16, WRITE_D
+          public HEX_FROM_A,PRINT,PRINT_LN,NL,WRITE_8,WRITE_16, WRITE_D
 
           CSEG
 
@@ -115,7 +115,11 @@ PRINT:    LD       A,(HL)          ; Get character
           INC      HL              ; Next Character
           JR       PRINT           ; Continue until $00
 PRINT_LN: CALL     PRINT
-          LD       A,CR
+          ; Drop through to new line
+
+; --------------------- NL
+; --- Utility to print a carriage return/new line
+NL:       LD       A,CR
           RST      08H
           LD       A,LF
           RST      08H

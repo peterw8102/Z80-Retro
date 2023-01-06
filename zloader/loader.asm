@@ -1319,17 +1319,6 @@ _bfdo:    EX    DE,HL         ; Put the current address into HL so we can displa
           CALL  SSTEP_BP    ; Set single step BP then go
           JR    DO_GO
 
-; REST_RGS - HL will contain the PC
-REST_RGS: LD   HL,(R_AF)
-          PUSH HL
-          POP  AF
-          LD   BC,(R_BC)
-          LD   DE,(R_DE)
-          LD   HL,(R_HL)
-          LD   IX,(R_IX)
-          LD   IY,(R_IY)
-          RET
-
 ;
 ; ------------------- BP: Set breakpoint
 ; Get address from command line. If not specfied then BP at the current PC value
@@ -1623,15 +1612,6 @@ _sksec:   POP   HL
           DJNZ  _nxsec
 
           JR    main
-
-BTPREP:   ; Always need to load the first 512 byte block that includes the boot information
-          LD    C,S_DSKDM
-          RST   30h           ; Set system DMA buffer
-          LD    HL,0          ; Sector 0
-          LD    DE,0
-          LD    C,A_DSKRW     ; Raw read
-          RST   30h
-          JR    _calc_cs      ; Jump, save the RET byte
 
 ; ---- FNDIMG
 ; Find an image with the ID stored in the C register.
@@ -2141,6 +2121,8 @@ CLS:      LD    HL,_CLRSCR
           JR    C,main      ; Standard mode so nothing more to do
           JR    _fcdb
 
+; ----- EXDBG
+; Switch between command and debug modes
 EXDBG:    LD    A,(OPMODE)
           LD    C,A
           RRCA
@@ -2182,19 +2164,14 @@ _std:     LD    (CMDTAB),HL
 ; Page operations. Syntax:
 ;   PM - Display or change page map
 ;   PC - Copy one pge to another
-PAGE:     CALL  SKIPSPC
-          CP    'C'
-          JR    Z,PGCPY           ; Going to copy an entire page
-          CP    'M'
-          JR    NZ,BADPS
-          ; Display current application pages or change a page number
+PAGE:     ; Display current application pages or change a page number
           ; Changing is in the form blknum=pagenum. Eg 3=21
           CALL  SKIPSPC
           JR    Z,_shpg
           SUB   '0'
           JR    C,_shpg
           CP    4
-          JR    NC,_shpg
+          JR    NC,E_ERROR
           ; Calculate PAGE_MP position
           LD    HL,PAGE_MP
           ADD   L
@@ -2219,56 +2196,6 @@ _npd:     LD    A,(HL)
           DJNZ  _npd
           CALL  NL
           JR    main
-
-; Z flag is the state of the flag. HL points to the name
-_say:     PUSH  AF
-          PUSH  HL
-          JR    NZ,_sayyes
-          LD    HL,_no
-          JR    _saynow
-_sayyes:  LD    HL,_yes
-_saynow:  EX    (SP),HL
-          CALL  PRINT
-          LD    HL,COLSTR
-          CALL  PRINT
-          POP   HL
-          CALL  PRINT
-          CALL  NL
-          POP   AF
-          RET
-
-; ---- PGCPY
-; Page copy. Copy the contents of one page to another. Full 16K copy.
-; Two parameters: SRCPAGE DESTPAGE   - Both 8 bit hex numbers
-PGCPY:    CALL   WASTESPC
-          CALL   INHEX_2
-          PUSH   AF
-          CALL   WRITE_8
-          POP    AF
-          JR     C,BADPS
-          LD     B,A
-          CALL   WASTESPC
-          CALL   INHEX_2
-          PUSH   AF
-          CALL   WRITE_8
-          POP    AF
-          JR     C,BADPS
-
-          ; A contains the destination page. Map this to block 2.
-          OUT   (PG_PORT0+2),A
-
-          ; And map the source into block 1
-          LD    A,B
-          OUT   (PG_PORT0+1),A
-
-          ; Copy...
-          LD    HL,8000h
-          LD    DE,4000h
-          LD    BC,4000h
-          LDIR
-          JR    main
-
-
 
 ; ------------ CONFIG
 ; Show or set a configuration options. All are boolean at the moment. Currently
@@ -2373,6 +2300,29 @@ _cfnc:    LD     A,(HL)
           INC    B               ; Next command ID
           JR     _cfnc
 
+; ---- _say
+; Display a string in the form:     NAME = YN
+; Where 'NAME' is the string pointed to by HL
+;       'YN' is the 'YES' or 'NO' depending on the Z flag
+; Z flag is the state of the flag. HL points to the name
+;
+; Usse to format the configuration settings.
+_say:     PUSH  AF
+          PUSH  HL
+          JR    NZ,_sayyes
+          LD    HL,_no
+          JR    _saynow
+_sayyes:  LD    HL,_yes
+_saynow:  EX    (SP),HL
+          CALL  PRINT
+          LD    HL,COLSTR     ; Tab alignment
+          CALL  PRINT
+          POP   HL
+          CALL  PRINT         ; The yes/no string
+          CALL  NL
+          POP   AF
+          RET
+
 ; --------- _skpstr
 ; Step over a null terminated string and return HL pointing to the first byte after the null
 _skpstr:  XOR    A
@@ -2471,6 +2421,18 @@ PGMAPX:   PUSH  DE
           POP   DE
           RET
 
+; ---- BTPREP
+; Prepare the way for managing the ZLoader boot menu. Load the first 512 bytes from the SDCard
+; and set the DMA buffer.
+BTPREP:   ; Always need to load the first 512 byte block that includes the boot information
+          LD    C,S_DSKDM
+          RST   30h           ; Set system DMA buffer
+          LD    HL,0          ; Sector 0
+          LD    DE,0
+          LD    C,A_DSKRW     ; Raw read
+          RST   30h
+          ; DROP THROUGH TO CALCULATE THE Checksum
+
 ; Calculate checksum. Calculated over 15 slots using a simple shift algorithm Result 16 bits.
 ; Compare calculated value with existing value and set Z if they are the same.
 _calc_cs: LD    HL,0         ; the calculated partial CS
@@ -2531,18 +2493,6 @@ NVCALC:  CALL   _NVC
          LD     (HL),A
          RET
 
-; ------- NVINI
-; Initialise the NVRAM structure
-NVINI:   LD      HL,NVRAM
-         LD      (HL),CFG_DEF
-         INC     HL
-         LD      B,14
-         XOR     A
-_nvcl:   LD      (HL),A
-         INC     Hl
-         DJNZ    _nvcl
-         JR      NVSAV
-
 ; ------- NVLD
 ; Load NVRAM and validate. If not valid then initialise
 NVLD:     LD     HL,NVRAM
@@ -2554,6 +2504,18 @@ NVLD:     LD     HL,NVRAM
           CALL   NZ,NVINI
           RET
 
+; ------- NVINI
+; Initialise the NVRAM structure
+NVINI:   LD      HL,NVRAM
+         LD      (HL),CFG_DEF
+         INC     HL
+         LD      B,14
+         XOR     A
+_nvcl:   LD      (HL),A
+         INC     Hl
+         DJNZ    _nvcl
+         ; DROP THROUGH TO SAVE THE INITIALISED NVRAM
+
 ; ------- NVSAV
 ; Save the content of the NVRAM area to the RTC
 NVSAV:   CALL   NVCALC
@@ -2561,7 +2523,6 @@ NVSAV:   CALL   NVCALC
          LD     BC,1000h    ; WRITE 16 bytes from offset 0
          CALL   RTC_MWR
          RET
-
 
 ; ------- MAPDSK
 ; Either:
@@ -2738,11 +2699,9 @@ SWRITE:  CALL  WASTESPC
          POP   DE
          POP   HL
 
-_nocs:
-
          ; ---------- DEBUG DUMP
          ; 'C' is the read command. Need the write command.
-         LD    A,A_DSKWR-A_DSKRD
+_nocs:   LD    A,A_DSKWR-A_DSKRD
          ADD   C
          LD    C,A
          RST   30h
@@ -3222,7 +3181,7 @@ _nc1:       LD    A,(HL)
 
 
 ; --------------------- STRINGS
-_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.18.2",NULL
+_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.18.3",NULL
 _CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r",NULL
 
 ; Set scroll area for debug

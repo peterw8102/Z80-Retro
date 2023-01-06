@@ -8,6 +8,7 @@ cd zlib
 cd ..
 
 cd zloader
+# RELEASE=1 ./mk.sh
 ./mk.sh
 cd ..
 
@@ -17,4 +18,4 @@ cd ..
 echo Syncronise files with Raspberry Pi
 echo ----------------------------------
 
-rsync -avz lib tools zloader pi@pi2:/home/pi/src
+rsync -avz zloader/loader.hex pi@pi2:/home/pi/src

@@ -28,6 +28,9 @@ import defs.asm
 ; INBUF:    Points to the start of the input line (returned by GET_LINE)
 ; MAP_CASE: (B) Set to 1
 ;
+          ; Utilities
+          extrn  ADD8T16
+
           ; Input functions
           public GET_LINE
           public SKIPSPC,WASTESPC,BUFCHR
@@ -62,6 +65,10 @@ _rawchr:  RST   10H
 ; MORE than 4 hex characters then the last 4 are used (most sig. ignored). Eg:
 ; 01A2B3C4D => returns 3C4D
 ;
+; Output:
+;    HL: entered value OR zero if no valid characters
+;    Z:  flag set if there we NO valid hex characters
+;
 ; AF not preserved
 GET_HEX:  PUSH  BC
           LD    B,A  ; Save A
@@ -86,6 +93,10 @@ cont_hc:  CALL  HEX_TO_BIN
           JR    next_hc
 
 ; -------- GET_DEC - Read a (16 bit) decimal number into HL with C flag on error
+; If there is no valid decimal number then the:
+;    HL returned as zero
+;    C  flag SET
+; otherwise the 16 bit number is returned in HL
 GET_DEC:  PUSH  BC
           LD    B,A           ; Save A
           XOR   A
@@ -93,12 +104,11 @@ GET_DEC:  PUSH  BC
           LD    L,A
           LD    C,A           ; Count number of characters
           CALL  SKIPSPC
-next_dc:  OR    A             ; End of input?
-          JR    Z, _fin        ; Same end caseas GET_HEX
-cont_dc:  CALL  DEC2BIN    ; Decimal character?
+next_dc:  JR    Z, _fin       ; Same end caseas GET_HEX
+cont_dc:  CALL  DEC2BIN       ; Decimal character?
           CALL  C,UNGET
           JR    C,_fin
-          PUSH  DE            ; Muliple HL by 10
+          PUSH  DE            ; Muliply HL by 10
           ADD   HL, HL        ; x2
           LD    E,L
           LD    D,H
@@ -106,11 +116,7 @@ cont_dc:  CALL  DEC2BIN    ; Decimal character?
           ADD   HL, HL        ; x8
           ADD   HL,DE         ; x10
           POP   DE
-          ADD   A, L          ; And add in the new digit.
-          LD    L, A
-          LD    A,0
-          ADC   H
-          LD    H,A
+          CALL  ADD8T16
           INC   C
           CALL  BUFCHR
           JR    next_dc
@@ -817,7 +823,7 @@ HPOS:       DEFW  MLBUF    ; Pointer to place in hist buffer when using up/down 
 
 ; Storage for the previous 'n' lines. Keeping it simple - there's a 1K buffer of variable
 ; length lines. THIS BLOCK MUST BE ALIGNED ON A 1K BOUNDARY.
-            ASEG
-            ORG 3800h
 MLSZ:       EQU   1024
+            ASEG
+            ORG 3E00h-1024
 MLBUF:      DS    MLSZ

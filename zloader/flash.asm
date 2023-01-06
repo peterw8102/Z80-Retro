@@ -9,11 +9,11 @@ import config.asm
 ; Included here because the code is interesting and took quite a while
 ; to work out and _MAY_ be useful later.
 
-          extrn  PRINT,PRINT_LN,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,WRITE_8,WRITE_16,INHEX_2,INHEX_4,MAPCASE
+          extrn  PRINT,PRINT_LN,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,WRITE_8,WRITE_16,INHEX_2,INHEX_4
           extrn  BRK_HK
           extrn  CMD_B
           extrn  DISASS, SETOFF
-          extrn  GET_HEX,GET_DEC,INPTR,INBUF,INITSIO,MAPCASE,RXA,TXA,CKINCHAR,SERINT
+          extrn  GET_HEX,GET_DEC,INPTR,INBUF,INITSIO,RXA,TXA,CKINCHAR,SERINT
 
           ; Include SPI/SDCard library
           extrn  SD_INIT, SD_RBLK, SD_WBLK

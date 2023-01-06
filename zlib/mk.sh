@@ -28,3 +28,6 @@ zmac -j -J --rel7 --oo obj,lst ./librtc.asm
 
 # SDCard library
 zmac -j -J --rel7 --oo obj,lst ./libsdc.asm
+
+# Miscelaneous hardware
+zmac -j -J --rel7 --oo obj,lst ./libmisc.asm

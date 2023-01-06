@@ -244,15 +244,14 @@ _fill_sz:    DEFB " LEN:",NULL
 _fill_wt:    DEFB " WITH:",NULL
 
 _HTEXT:         DEFB 2,"B XXXX      set BP",0
-                DEFB 1,"BO-         load default block protocol file (no exec)",0
-                DEFB 1,"BO          as BO- but auto-run the loaded file",0
+                DEFB 1,"BO-         load block protocol file (no exec)",0
+                DEFB 1,"BO          as BO- but run the loaded file",0
                 DEFB 1,"BOS [n]     SDCard boot",0
-                DEFB 1,"BOS- [n]    SDCard load image (no exec)",0
-                DEFB 1,"BOS?        List SDCard images",0
-                DEFB 3,"C           View/set Config parameters",0
-                DEFB 3,"DI XXXX     Disassemble mem",0
+                DEFB 1,"BOS- [n]    SDCard load image",0
+                DEFB 1,"BOS?        List boot images",0
+                DEFB 3,"C           Config parameters",0
+                DEFB 3,"DI XXXX     Disassemble",0
                 DEFB 3,"DM XXXX     Dump mem",0
-                DEFB 1,"DD XXXX     Display SDCard sector. 32 bit sector address",0
                 DEFB 3,"DN          Dump NVRAM (56 bytes)",0
                 DEFB 3,"DT          Dump date/time",0
                 DEFB 3,"D           Dump more",0
@@ -270,7 +269,8 @@ _HTEXT:         DEFB 2,"B XXXX      set BP",0
                 DEFB 2,"R RR=VV[VV] Set register (8 or 16) to VVVV",0
                 DEFB 2,"S           Step into next instruction",0
                 DEFB 1,"SD          Display SDCard drive map",0
+                DEFB 1,"SD XXXX     Display SDCard sector",0
                 DEFB 1,"SB          Save Bootable Image to SDCard",0
-                DEFB 3,"T           Toggle debugger",0
-                DEFB 1,"X [ADDR]    eXecute application [from address]",0
+                DEFB 3,"WB          Add bootable image",0
+                DEFB 3,"WI          Write image to SD",0
                 DEFB 0

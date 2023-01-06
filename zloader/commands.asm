@@ -7,6 +7,7 @@ import config.asm
 
           ; Imports from 'zloader'
           extrn  PGMAPX,main,BADPS,NL,OPMODE,PGMAPX
+          extrn  SCRATCH
 
           ; Exports
           public FILL,INPUT,OUTPUT,MODIFY,HELP
@@ -60,7 +61,7 @@ FILL:     CALL  GET_HEX          ; Address
 
           ; Save values
           POP   AF
-          LD    (FILL_WT),A
+          LD    (SCRATCH),A
 
           ; Fill memory...
           ; DE: address
@@ -101,7 +102,7 @@ _fsmblk:  ; Decrease the total count by the number of bytes in this block.
           PUSH  HL          ; Save the start of the next block. Stack: Ptr next block, remianing fill size
 
           ; Fill this block
-          LD    A,(FILL_WT) ; Fill value
+          LD    A,(SCRATCH) ; Fill value
           EX    DE,HL       ; Target address into HL
           CALL _bfill
 
@@ -207,7 +208,7 @@ _skhx:   JR    Z, _eoln
          INC   DE          ; Keep raw address in sync
          INC   B
          JR    _nexthx
-_eoln:   WRITE_CRLF
+_eoln:   CALL  NL
          LD    A,B
          OR    A       ; Did we get any bytes?
          JR    NZ,_nextln
@@ -273,7 +274,3 @@ _HTEXT:         DEFB 2,"B XXXX      set BP",0
                 DEFB 3,"T           Toggle debugger",0
                 DEFB 1,"X [ADDR]    eXecute application [from address]",0
                 DEFB 0
-
-          DSEG
-
-FILL_WT    DEFS    1

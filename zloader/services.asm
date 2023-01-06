@@ -2,15 +2,12 @@ import ../zlib/defs.asm
 import config.asm
 
           extrn  SD_INIT,SD_RBLK,SD_WBLK,SD_PRES
-          extrn  APP_STK,PAGE_MP
+          extrn  PAGE_MP
           extrn  PGADJ
           extrn  PRTERR
+          extrn  SDMPADD,SDTXLTD
 
-          extrn  DRVMAP
-          extrn  PRINT_LN
-          extrn  _IOERR
-          extrn  MON_MP,SDPAGE
-          extrn  WRITE_16
+          extrn  SDPAGE
 
           public  AP_DISP
 
@@ -26,7 +23,12 @@ CSEG
 ;  5: Map logical disk address (10 bits)
 ;  6: Set disk DMA address
 ;  7: SD Card Read
-;  8: SD Card Write
+;  8: SD Card Read Raw
+;  9: SD Card Write
+; 10: SD Card Write Raw
+; 11: SD Card Status
+; 12: Video Card Status
+; 13: PIO Card Status
 ;
 ; All other registers are command specific.
 AP_DISP:  LD     A,C
@@ -56,6 +58,8 @@ AP_DISP:  LD     A,C
           JR     Z,SD_PRES      ; CMD 11 - SDCard card status
           DEC    C
           JR     Z,LD_VDU       ; CMD 12 - Video card status
+          DEC    C
+          JR     Z,LD_PIO       ; CMD 13 - PIO card status
 
           ; System requests (internal calls from ZLoader context)
           AND    7Fh
@@ -67,7 +71,9 @@ AP_DISP:  LD     A,C
 
 ; Jump to monitor. Basically an abort from the application. The monitor page is
 ; already mapped into CPU space so just restart the monitor
-LD_MON:   LD     HL, _M_MONS
+LD_MON:   LD     HL,_M_MONS
+          LD     SP,SP_STK
+          EI
           JR     PRTERR
 
 ; Transmit the character in E
@@ -115,35 +121,10 @@ LD_PGSEL: LD     A,E
 ; HL - the target slot on the SD card to be mapped (0-1023)
 ; D  - the logical disk to map to this physical block. 0-15
 ; Translate into a page and offset and store in local memory
-LD_STDSK: LD     A,D
+LD_STDSK: LD     A,D           ; Check drive number in range
           CP     16
           RET    NC
-
-          EX     DE,HL         ; DE <= physical block number
-          LD     HL,DRVMAP     ; Mapping table base
-          ADD    A,A           ; *2
-          ADD    L             ; Find the correct offset
-          LD     L,A
-          LD     A,0
-          ADC    H
-          LD     H,A           ; HL now points to where to store the new physical block map for this logical drive
-
-          ; Need to multiply DE by 32 (<<5)
-          LD     A,D
-          SLA    E             ; *2
-          RLA
-          SLA    E             ; *4
-          RLA
-          SLA    E             ; *8
-          RLA
-          SLA    E             ; *16
-          RLA
-          SLA    E             ; *32
-          RLA
-          LD     (HL),E        ; Store in the address map
-          INC    HL
-          LD     (HL),A
-          RET
+          JP     SDTXLTD
 
 ; --------- LD_STDMA (CMD 6)
 ; Record the address (in application space) of the SD Card DMA buffer
@@ -158,21 +139,21 @@ LD_STDMA: CALL   PGADJ
 ; --------- LD_STDMA (CMD 86)
 ; Set the DMA address to the SDPage address. Fixed buffer so no
 ; required parameters.
-LD_EDMA:  LD     A,(MON_MP)
+LD_EDMA:  LD     A,MN_PG
           LD     (DMA_PAGE),A
           LD     HL,SDPAGE+0x4000
           LD     (DMA_ADDR),HL
           CALL   SD_INIT
           RET
 
-; --------- LD_SDRD (CMD 7)
+; --------- LD_SDRD (CMD 8)
 ; SDCard Read Block.
 ;   HLDE is the logical address (H: virtual disk 0-15, DE sector offset into drive)
 ; The result will be written to the currently defined DMA address
-LD_SDRD:  CALL   _mapdsk              ; HLDE is now the physical offset into the SDCard
+LD_SDRD:  CALL   SDMPADD              ; HLDE is now the physical offset into the SDCard
           ; Drop through to a raw read
 
-; --------- LD_SDRD (CMD 8)
+; --------- LD_SDRD (CMD 9)
 ; SDCard Read Block.
 ;   HLDE is the raw **SECTOR ADDRESS** (32 bits)
 ; The result will be written to the currently defined DMA address
@@ -184,14 +165,14 @@ LD_RWRD:  PUSH   BC
           POP    BC
           RET
 
-; --------- LD_SDWR (CMD 9)
+; --------- LD_SDWR (CMD 10)
 ; SDCard Write Block.
 ;   HLDE is the **SECTOR ADDRESS** (32 bits)
 ; The result will be written to the currently defined DMA address
-LD_SDWR:  CALL   _mapdsk
+LD_SDWR:  CALL   SDMPADD
           ; Drop through to a raw write
 
-; --------- LD_RWWR (CMD 10)
+; --------- LD_RWWR (CMD 11)
 ; SDCard Write Block.
 ;   HLDE is the **SECTOR ADDRESS** (32 bits)
 ; The result will be written to the currently defined DMA address
@@ -204,7 +185,7 @@ LD_RWWR:  PUSH   BC
           RET
 
 
-; --------- LD_SDSTT (CMD 11)
+; --------- LD_SDSTT (CMD 12)
 ; SDCard presense
 ; Returns the presense or absense of the two SDCards slots. NOTE:
 ; The hardware can't distinguish between card present and adaptor
@@ -224,7 +205,7 @@ LD_RWWR:  PUSH   BC
 ; SDCard library so currently no implementation here!
 
 
-; --------- LD_VDU (CMD 12)
+; --------- LD_VDU (CMD 13)
 ; VDU/Graphic Card Presense
 ; Returns the presense or absense of the video card with the
 ; `Z` flag. `Z` is true if there's a video card installed.
@@ -243,53 +224,16 @@ LD_VDU:     LD       A,$FF
             RET
 
 
+; --------- LD_PIO (CMD 14)
+; PIO Card Presense
+; Returns the presense or absense of the PIO Card. Haven't worked out to do that. Currently
+; this is a NOP until the PIO has been tested.
+; `Z` flag. `Z` is true if there's a video card installed.
+LD_PIO:     XOR      A
+            INC      A
+            RET
 
-; --------- _mapdsk
-; Application is addressing a logical sector address, where a sector is 512 bytes. The
-; address comprises a 13 bit sector offset and an 4 bit virtual disk number which provides
-; an additional 10 bits to generate a 23 bit full sector address. 23 bits addressing
-; 512 byte sectors gives total addressible space of 2^9 x 2^23 = 2^32 = 4GB. Input format
-; for these commands:
-;
-;  +------ H -------+------ L -------+------ D -------+------ E -------+
-;  |    0  | vdisk  |   0000 0000    |  000s  ssss    |  ssss  ssss    |
-;  +----------------+----------------+----------------+----------------+
-;
-; vdisk gets expanded to 9 bits resulting in a sector address:
-;
-;  +------ H -------+------ L -------+------ D -------+------ E -------+
-;  |    0  |   0    |   0vvv vvvv    |  vvvs  ssss    |  ssss  ssss    |
-;  +----------------+----------------+----------------+----------------+
-;
-; 22 bit sector address which is then multiplied by 512 by the SDCard
-; driver to give a byte address range of 4GB.
-;
-; DRVMAP contains the values to replace 'v' in the resultant address.
-;
-_mapdsk:  LD     A,H        ; The upper 8 bits contain logical drive, needs to be mapped
-                            ; fully qualified upper 10 bits of the sector number.
-          ADD    A          ; x2 to give offset into DRVMAP
 
-          ; A is now the offset into DRVMAP
-          PUSH   DE         ; Stack <= LSWord
-          LD     HL,DRVMAP
-          ADD    L
-          LD     L,A
-          LD     A,0
-          ADC    H
-          LD     H,A        ; HL points to the correct logical drive offset.
-          LD     E,(HL)
-          INC    HL
-          LD     D,(HL)     ; DE is the content of the drive table: replacement upper 10 bits of sector address
-          EX     DE,HL
-
-          POP    DE
-          LD     A,$1F
-          AND    D          ; Bottom 5 bits of sector number
-          OR     L          ; Merge in the drive offset
-          LD     D,A        ; Put back into D
-          LD     L,H        ; And HL comes straight from the offset table
-          RET
 
 _M_MONS:  DEFB   10,13,"Monitor...", 0
 

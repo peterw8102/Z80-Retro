@@ -8,10 +8,10 @@ import config.asm
 ;  directive tells the assember to treat the code as though it is running
 ; from $FE00.
 
-            public AP_ST,END_APP,DO_BP_S,CNTINUE,AND_RUN,CHR_ISR,CONFRUN
+            public AP_ST,END_APP,DO_BP_S,CNTINUE,AND_RUN,CHR_ISR,RAWGO
             public R_PC_S,R_AF_S
-            extrn  CONTXT,PAGE_MP,MON_MP,AP_DISP,APP_STK,SERINT
-            extrn  DO_BP
+            extrn  CONTXT,PAGE_MP,AP_DISP,APP_STK,SERINT
+            extrn  DO_BP,ISRCTXT
 
             ASEG
             ORG   $3E00
@@ -23,7 +23,7 @@ AP_ST:    ; Map ZLoader into memory (Block 0). 'A' can't be used to pass paramet
           ; doesn't need to be saved.
           LD    (R_AF_S+1),A
           DI
-          LD    A,(MON_MP)      ; Page mask for page zero monitor
+          LD    A,MN_PG            ; Page mask for page zero monitor
           OUT   (PG_PORT0),A
 
           ; Save the application stack
@@ -47,15 +47,15 @@ AP_END:   LD     (R_AF_S+1),A       ; A needs to be preserved - many contain API
           EI                    ; Safe to allow interrupts again
           ; Block 2 is never modified by ZLoader and block 3 remains fixed.
 
-          LD     A,(R_AF_S+1)       ; Restore A. The flags are unchanged
+          LD     A,(R_AF_S+1)   ; Restore A. The flags are unchanged
           RET                   ; And carry on
 
 ;----- DO_BP_S
 ; Setup for DO_BP living in the application space.
 ; DON'T DO ANYTHING THAT SETS FLAGS!!!
 DO_BP_S:  DI                   ; have to disable interrupts while in the debugger
-          LD    (R_AF_S+1),A       ; So we can page switch... But flags NOT stored so don't damage!
-          LD    A,(MON_MP)     ;
+          LD    (R_AF_S+1),A   ; So we can page switch... But flags NOT stored so don't damage!
+          LD    A,MN_PG
           OUT   (PG_PORT0),A   ; Switched out the application page. Now running from supervisor
           LD    A,(R_AF_S+1)   ; So we can page switch... But flags NOT stored so don't damage!
           EI
@@ -65,56 +65,32 @@ DO_BP_S:  DI                   ; have to disable interrupts while in the debugge
 ; Continue execution. Map all application pages into memory (PAGE_MP), restore the
 ; application registers then continue from where we left off.
 CNTINUE:  OUT   (PG_PORT0),A
-          POP    AF
+          POP   AF
+
+          ; Everything now into application space so can just go...
           EI
           JR     JP_RUN
 
 ;----- RUN
-;
-AND_RUN:  LD     HL,PAGE_MP+3
-          LD     C,PG_PORT0+3
-          LD     B,4
-_sp2:     LD     A,(HL)
-          OUT    (C),A
-          DEC    C
-          DEC    HL
-          DJNZ   _sp2
-          EI
+; Just map application page 0 into bank 0 and go to zero.
+AND_RUN:  LD     A,(PAGE_MP)
+          OUT    (PG_PORT0),A
           RST    0          ; And run from address zero
-
-; ------ CONFRUN
-; Set application pages and jump zero
-CONFRUN:  DI
-          LD     HL,(PAGE_MP)
-          LD     DE,(PAGE_MP+2)
-          LD     C,PG_PORT0
-          LD     A,L
-          OUT    (C),A
-          INC    C
-          LD     A,H
-          OUT    (C),A
-          INC    C
-          LD     A,E
-          OUT    (C),A
-          INC    C
-          LD     A,D
-          OUT    (C),A
-          JP     0
-
 
 ; Character ISR when running application code. Switch supervisor code to block zero
 CHR_ISR:  PUSH   AF
-          LD     A,(MON_MP)
+          LD     A,MN_PG
           OUT    (PG_PORT0),A        ; Supervisor in CPU memory page 0
           LD     (APP_STK),SP        ; Save the application stack
-          LD     SP,SP_STK          ; Get our supervisor stack
-
-
+          LD     SP,SP_STK           ; Get our supervisor stack
+          LD     (ISRCTXT),A         ; Will be non-zero
           CALL   SERINT              ; Do the interrupt
+          XOR    A
+          LD     (ISRCTXT),A         ; Clear the context flag
           LD     SP,(APP_STK)        ; Restore the application stack
           LD     A,(PAGE_MP)         ; Context switch page 0
           OUT    (PG_PORT0),A        ; Back into application space
-          POP    AF                  ; Restore A
+          POP    AF
           EI                         ; Back to application
           RETI
 
@@ -131,3 +107,17 @@ JP_RUN:    DEFB    $C3
 R_PC_S     DEFS    2
 
 END_APP:  EQU    $
+
+          DEPHASE
+          ORG   $3FFA
+          PHASE $FFFA
+
+; Map out last two application pages and allow the application to run from bank 0
+; This code MUST be right at the end of bank 3 (last bytes) and "runs into" the
+; application code at Z80 address 0.
+; H: page number for app page 3
+; L: page number for app page 0
+RAWGO:   LD     A,L
+         OUT    (PG_PORT0),A
+         LD     A,H
+         OUT    (PG_PORT0+3),A     ; Overwrite ourselves

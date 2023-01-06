@@ -1,22 +1,14 @@
 ; Constants that can be used to confugure assembler time options for the
 ; monitor.
 
-; #define WRITE_CRLF   LD A,CR \ RST 08H \ LD A,LF \ RST 08H
 YES      .EQU      1
 NO       .EQU      0
 
-; If you want to run the monitor from ROM then variables need to be in RAM. Set this
-; label to indicate where you want variables and change the value of FLASH_MON to YES
-VARS_ADDR   .EQU    2000h
-FLASH_MON   .EQU   NO
-
-; Configurable parameters
-LOAD_ADDR:   .EQU    01D0h     ; Start address for the main code
-
 ; Where to initialise the supervisors stack If the stack is already configured set
 ; this to zero. The entire monitor runs in the bottom 16K and so runs in a single
-; memory page. The stack is set to start at the end of that page.
-SP_STK:      .EQU     4000h - 200h
+; memory page. The stack goes below the 512byte reserved area and the libsio history
+; buffer.
+SP_STK:      .EQU     4000h - 200h - 1024
 
 ; Breakpoints in code are handled by replacing the opcode at the break location with a RST instruction. The
 ; default is RST 20h. You can change this if your system is using RST 20 for something else.
@@ -40,7 +32,7 @@ RAM_PG_0    EQU   20h
 
 ; The first MMU page into which to load code using the various load commands. Leave this
 ; value unchanged.
-LD_PGOFF    EQU   01h + IS_DEVEL
+LD_PAGE     EQU   RAM_PG_0 + 1 + IS_DEVEL
 
 ; Decide whether to install the character set (depends whether the graphic card is installed). If
 ; there's no graphic card then CSET can be set to 0 to disable however there are no problems leaving
@@ -51,3 +43,8 @@ CSET_PG     EQU   $23
 else
 CSET_PG     EQU   $2
 endif
+
+; MN_PG is the memory page number from which this loader is running. NORMALLY this will be the page number
+; of the first RAM page (20h if RAM is high). In debug this needs to be 1 because the real monitor loads
+; into the first page.
+MN_PG       EQU   RAM_PG_0 + IS_DEVEL

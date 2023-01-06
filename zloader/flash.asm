@@ -21,14 +21,13 @@ import config.asm
           ; And the RTC/i2c library
           extrn  RTC_INI, RTC_MRD, RTC_MWR
 
-          extrn  PGMAPX,main,BADPS,NL,PAGE_MASK,OPMODE,PGMAPX
+          extrn  PGMAPX,main,BADPS,NL,OPMODE,PGMAPX
 
           public FLASH_OP
 
 ; -- _map_flsh
 ; Map FLASH pages 0 and 1 to banks 2 and 3 (top 32K)
-_map_flsh: LD   A,(PAGE_MASK)
-           XOR  RAM_PG_0     ; Toggling this bit switches A to FLASH page 0
+_map_flsh: XOR  A
            OUT  (PG_PORT0+2),A
            INC  A            ; And flash page 1
            OUT  (PG_PORT0+3),A

@@ -5,7 +5,7 @@ import config.asm
           extrn  PAGE_MP
           extrn  PGADJ
           extrn  PRTERR
-          extrn  SDMPADD,SDTXLTD
+          extrn  SDMPADD,SDMPDSK
 
           extrn  SDPAGE
 
@@ -124,7 +124,7 @@ LD_PGSEL: LD     A,E
 LD_STDSK: LD     A,D           ; Check drive number in range
           CP     16
           RET    NC
-          JP     SDTXLTD
+          JP     SDMPDSK
 
 ; --------- LD_STDMA (CMD 6)
 ; Record the address (in application space) of the SD Card DMA buffer

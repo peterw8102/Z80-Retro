@@ -6,8 +6,9 @@ import config.asm
           extrn  PGADJ
           extrn  PRTERR
           extrn  SDMPADD,SDMPDSK
-
+          extrn  HASPIO,HASVDU,SW_CFG
           extrn  SDPAGE
+          extrn  WRITE_8
 
           public  AP_DISP
 
@@ -26,7 +27,10 @@ CSEG
 ;  8: SD Card Read Raw
 ;  9: SD Card Write
 ; 10: SD Card Write Raw
-; 11: SD Card Status
+; 11: Hardware inventory
+;
+;
+;
 ; 12: Video Card Status
 ; 13: PIO Card Status
 ;
@@ -55,11 +59,7 @@ AP_DISP:  LD     A,C
           DEC    C
           JR     Z,LD_RWWR      ; CMD 10 - SDCard Write to raw sector (unmapped)
           DEC    C
-          JR     Z,SD_PRES      ; CMD 11 - SDCard card status
-          DEC    C
-          JR     Z,LD_VDU       ; CMD 12 - Video card status
-          DEC    C
-          JR     Z,LD_PIO       ; CMD 13 - PIO card status
+          JR     Z,SD_INV       ; CMD 11 - SDCard card status
 
           ; System requests (internal calls from ZLoader context)
           AND    7Fh
@@ -185,54 +185,34 @@ LD_RWWR:  PUSH   BC
           RET
 
 
-; --------- LD_SDSTT (CMD 12)
-; SDCard presense
-; Returns the presense or absense of the two SDCards slots. NOTE:
-; The hardware can't distinguish between card present and adaptor
-; missing due to the way the adaptor hardware works. As such it's
-; recommended that slot 0 at least have an SDCard adaptor even if
-; not used.
-;
-; The API takes no parameters and returns a two bit result in the
-; accumulator:
-;  Bit 0: Card 0 presense
-;  Bit 1: Card 1 presense
-; The value of each bit will be either:
-;     0: There is an adaptor fitted but there's no card inserted
-;     1: Either there's no adaptor OR there is an adaptor and there
-;        is a card inserted into the adaptor.
-; NOTE This function is implemented directly by SD_PRES in the
-; SDCard library so currently no implementation here!
-
-
-; --------- LD_VDU (CMD 13)
-; VDU/Graphic Card Presense
-; Returns the presense or absense of the video card with the
-; `Z` flag. `Z` is true if there's a video card installed.
-LD_VDU:     LD       A,$FF
-            OUT      (PG_PORT0+1), A  ; Map VDU memory into CPU space
-
-            ; Try to write to memory
-            LD       HL,$55AA
-            LD       ($7FFE),HL
-            LD       DE,($7FFE)
-            LD       A,E
-            CP       $AA
-            RET      NZ
-            LD       A,D
-            CP       $55
-            RET
-
-
-; --------- LD_PIO (CMD 14)
-; PIO Card Presense
-; Returns the presense or absense of the PIO Card. Haven't worked out to do that. Currently
-; this is a NOP until the PIO has been tested.
-; `Z` flag. `Z` is true if there's a video card installed.
-LD_PIO:     XOR      A
-            INC      A
-            RET
-
+; --------- SD_INV (CMD 11)
+; Hardware inventory. Return basic system inventory information.
+; The result is a bitmask returned in DE with the following bits
+; currently defined:
+;   bit  0: SDCard 1 present
+;   bit  1: SDCard 2 present
+;   bit  2: PIO Card installed
+;   bit  3: Video card installed
+;   bit  8: Config switch 0
+;   bit  9: Config switch 1
+;   bit 10: Config switch 2
+SD_INV:   PUSH   HL
+          CALL   SD_PRES     ; Sets up bit 0 and 1 for SD Card
+          LD     E,A
+          CALL   HASPIO
+          JR     NZ,_chkvdu
+          LD     A,4
+          OR     E
+          LD     E,A
+_chkvdu:  CALL   HASVDU
+          JR     NZ,_novdu
+          LD     A,8
+          OR     E
+          LD     E,A
+_novdu:   CALL   SW_CFG
+          LD     D,A
+          POP    HL
+          RET
 
 
 _M_MONS:  DEFB   10,13,"Monitor...", 0

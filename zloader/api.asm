@@ -9,9 +9,7 @@ A_DSKRD      EQU    $07    ; Disk read
 A_DSKRW      EQU    $08    ; Disk raw-read
 A_DSKWR      EQU    $09    ; Disk write
 A_DSKWW      EQU    $0A    ; Disk raw-write
-A_SDSTAT     EQU    $0B    ; SDCard status
-A_VSTAT      EQU    $0C    ; VDU card status
-A_ASTAT      EQU    $0D    ; PIO card status
+A_HWINV      EQU    $0B    ; Hardware inventory
 
 ; ZLoader private calls
 S_DSKDM      EQU    $86    ; Set DMA address to ZLoader buffer (no params)

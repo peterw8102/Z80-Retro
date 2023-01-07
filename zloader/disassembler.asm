@@ -2,10 +2,14 @@
 import ../zlib/defs.asm
 
 
-          extrn  PRINT,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,WRITE_8,WRITE_16,HEX_FROM_A,GET_HEX,INPTR,INBUF
-          public DISASS,DISBUF,SETOFF
+          extrn  WRITE_8,HEX_FROM_A
+          extrn  SCRATCH
+          public DISASS,SETOFF
 
-          CSEG
+          ASEG
+          ORG     $4000
+          PHASE   $C000
+
 
 
 ; ------ SETOFF

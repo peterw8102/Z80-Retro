@@ -6,7 +6,7 @@ import defs.asm
 ; PAUSE:    Wait for a short period (block).
 ;
           ; Input functions
-          public PAUSE,STRCMP,ADD8T16
+          public PAUSE,STRCMP,ADD8T16,TOUPPER
 
           CSEG
 
@@ -54,4 +54,13 @@ ADD8T16:  ADD   L
           LD    L,A
           RET   NC
           INC   H
+          RET
+
+; ------ TOUPPER
+; Take the character in A. If it's a lower case letter then promote to uppercase.
+TOUPPER:  CP    'a'                ; Lower case -> upper case
+          RET    C
+          CP    'z'+1
+          RET   NC
+          ADD   A,'A'-'a'
           RET

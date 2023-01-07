@@ -9,12 +9,12 @@ import defs.asm
 ;
 ; Input functions:
 ; GET_LINE: Read in a complete line, including history butter
-; MAPCASE:  Switch on or off case folding (to upper case)
 ; SETHIST:  Switch on or off cursor controls/history in GET_LINE
 ; GETHIST:  Return a specific line from the history buffer
 ;
 ; Processing line returned by GET_LINE:
 ; BUFCHR:   Consume/return one character from the input buffer
+; BUFCHUP:  Consume/return one character from the input buffer, mapping lowercase to uppercase.
 ; SKIPSPC:  Return the next non-space character.
 ; WASTESPC: Step over spaces and leave input ptr at first non-space character (without reading it)
 ; INHEX:    Return a 32 bit number (hex) from the input buffer -> HLDE
@@ -29,35 +29,22 @@ import defs.asm
 ; MAP_CASE: (B) Set to 1
 ;
           ; Utilities
-          extrn  ADD8T16
+          extrn  ADD8T16,TOUPPER
 
           ; Input functions
           public GET_LINE
-          public SKIPSPC,WASTESPC,BUFCHR
+          public SKIPSPC,WASTESPC,BUFCHR,BUFCHUP
           public SETHIST,GETHIST
           public INHEX,INHEX_2,INHEX_4,GET_HEX,GET_DEC
 
           ; Data values
-          public INPTR,INBUF,MAPCASE,_ENDPRG,UPPERCASE
+          public INPTR,INBUF,_ENDPRG
+          public RESINP
 
           ; Utilities
           public DEC2BIN
 
           CSEG
-
-; Layer of code above the the basic driver that provides line input control and output formatting.
-_GETCHR:  LD    A,(UPPERCASE)
-          OR    A
-          JR    Z,_rawchr
-          RST   10H                ; Read character from the input stream
-          CP    'a'                ; Lower case -> upper case
-          RET    C
-          CP    'z'+1
-          RET   NC
-          ADD   A,'A'-'a'
-          RET
-_rawchr:  RST   10H
-          RET
 
 ; ------------------- GET_HEX
 ; Read in hex characters to generate a 16 bit number, returned in HL. The 'Z' flag
@@ -208,7 +195,7 @@ errhex2:  POP   HL
 
 ; -------- DEC2BIN
 ; Convert the (ASCII) character in A to a binary number. A contains ASCII '0' to '9' inclusive
-; Carry flag set if A contains an invalid character (out of range).
+; Carry flag set if A contains an invalid character (out of range). Result in A.
 DEC2BIN:    SUB   '0'         ; Minimum value
             JR    C,inv
             CP    10
@@ -218,10 +205,11 @@ DEC2BIN:    SUB   '0'         ; Minimum value
 
 ; -------- HEX_TO_BIN
 ; Char in A - 0-15. 255 if not valid char
-HEX_TO_BIN: CP    '0'
+HEX_TO_BIN: CALL  TOUPPER     ; Only deal with upper case letters!
+            CP    '0'
             JR    C, inv      ; Less than zero so invalid
             CP    'F'+1
-            JR    NC, chklwr     ; > 'F' so ignore
+            JR    NC, chklwr  ; > 'F' so ignore
             CP    '9'+1
             JR    NC, letter_hc
             SUB   '0'
@@ -243,12 +231,6 @@ chklwr:     CP    'f'+1        ; Check if it's lower a-f
             JR    _usech
 
 
-; --------------------- MAPCASE
-; If A is 1 then lower case is mapped to upper case (default). If 0
-; then no case mapping happens
-MAPCASE:  LD      (UPPERCASE),A
-          RET
-
 ; --------------------- SETHIST
 ; If A is 1 to enable cursor controls in GET_LINE processing. If on then
 ; GET_LINE understands up/down/left/right cursors and manages a history
@@ -265,13 +247,13 @@ SETHIST:  LD      (MLINE),A
 ;
 ; On return the Z flag will be set if the entered line is empty, otherwise it
 ; will be cleared.
-GET_LINE: PUSH     HL
-          PUSH     BC
-          CALL     INITMLN       ; Reset the history pointer
-          LD       HL, INBUF     ; Reset the line pointer
-          LD      (INPTR), HL
+GET_LINE: PUSH    HL
+          PUSH    BC
+          CALL    INITMLN       ; Reset the history pointer
+          CALL    RESINP
           LD      B,LINELEN
           XOR     A
+          LD      HL,INBUF
 _znxt:    LD      (HL),A
           INC     HL
           DJNZ    _znxt
@@ -279,7 +261,7 @@ _znxt:    LD      (HL),A
           LD      (CURSOR), HL   ; Where we're currently entering content.
           LD       BC, 0         ; B: Cursor pos, C: last character
 
-getc:     CALL     _GETCHR
+getc:     RST      10H
           LD       C,A           ; Save last character
           CP       ESC           ; Check for significant control characters
           JR       Z, _esc
@@ -329,11 +311,11 @@ _esc:     LD      A,(MLINE)     ; MLINE is true if history buffer (up/down arrow
           LD      A,C
           JR      Z,_ext
           ; Escapes are being processed. If it's one we know then do something otherwise ignore.
-          CALL    _GETCHR
+          RST     10H
           LD      C,A
           CP      '['           ; The only form I understand for arrow characters
           JR      NZ,_ext
-          CALL    _GETCHR       ; It's a ESC-[ - net character must be A,B,C,D or '3'
+          RST     10H       ; It's a ESC-[ - net character must be A,B,C,D or '3'
           LD      C,A
           CP      'A'
           JR      Z,_pline
@@ -349,7 +331,7 @@ _esc:     LD      A,(MLINE)     ; MLINE is true if history buffer (up/down arrow
           ; JR      Z,_endl
           CP      '3'           ; It's ESC[3. If the next char is $7E then delete char at current pos.
           JR      NZ,getc
-          CALL    _GETCHR
+          RST     10H
           CP      $7E
           JR      NZ,getc
 
@@ -750,6 +732,18 @@ BUFCHR:   PUSH     HL
 eb1:      POP      HL
           RET
 
+
+; ------ BUFCHUP
+; As BUFCHR but promote lower case to uppercase
+; Return:
+;   A:  The next character from the buffer or zero if no more characters
+;   Z:  Z flag set if at end of buffer.
+BUFCHUP:  CALL      BUFCHR
+          CALL      TOUPPER
+          OR        A           ; Fix Z flag
+          RET
+
+
 ; ------ UNGET
 ; Wind back ONE character unless at start of buffer. This function is NOT currently exported.
 ; All registers are preserved.
@@ -806,6 +800,14 @@ skip2:    LD       A, (HL)
           LD       (INPTR), HL
           JR       eb
 
+; ---- RESINP
+; Reset the line input buffer to start of line.
+RESINP:   PUSH     HL
+          LD       HL, INBUF     ; Reset the line pointer
+          LD       (INPTR), HL
+          POP      HL
+          RET
+
 
 _ENDPRG:
 
@@ -816,7 +818,6 @@ INPTR:      DEFW  INBUF    ; Position in current line (READ)
 CURSOR:     DEFW  INBUF    ; Position in current line (INPUT)
 INBUF:      DS    LINELEN
 INIT:       DEFB  0        ; Initialised to 'false'. Set true once hist bug initialised.
-UPPERCASE:  DEFB  1        ; If true then map lower case to upper case letters. Set at start of getline
 MLINE:      DEFB  1        ; If true then implement a line buffer/line editor
 LPOS:       DEFW  MLBUF    ; Pointer to where the next history line will be added
 HPOS:       DEFW  MLBUF    ; Pointer to place in hist buffer when using up/down arrow keys

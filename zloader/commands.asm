@@ -271,6 +271,7 @@ _HTEXT:         DEFB 2,"B XXXX      set BP",0
                 DEFB 1,"SD          Display SDCard drive map",0
                 DEFB 1,"SD XXXX     Display SDCard sector",0
                 DEFB 1,"SB          Save Bootable Image to SDCard",0
+                DEFB 1,"SW          Write SDCard sector",0
                 DEFB 3,"WB          Add bootable image",0
                 DEFB 3,"WI          Write image to SD",0
                 DEFB 0

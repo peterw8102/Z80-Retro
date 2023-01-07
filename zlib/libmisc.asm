@@ -6,7 +6,7 @@ import defs.asm
 ; SW_CFG:    Wait for a short period (block).
 ;
           ; Input functions
-          public SW_CFG
+          public SW_CFG,HASVDU,HASPIO
 
           CSEG
 
@@ -19,4 +19,36 @@ SW_CFG:     IN    A,(PG_PORT0)
             RLCA
             RLCA
             RLCA
+            RET
+
+; ---- HASVDU
+; Check for the existence of the character based VDU card. Return:
+;    Z: true (zero) if the card exists, false otherwise
+;
+; Only register not saved is A
+HASVDU:     LD       A,$FF
+            OUT      (PG_PORT0+1), A  ; Map VDU memory into CPU space
+
+            ; Try to write to memory
+            PUSH     HL
+            PUSH     DE
+            LD       HL,$55AA
+            LD       ($7FFE),HL
+            LD       DE,($7FFE)
+            LD       A,E
+            CP       $AA
+            RET      NZ
+            LD       A,D
+            CP       $55
+            POP      DE
+            POP      HL
+            RET
+
+; ---- HASPIO
+; PIO Card Presense
+; Returns the presense or absense of the PIO Card. Haven't worked out to do that. Currently
+; this is a NOP until the PIO has been tested.
+; `Z` flag. `Z` is true if there's a video card installed.
+HASPIO:     XOR      A
+            INC      A
             RET

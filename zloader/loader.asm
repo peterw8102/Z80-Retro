@@ -141,7 +141,7 @@ endif
            LD    A,$03
            OUT   (PG_CTRL),A        ; Switch to page mode
 
-FLASH_LOW:  ; We're running from Flash. Copy to RAM page zero and map that to block zero.
+FLASH_LOW:  ; We're running from Flash. Copy to RAM page zero and map that to bank zero.
             LD    A,RAM_PG_0
             OUT   (PG_PORT0+3),A
             LD    HL,0
@@ -183,9 +183,12 @@ _wrn:       LD    (HL),A         ; Initialise the application page map
 
             ; Prepare dump area
             LD     HL,DUMP_CHRS
-            LD     A,20h
+            LD     B,20h
+_clr:       LD     A,20h
             LD     (HL),A
             INC    HL
+            DJNZ   _clr;
+            XOR    A
             LD     (HL),A
 
             ; Set default DUMP mode to disassemble memory
@@ -245,7 +248,7 @@ if !IS_DEVEL
           AND   03h             ; Only interested in bits 0 and 1.
 
           DEC   A               ; If 01 then do Pi boot
-          JR    Z,BOOTPI
+          JR    Z,BOOT
           DEC   A               ; If 02 then do SDCard boot
           JR    NZ,main         ; If not 1 or 2 then just run the command line.
 
@@ -253,12 +256,10 @@ if !IS_DEVEL
           LD    A,1
           LD    (AUTO_RUN),A    ; Set auto-run mode
           CALL  BTPREP
-          JR    Z,_ld01         ; Checksum OK so go load default image.
-          JR    main
-else
-          ; In development mode don't use the DIL switches. This allows us to develop the loader more efficiently.
-          JR      main
+          JR    Z,SDLDDEF       ; Checksum OK so go load default image.
 endif
+          ; In development mode don't use the DIL switches. This allows us to develop the loader more efficiently.
+          JR    main
 
 E_NOSD:   LD    HL,_NOSDADD
           JR    _prterr
@@ -1655,7 +1656,9 @@ _nxtbl:   LD    A,32
 
 _FREES:   DS    2
 
-_ld01:    LD    C,1
+; ---- SDLDDEF
+; Load SDCard boot image with tag ID 1.
+SDLDDEF:  LD    C,1
           JR    _bsload
 
 
@@ -2837,59 +2840,62 @@ _WRD:       PUSH     AF
             POP      AF
             RET
 
+; ---- _disres
+; Display a title string then a value string. The value string is determined by the
+; contents of the Z flag. Z: 'yes', NZ: 'no'
+;   HL:    Message string
+;    Z:    Test value
+_disres:    PUSH     AF
+            LD       A,H
+            OR       L
+            JR       Z,_nomsg
+            CALL     PRINT
+_nomsg:     LD       HL,COLSTR
+            CALL     PRINT
+            POP      AF
+            LD       HL,_yes
+            JR       NZ,_isyes
+            LD       HL,_no
+_isyes:     JR       PRINT_LN
+
 ; ---- SH_SDC
 ; Display status of SDCard 1 and 2
 SH_SDC:     LD       HL,_SDIS
             CALL     PRINT
             LD       A,'1'
             RST      08h
-            LD       C,10
-            RST      30h
-            PUSH     AF
-            LD       HL,_EMP
-            AND      1
-            JR       Z,_sd1emp
-            LD       HL,_PRE
-_sd1emp:    CALL     PRINT_LN
+            LD       A,1
+            AND      E
+            LD       HL,0
+            CALL     _disres
             LD       HL,_SDIS
             CALL     PRINT
             LD       A,'2'
             RST      08h
-            POP      AF
-            AND      2
-            LD       HL,_EMP
-            JR       Z,_sd2emp
-            LD       HL,_PRE
-_sd2emp:    CALL     PRINT_LN
-            RET
+            LD       A,2
+            AND      E
+            JR       _disres
 
 ; ---- SH_VDU
 ; Show the status of the VDU card (installed or not)
 SH_VDU:     LD       HL,_VDIS
-            CALL     PRINT
-            LD       C,A_VSTAT
-            RST      30h
-            LD       HL,_EMP
-            JR       NZ,PRINT_LN
-_novdu:     LD       HL,_INST
-_shvdu:     JR       PRINT_LN
+            LD       A,8
+            AND      E
+            JR       _disres
 
 ; ---- SH_PIO
 SH_PIO:     LD       HL,_PDIS
-            CALL     PRINT
-            LD       C,A_ASTAT
-            RST      30h
-            LD       HL,_EMP
-            JR       NZ,PRINT_LN
-_nopio:     LD       HL,_INST
-_shpio:     JR       PRINT_LN
-
+            LD       A,4
+            AND      E
+            JR       _disres
 
 ; ---- SH_SW
 ; Display the current value of the configuration DIP switch.
 SH_SW:      LD       HL,_CFGSW
             CALL     PRINT
-            CALL     SW_CFG
+            LD       HL,COLSTR
+            CALL     PRINT
+            LD       A,D
             CALL     WRITE_8
             CALL     NL
             RET
@@ -2897,10 +2903,16 @@ SH_SW:      LD       HL,_CFGSW
 
 SH_HW:      CALL  SH_DTIME
             CALL  NL
+            ; Grab the inventory
+            LD    C,A_HWINV
+            RST   30h
+
+            ; Inventory in DE. Display the results
             CALL  SH_SW
             CALL  SH_SDC
             CALL  SH_VDU
             CALL  SH_PIO
+            CALL  NL
             RET
 
 
@@ -3181,7 +3193,7 @@ _nc1:       LD    A,(HL)
 
 
 ; --------------------- STRINGS
-_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.18.3",NULL
+_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.18.4",NULL
 _CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r",NULL
 
 ; Set scroll area for debug

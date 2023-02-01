@@ -3,10 +3,12 @@ import config.asm
 
 ; appl.asm
 ; This code is assembled to be located in the top 512 bytes of RAM and be
-; copied there from the application address space. To do this the origin is
-; set to $3E00 (where it'll reside in the hex output records) and the `phase`
+; copied there from the ZIOS address space. To do this the origin is
+; set to $7E00 (where it'll reside in the hex output records) and the `phase`
 ;  directive tells the assember to treat the code as though it is running
 ; from $FE00.
+;
+; Now ZIOS is taking two RAM pages both must be mapped into the Z80 address
 
             public AP_ST,END_APP,DO_BP_S,CNTINUE,AND_RUN,CHR_ISR,RAWGO
             public R_PC_S,R_AF_S
@@ -14,7 +16,7 @@ import config.asm
             extrn  DO_BP,ISRCTXT
 
             ASEG
-            ORG   $3E00
+            ORG   $7E00
             PHASE $FE00
 
 
@@ -45,8 +47,8 @@ AP_END:   LD     (R_AF_S+1),A       ; A needs to be preserved - many contain API
           LD     A,(PAGE_MP)
           OUT    (PG_PORT0),A   ; Back into application space
           EI                    ; Safe to allow interrupts again
-          ; Block 2 is never modified by ZLoader and block 3 remains fixed.
 
+          ; Block 2 is never modified by ZLoader and block 3 remains fixed.
           LD     A,(R_AF_S+1)   ; Restore A. The flags are unchanged
           RET                   ; And carry on
 

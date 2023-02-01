@@ -1,7 +1,10 @@
 ; Set of utilities used to manage virtual SDCard drive mappings.
 
     ; Utilities
-    extrn  ADD8T16, WRITE_8,WRITE_16
+    extrn  ADD8T16
+
+    ; DEBUG
+    ; extrn  WRITE_8,WRITE_16,NL
 
     ; Function exports
     public SDTXLT,SDTXLTD,SDMPADD,SDMPDSK,SDPREP,SDMPRAW ;,SDDRV
@@ -30,11 +33,17 @@ CSEG
 ; 22 bit sector address which is then multiplied by 512 by the SDCard
 ; driver to give a byte address range of 4GB.
 ;
+; Relative addresses also contain a device number (0 or 1) for the
+; the SDCards (needs to be more flexible than this to allow future
+; floppy/hard disks).
+;
 ; DRVMAP contains the values to replace 'v' in the resultant address.
 ;
 SDMPADD:  LD     A,H        ; The upper 8 bits contain logical drive, needs to be mapped
                             ; to the fully qualified upper 10 bits of the sector number.
           CALL   SDTXLT     ; Upper 16 bit address of SDCard now in HL
+
+          PUSH   AF         ; Save SDCard number
 
           ; Mask most sig 10 bits into the lower sector offset
           LD     A,$1F
@@ -42,6 +51,7 @@ SDMPADD:  LD     A,H        ; The upper 8 bits contain logical drive, needs to b
           OR     L          ; Merge in the drive offset
           LD     D,A        ; Put back into D
           LD     L,H        ; And HL comes straight from the offset table
+          POP    AF         ; Restore SDCard number
           RET
 
 ; --------- SDTXLT
@@ -49,11 +59,14 @@ SDMPADD:  LD     A,H        ; The upper 8 bits contain logical drive, needs to b
 ; This basically returns the upper 16 bits of the base sector address for the mapped drive.
 ; INPUTS:   A - logical drive number, 0-15 (4 bits)
 ; OUTPUTS: HL - The upper 16 bit of the current drive mapping.
+;           A - Physical device (SDCard 0 or 1)
 ;
 ; Other registers save.
 SDTXLT:   CALL   _toslot
           PUSH   DE         ; Stack <= LSWord
-          LD     E,(HL)
+          LD     A,(HL)     ; Return the physical SDCard number
+          INC    HL         ; Step past the SDCard number, not relevant here
+          LD     E,(HL)     ; And get the sector address
           INC    HL
           LD     D,(HL)     ; DE is the content of the drive table: replacement upper 10 bits of sector address
           EX     DE,HL
@@ -64,6 +77,7 @@ SDTXLT:   CALL   _toslot
 ; Given a logical drive letter (0-15) return the current assigned disk number (0-1024).
 ; INPUTS:   A - logical drive number, 0-15 (4 bits)
 ; OUTPUTS: HL - The mapped disk number, 0-1024
+;           A - Physical device (SDCard 0 or 1)
 ;
 ; Other registers save.
 SDTXLTD:  CALL   SDTXLT
@@ -72,11 +86,22 @@ SDTXLTD:  CALL   SDTXLT
 ; --------- SDMPDSK
 ; Change drive mappings. Set logical drive slot (0-15) to point to one of
 ; 1024 virtual 4MB drives.
-; INPUTS:   A - the drive slot (letter) to be mapped
-;          HL - the virtual disk to map to this drive
+; INPUTS:   A - the drive slot (0-15) to be mapped
+;           D - the physical SDCard (0 or 1)
+;          HL - the virtual disk to map to this drive (1-1023)
 SDMPDSK:  PUSH   DE
+          PUSH   BC
+          LD     B,D           ; Save the SDCard number
           EX     DE,HL         ; Save HL into DE (disk to be mapped to drive)
           CALL   _toslot       ; HL points to the slot to contain the mapping
+
+          ; Store drive number (make sure it's 0 or 1)
+          LD     A,$FE
+          AND    B
+          JR     NZ,_invsd
+
+          LD     (HL),B        ; SDCard number
+          INC    HL
 
           ; Need to multiply DE (virtual disk) by 32 (<<5)
           LD     A,D
@@ -93,6 +118,7 @@ SDMPDSK:  PUSH   DE
           LD     (HL),E        ; Store in the address map
           INC    HL
           LD     (HL),A
+_invsd:   POP    BC
           POP    DE
           RET
 
@@ -102,31 +128,45 @@ SDMPDSK:  PUSH   DE
 ; 1024 virtual 4MB drives. In this case the drive offset is specified as
 ; an absolute offset to store in the DRVMAP table
 ; INPUTS:   A - the drive slot (letter) to be mapped
+;           D - the physical DEVICE (0 or 1) - which SDCard
 ;          HL - the virtual disk to map to this drive
-SDMPRAW:  PUSH   DE
+SDMPRAW:  PUSH   BC
+          PUSH   DE
+          LD     B,D           ; Save the SDCard number
           EX     DE,HL         ; Save HL into DE (disk to be mapped to drive)
           CALL   _toslot       ; HL points to the slot to contain the mapping
+
+          ; Store drive number (make sure it's 0 or 1)
+          LD     A,$FE
+          AND    B
+          JR     NZ,_invsd2
+          LD     (HL),B
+          INC    HL
 
           ; Make sure low 5 bits are zeros
           LD     A,$F8
           AND    E
-          LD     E,A
 
-          LD     (HL),E        ; Store in the address map
+          LD     (HL),A        ; Store in the address map
           INC    HL
           LD     (HL),D
-          POP    DE
+_invsd2:  POP    DE
+          POP    BC
           RET
 
 
 
 ; ------- SDPREP
 ; Initialise the drive map. Each virtual drive is mapped to the one of the first
-; 16 vitual disks.
-SDPREP:     LD     HL,DRVMAP
-            LD     B,16
+; 16 vitual disks on the first SD card.
+SDPREP:     PUSH   HL
+            PUSH   BC
+            LD     HL,DRVMAP
+            LD     BC,1000h
             LD     DE,0020h        ; 0000 0000 0010 0000
-_nxtdrv:    LD     (HL),E
+_nxtdrv:    LD     (HL),C          ; SDCard 0
+            INC    HL
+            LD     (HL),E
             INC    HL
             LD     (HL),D
             INC    HL
@@ -135,22 +175,29 @@ _nxtdrv:    LD     (HL),E
             CALL   ADD8T16
             EX     DE,HL
             DJNZ   _nxtdrv
+            POP    BC
+            POP    HL
             RET
 
 ; ------- _toslot
 ; Given a logical drive letter in A, return a pointer to the correct slot
 ; in the logical drive map in HL.
 ; INPUTS:   A - logical drive number 0-15
-; OUTPUTS: HL - pointer to correct word in the DRVMAP
-_toslot:  AND    $0F        ; Ignore out of range drive letters
+; OUTPUTS: HL - pointer to correct entry in the DRVMAP
+_toslot:  PUSH   BC
+          AND    $0F        ; Ignore out of range drive letters
+          LD     B,A
           ADD    A          ; x2 to give offset into DRVMAP
+          ADD    B          ; x3
+          POP    BC
 
           ; A is now the offset into DRVMAP, add to base
           LD     HL,DRVMAP
           JP     ADD8T16    ; No need to return, no tidying.
 
 ; ----- Divide HL by 32 (5 bits)
-_div32:   LD    A,L
+_div32:   PUSH  AF
+          LD    A,L
           SRL   H
           RRA
           SRL   H
@@ -162,6 +209,7 @@ _div32:   LD    A,L
           SRL   H
           RRA
           LD    L,A
+          POP   AF
           RET
 
 DSEG
@@ -174,7 +222,9 @@ DSEG
 ; the 16 available logical drives map to physical drives 1-16. Drive 0 is used by the loaded
 ; and so is not normally used by guest operating systems.
 ;
-; Each entry in this table is the upper 10 bits of the 32 bit SD card address.
+; Each entry in this table is three bytes:
+;   byte 0:   The physical SDCard (0 or 1)
+;   byte 1,2  The upper 10 bits of the 32 bit SD card address.
 ;
 ;THIS SPACE NEEDS TO BE INITIALISED ON RESTART.
-DRVMAP     DEFS    16*2
+DRVMAP     DEFS    16*3

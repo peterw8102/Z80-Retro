@@ -1,0 +1,29 @@
+{
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2021": true
+  },
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "module",
+    "ecmaFeatures": {
+      "experimentalObjectRestSpread": true,
+      "impliedStrict": true,
+      "modules": true
+    }
+  },
+  "rules": {
+    "indent": [ 1, 2 ],
+    "semi": [ 1, "always"],
+    "key-spacing": [2, { "beforeColon": false, "afterColon": true, "mode": "minimum" }],
+    "no-unused-vars": [1, { "vars": "local", "args": "after-used" }],
+    "no-shadow": [2, { "builtinGlobals": true, "allow": ["_", "__", "done", "cb", "resolve", "reject", "name", "length"] }],
+    "comma-dangle": [2, "only-multiline"],
+    "no-const-assign": "error",
+    "no-undef": 2,
+    "no-unused-expressions": 2,
+    "no-useless-escape":"error",
+    "no-multiple-empty-lines": [2, { "max": 10, "maxEOF": 1 }]
+  }
+}

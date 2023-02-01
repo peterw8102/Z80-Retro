@@ -2776,7 +2776,7 @@ SWRITE:  CALL  WASTESPC
          CALL  SADDR
          JR    C,E_NOSD
 
-         ; Special case if this is raw write to address 0:0. In this
+         ; Special case if this is raw write to address 0:0 on disk 0. In this
          ; case patch up the reserved page checksum.
          LD    A,C
          CP    A_DSKRW
@@ -3071,11 +3071,11 @@ DECCHR:     RST      10h
 IMG:        CALL  SADDR      ; Sets up the target write address
             JR    C,BADPS
             CALL  WASTESPC
-            CALL  INHEX_4    ; Start address
+            CALL  INHEX_4    ; Start address in application RAM
             JR    C,BADPS
             EX    DE,HL
             CALL  WASTESPC
-            CALL  INHEX_4
+            CALL  INHEX_4    ; End address => HL
             JR    C,BADPS
 
             ; DE: Start address
@@ -3091,9 +3091,12 @@ IMG:        CALL  SADDR      ; Sets up the target write address
 
 _rndup:     INC   H
             INC   H
+            JR    NZ,_nornd
 
 _nornd:     SRL   H               ; H is now the number of 512 blocks to write. Write data...
-            LD    B,H
+            JR    NZ,_dowr
+            LD    H,80h           ; Trying to write the maximum 64K which causes an overflow. Max is 80h pages.
+_dowr:      LD    B,H
             EX    DE,HL           ; DE back to being the start address.
 _nxblk:     PUSH  BC
             PUSH  HL

@@ -10,7 +10,7 @@ import config.asm
           extrn  SCRATCH
 
           ; Exports
-          public FILL,INPUT,OUTPUT,MODIFY,HELP
+          public FILL,INPUT,OUTPUT,MODIFY,SDMOD,HELP
 
 ; ------------------- _bfill
 ; Fill from HL, length BC value A
@@ -155,7 +155,7 @@ INPUT:   CALL  WASTESPC
 ; ------------------- SDMOD
 ; Modify data in the SDCard buffer. The parameter is the offset into the SDCard buffer
 ; with a base of zero.
-SDMOD:   CALL  SKIPSPC
+SDMOD:   CALL  WASTESPC
          CALL  GET_HEX          ; Offset into the SDCard buffer
          JR    Z, BADPS
 
@@ -173,8 +173,6 @@ SDMOD:   CALL  SKIPSPC
 ;
 ; ------------------- MODIFY
 MODIFY:  CALL  WASTESPC
-         CP    'S'
-         JR    Z,SDMOD          ; Write data into the SDCard buffer
          CALL  GET_HEX          ; Start address (in application space)
          JR    Z, BADPS
          ; Sit in a loop processing lines.

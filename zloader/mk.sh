@@ -12,6 +12,8 @@ if [ -z "$RELEASE" ]; then
   zmac -j -J --rel7 --oo obj,lst ./disassembler.asm
   zmac -j -J --rel7 --oo obj,lst ./appl.asm
   zmac -j -J --rel7 --oo obj,lst ./drive.asm
+  zmac -j -J --rel7 --oo obj,lst ./devmap.asm
+  zmac -j -J --rel7 --oo obj,lst ./mempage.asm
 else
   echo "Building RELEASE version"
   zmac -DRELEASE -j -J --rel7 --oo obj,lst ./services.asm
@@ -20,13 +22,16 @@ else
   zmac -DRELEASE -j -J --rel7 --oo obj,lst ./disassembler.asm
   zmac -DRELEASE -j -J --rel7 --oo obj,lst ./appl.asm
   zmac -DRELEASE -j -J --rel7 --oo obj,lst ./drive.asm
+  zmac -DRELEASE -j -J --rel7 --oo obj,lst ./devmap.asm
+  zmac -DRELEASE -j -J --rel7 --oo obj,lst ./mempage.asm
 fi
 
-ld80 -o ./loader.hex -P 0040 -D 3200 -O ihex -s - \
+ld80 -o ./loader.hex -P 0040 -D 3400 -O ihex -s - \
      -m ./zout/loader.rel \
         ./zout/drive.rel \
         ./zout/commands.rel \
         ./zout/appl.rel \
+        ./zout/mempage.rel \
         ../zlib/zout/libutils.rel \
         ../zlib/zout/libsio.rel \
         ../zlib/zout/libcmd.rel \
@@ -38,4 +43,5 @@ ld80 -o ./loader.hex -P 0040 -D 3200 -O ihex -s - \
         ../zlib/zout/librtc.rel \
         ../zlib/zout/libmisc.rel \
         ./zout/services.rel \
+        ./zout/devmap.rel \
         ./zout/disassembler.rel

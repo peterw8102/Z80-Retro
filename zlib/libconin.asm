@@ -824,7 +824,6 @@ HPOS:       DEFW  MLBUF    ; Pointer to place in hist buffer when using up/down 
 
 ; Storage for the previous 'n' lines. Keeping it simple - there's a 1K buffer of variable
 ; length lines. THIS BLOCK MUST BE ALIGNED ON A 1K BOUNDARY.
-MLSZ:       EQU   1024
             ASEG
-            ORG 3E00h-1024
+            ORG   D_HISTB
 MLBUF:      DS    MLSZ

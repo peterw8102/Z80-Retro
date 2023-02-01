@@ -60,7 +60,11 @@ SPIPORT_L EQU 68h             ; With clock LOW
 SPIPORT_H EQU 69h             ; With clock HIGH
 SPIIN     EQU 64h             ; Input port (read only for SPI)
 SPICS_P   EQU 64h             ; Input port (read only for SPI)
-SPICS_EN  EQU 05h             ; Enable CS to SDCard
+SPICS0_E  EQU 05h             ; Enable CS to SDCard 0
+SPICS1_E  EQU 09h             ; Enable CS to SDCard 1
+SPICS2_E  EQU 11h             ; Enable CS to generic SPI device 2
+SPICS3_E  EQU 21h             ; Enable CS to generic SPI device 3
+SPICS4_E  EQU 41h             ; Enable CS to generic SPI device 4
 SPICS_DS  EQU 01h             ; Disable CS to SDCard
 SPIMASK   EQU 00h             ; Keep I2C clock high and inactive!!
 SPICMD    EQU SPIMASK         ; I2C clock OFF, CS active, CLK low
@@ -68,4 +72,11 @@ SPICMD    EQU SPIMASK         ; I2C clock OFF, CS active, CLK low
 ; INPUT SDCard values (read port 64)
 SDC0_PR   EQU 08h             ; 1 if there's an SDCard present in SDCard 0
 SDC1_PR   EQU 10h             ; 1 if there's an SDCard present in SDCard 1
+
+; Size of the history buffer
+MLSZ:       EQU   1024
+
+; Where to put the history buffer - right at the end of our first memory page.
+D_HISTB     EQU   4000h-MLSZ
+
 import macros.asm

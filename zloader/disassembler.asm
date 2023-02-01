@@ -12,12 +12,6 @@ import ../zlib/defs.asm
 
 
 
-; ------ SETOFF
-; Store the memory offset calculation for relative addressing
-; HL: Offset to store
-SETOFF:  LD (OFFSET),HL
-         RET
-
 ; Experimental simple Z80 disassembler which *might* replace the sime line dump DI operation
 ; ---- DISASS
 ; Disassembler the instruction pointed to by HL. All registers saved EXCEPT HL and AF.
@@ -1126,6 +1120,13 @@ _next_s:  CALL  SKIPEND             ; At end of string - HL pointing to the firs
           LD    A,C                 ; Restore the opcode
           RET   Z                   ; End of table
           JR    SRCH_TAB
+
+; ------ SETOFF
+; Store the memory offset calculation for relative addressing
+; HL: Offset to store
+SETOFF:  LD (OFFSET),HL
+         RET
+
 
 
 ; Random opcode instructions

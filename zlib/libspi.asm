@@ -1,7 +1,9 @@
 import ../zlib/defs.asm
 
-          public SPI_BEG, SPI_END, SPI_INIT, SPI_ACMD, SPI_TXB
-          public SPI_RXB, SPI_RBF, SPI_CM1, SPI_CMN, SPI_BRD, SPI_BWR
+          extrn  ADD8T16
+
+          public SPI_SEL,SPI_BEG,SPI_END,SPI_INIT,SPI_ACMD,SPI_TXB
+          public SPI_RXB,SPI_RBF,SPI_CM1,SPI_CMN,SPI_BRD,SPI_BWR
 
 ; SPI_SBI
 ; Read a single bit into the LSB of L. H contains the value to be written to the OP port (bit 1)
@@ -14,7 +16,7 @@ SPI_SBI   MACRO
     RL     L                  ; ...and from C to LSB of L
     ENDM
 
-          ; A contains SPICMD on entry
+; A contains SPICMD on entry
 ; SPI_SBO
 ; Send the MSBit of D to the slave, leaving D shifted by one position.
 SPI_SBO   MACRO
@@ -29,14 +31,42 @@ _spi_tx:
 
           CSEG
 
+; 5 SPI devices are available. These are numbered 0-4. This table identifies
+; which chip select line applies to each of these devices.
+_CS        DB    SPICS0_E       ; SDCard 0
+           DB    SPICS1_E       ; SDCard 1
+           DB    SPICS2_E       ; SPI Device 2
+           DB    SPICS3_E       ; SPI Device 3
+           DB    SPICS4_E       ; SPI Device 4
+
+
+; ---- SPI_SEL
+; Select an SPI device. Device ID in A must be between 0 and 4. MUST call
+; this method BEFORE making data requests to SPI. If the device is NOT selected
+; then access fails.
+SPI_SEL:  CP    5
+          JR    NC,_baddev     ; Out of range.
+          PUSH  HL
+          LD    HL,_CS         ; Translate device number into chip select
+          CALL  ADD8T16
+          LD    A,(HL)
+          POP   HL
+          LD    (DEVSEL),A
+
+          RET
+
+_baddev:  LD    A,SPICS_DS      ; Clear the device select number so requests aren't sent to wrong device.
+          LD    (DEVSEL),A
+          RET
+
 SPI_INIT: ; Set clock and CS LOW (inactive)
           LD    A,SPICS_DS
-          OUT   (SPICS_P),A    ; card NOT selected
+          OUT   (SPICS_P),A    ; Deselect ALL devices
           XOR   A
           OUT   (SPIPORT_L),A  ; Data:0 CLK: 0
 
           ; We want SPI mode 0 so clk low when we take CS active. Activate CS.
-          LD    A,SPICS_EN
+          LD    A,(DEVSEL)     ; Get mask for selected device
           OUT   (SPICS_P),A
 
           ; Send ~80 clock transitions
@@ -47,7 +77,7 @@ _nidle:   CALL  SPI_RXB
 
 ; ---- SPI_BEG - Assert CS and then send 2x dummy bytes, discarding the results.
 ; A: Not maintined
-SPI_BEG:  LD    A,SPICS_EN     ; Enable CS card
+SPI_BEG:  LD    A,(DEVSEL)     ; Get mask for selected device
           OUT   (SPICS_P),A
           CALL  SPI_RXB        ; +2x dummy clock bytes
 _bsy:     CALL  SPI_RXB
@@ -249,4 +279,8 @@ _bwn:     LD       D,(HL)        ; Bit value to send. L holds the received byte.
 
           POP      DE
           RET
+
+          DSEG
+DEVSEL:   DB       SPICS_DS      ; Used to store which SPI device to access.
+
 .END

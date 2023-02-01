@@ -1406,7 +1406,7 @@ _lemp:    POP   HL
 ; ------- INSTDRV
 ; Check whether drivers are installed. If not check if they should be installed. Then intall them if reqjuired.
 INSTDRV:  ; Check configuration to see whether we're meant to be installing drivers
-if !IS_DEVEL
+if IS_DEVEL
           LD     A,3 ; ALWAYS load drivers and break mode if this is a development build
 else
           LD     A,(NVRAM)
@@ -3322,8 +3322,8 @@ LSETOFF:    PUSH  DE
 
 
 ; --------------------- STRINGS
-_INTRO:   DEFB "Z80 ZIOS 1.18.7",NULL
-; _INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.18.7",NULL
+; _INTRO:   DEFB "Z80 ZIOS 1.18.8",NULL
+_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.18.8",NULL
 _CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r",NULL
 
 ; Set scroll area for debug

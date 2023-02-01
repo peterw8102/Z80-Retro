@@ -6,7 +6,7 @@ import defs.asm
 ; SW_CFG:    Wait for a short period (block).
 ;
           ; Input functions
-          public SW_CFG,HASVDU,HASPIO
+          public SW_CFG,HASVDU,HASPIO,MAPMPG
 
           CSEG
 
@@ -52,3 +52,17 @@ HASVDU:     LD       A,$FF
 HASPIO:     XOR      A
             INC      A
             RET
+
+
+;---- MAPMPG
+; Map a specified memory page into one of the banks.
+; D: Bank number (0-3)
+; E: Page number (0-255)
+MAPMPG:    PUSH      BC
+           LD        A,PG_PORT0
+           ADD       D
+           LD        C,A
+           LD        A,E
+           OUT       (C),A
+           POP       BC
+           RET

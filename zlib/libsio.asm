@@ -90,7 +90,7 @@ notWrap:        LD       (serInPtr),HL
                 JR       nextchr
 
                 ; set rts high
-setrts:         LD       A, $05
+setrts:         LD       A, $05        ; Select write register 5
                 OUT      (SIOA_C),A
                 LD       A,RTS_HIGH
                 OUT      (SIOA_C),A

@@ -52,3 +52,20 @@ MN_PG       EQU   RAM_PG_0 + IS_DEVEL
 
 ; The extended page for the loader is stored in the next RAM page after MN_PG.
 MN2_PG      EQU   MN_PG+1
+
+; Where to put the interrupt vector table. Place it in the top 256 bytes of RAM (ZIOS reserved area)
+VEC_BASE    EQU   0xFF
+
+; Page offset to the ISR handlers
+SIO_IB       EQU   0x3FE0
+
+; Interupt vectors for each SIO identifiable condition (WR 1, Ch. B, Bit 2 set)
+SIO_BTX      EQU   SIO_IB
+SIO_BST      EQU   SIO_IB+2
+SIO_BRX      EQU   SIO_IB+4
+SIO_BSP      EQU   SIO_IB+6
+
+SIO_ATX      EQU   SIO_IB+8
+SIO_AST      EQU   SIO_IB+10
+SIO_ARX      EQU   SIO_IB+12
+SIO_ASP      EQU   SIO_IB+14

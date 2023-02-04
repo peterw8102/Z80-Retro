@@ -60,6 +60,7 @@ import api.asm
           public RUN_CLI
 
           public START,_STRTDS,_ENDDS
+          public _EISR
 
 ; OP Code to use in RST vectors
 VEC_CODE    EQU   $C3
@@ -80,6 +81,15 @@ BP_SIZE     EQU     4
           DI
           JR     START
 
+          ORG    $08
+          JR     TXA
+
+          ORG    $10
+          JR     RXA
+
+          ORG    $18
+          JR     CKINCHAR
+
 ; 30h is the OS entry point. This allows applications running in other pages to request
 ; a low level OS function (eg page mapping). Installed code can optionally handle all the
 ; hardware itself or can rely on the OS installing this handler. Note: It has to be one
@@ -88,7 +98,7 @@ BP_SIZE     EQU     4
           ORG    30h           ; OS entry point
           JP     AP_DISP       ; Can jump straight into the dispatcher. No memory changes required.
 
-CONTXT     DEFS    1    ; 0 if running as supervisor, 1 if running as application
+CONTXT    DEFS    1    ; 0 if running as supervisor, 1 if running as application
 
 ; ----- Generic interrupt handler for MODE 1. Need to eventually move to MODE 2 and use more
 ; flexible vectoring. For now though stick with mode 1.
@@ -136,42 +146,26 @@ START:     ; 0. Make sure we're in paged memory mode
 
            ; ------ REMOVE THIS SETUP BEFORE BURNING TO FLASH ------
 if IS_DEVEL
-           JR    SET_FLASH          ; THIS LINE SHOULD BE IN FOR DEVELOPMENT BUT OUT BEFORE PROGRAMMING TO FLASH
+            BANK   3,MN2_PG       ; Map second supervisor page into bank 3
+            JR    RUN_CLI      ; THIS LINE SHOULD BE IN FOR DEVELOPMENT BUT OUT BEFORE PROGRAMMING TO FLASH
 endif
-           XOR   A
-           OUT   (PG_PORT0),A       ; Page 0 - Which will be flash
-           LD    A,$03
-           OUT   (PG_CTRL),A        ; Switch to page mode
-
-FLASH_LOW:  ; We're running from Flash.
             ; Copy the first 32KB of Flash to the first 32K of RAM.
-            LD    A,FSH_PG_0+1
-            OUT   (PG_PORT0+1),A
-            LD    A,RAM_PG_0
-            OUT   (PG_PORT0+2),A
-            LD    A,RAM_PG_0+1
-            OUT   (PG_PORT0+3),A
-            LD    HL,0
+            BANK  0,FSH_PG_0   ; Flash page 1 -> bank 1
+            BANK  1,FSH_PG_0+1 ; Flash page 1 -> bank 1
+            BANK  2,MN_PG      ; RAM page 0 into bank 2
+            BANK  3,MN2_PG     ; RAM page 1 into bank 3
+            EN_PAGE
+
+            LD    HL,0         ; Copy Flash page 0 to RAM page 0
             LD    DE,$8000
             LD    BC,$8000
             LDIR
-            ; Switch RAM page 0 to bank 1 (which should now be the same content and flash page 0 now)
-            LD    A,RAM_PG_0
-            OUT   (PG_PORT0),A
 
-SET_FLASH:  ; Flash is LOW and we're running from RAM
-            ; LD     HL,_STRTDS    ; Clear data area
-            ; LD     DE,_STRTDS+1
-            ; LD     (HL),0
-            ; LD     BC,_ENDDS-_STRTDS+1
-            ; LDIR
+            BANK  0,RAM_PG_0   ; RAM page 0 now matches Flash page 0 so replace flash with RAM
 
-            ; Initialise the application page map to the default pages on boot.
-RUN_CLI:    ; Map our functional page to bank 3. This makes sure that the driver code at
-            ; 7E00 also appears at FE00. Not really used at the moment but when using IM2
-            ; the interrupt vector table will be in this space.
+            ; Flash page 1 is in RAM page 1 and RAM page 1 is mapped to bank 3, end of Z80 memory
 
-            ; We're running in supervisor mode
+RUN_CLI:    ; We're running in supervisor mode
             XOR   A
             LD    (CONTXT),A
 
@@ -190,26 +184,20 @@ RUN_CLI:    ; Map our functional page to bank 3. This makes sure that the driver
 
 if CSET
             ; Install character set
-            CALL  INITCSET
+            CALL   INITCSET
 endif
-            ; Set up initialisation vectors - explicitly handled in code now
-            LD     A,VEC_CODE      ; Set up RST jump table
-            LD     ($08),A
-            LD     ($10),A
-            LD     ($18),A
-
-            LD     HL,TXA
-            LD     ($09),HL
-            LD     HL,RXA
-            LD     ($11),HL
-            LD     HL,CKINCHAR
-            LD     ($19),HL
-
-            LD     A,MN2_PG
-            OUT    (PG_PORT0+3),A
-
-            ; Set up the IM2 mode vector table (TBD - currently IM1)
-            ; ....
+            ; Set up initialisation vectors
+            ; LD     A,VEC_CODE     ; Set up RST jump table
+            ; LD     ($08),A
+            ; LD     ($10),A
+            ; LD     ($18),A
+            ;
+            ; LD     HL,TXA
+            ; LD     ($09),HL
+            ; LD     HL,RXA
+            ; LD     ($11),HL
+            ; LD     HL,CKINCHAR
+            ; LD     ($19),HL
 
             ; Initialise drive map. Map logical drives 0-15 to physical blocks 1-16. Need to store
             ; the physical address << 6 (Upper 10 bits of the 32 bit SD card address).
@@ -222,7 +210,7 @@ endif
             CALL   NVLD
 
             ; Initialise the serial IO module
-            XOR    A              ; Initialise SIO without implicit interrupt vectors (we do it).
+            XOR    A              ; Initialise SIO without setting up interrupt vectors.
             CALL   INITSIO
             IM     1              ; Using interrupt mode 1 AT THE MOMENT. Need to move to vectored at some point
             EI
@@ -234,8 +222,6 @@ if IS_DEVEL
             LD    A,21h
             CALL  P_RES
 endif
-            LD    A,MN2_PG
-            OUT   (PG_PORT0+3),A
             LD    A,LD_PAGE
             LD    HL,PAGE_MP
             LD    B,4
@@ -244,8 +230,6 @@ _wrn:       LD    (HL),A         ; Initialise the application page map
             INC   A
             INC   HL
             DJNZ  _wrn
-
-
 
             ; Really simple CLI now. Display
 NOSIO:      LD    HL, _INTRO
@@ -270,6 +254,7 @@ if !IS_DEVEL
 endif
           ; In development mode don't use the DIL switches. This allows us to develop the loader more efficiently.
           JR    main
+
 
 E_NOSD:   LD    HL,_NOSDADD
           JR    _prterr
@@ -757,10 +742,13 @@ _nxtblk:  LD    A,$11      ; Read block command
           AND   3fh
           OR    40h
           LD    D,A
+
+          ; *************** The following looks WRONG. Should be using the page map *************
           LD    A,(PROGPG)
           INC   A          ; Map the next page into block 1 space
           LD    (PROGPG),A
-          OUT   (PG_PORT0+1),A    ; Set the hardware
+          BANK  1
+          ; *************** ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ************************
           JR    _nxtblk
 
 _fin:     INC   A
@@ -1406,22 +1394,20 @@ _lemp:    POP   HL
 ; ------- INSTDRV
 ; Check whether drivers are installed. If not check if they should be installed. Then intall them if reqjuired.
 INSTDRV:  ; Check configuration to see whether we're meant to be installing drivers
+          LD     A,(NVRAM)
 if IS_DEVEL
           LD     A,3 ; ALWAYS load drivers and break mode if this is a development build
-else
-          LD     A,(NVRAM)
 endif
           RRCA
           RET    NC  ; This application doesn't want drivers (not using core OS)
           RRCA       ; Get bit one from NVRAM flags
 
-          LD    A,(PAGE_MP)          ; Application page 0
-          OUT   (PG_PORT0+1),A       ; Temp map to block 1 to install drivers
+          BANK  1,(PAGE_MP)          ; Application page 0 => bank 1
 
           LD     HL,0
           JR     NC,_nobrk
 
-          ; Install the break driver.
+          ; Install the break driver. Conditional on bit 1 of the flags tested above.
           LD    HL,BRK_HDLR
 _nobrk:   LD    (BRK_HK),HL
 
@@ -1438,7 +1424,6 @@ _nobrk:   LD    (BRK_HK),HL
           ; Set up RST handlers. Only ones currently mandated are:
           ;   RST 28h     - Used for debugger breakpoints
           ;   RST 30h     - API entry point
-          ;   RST 38h     - Interrupt vector (this will go away with IM2)
 
           LD   A,$C3
           LD   (4030h),A             ; API entry point: RST 30h
@@ -1458,19 +1443,22 @@ _nobrk:   LD    (BRK_HK),HL
           LD   (4001h+BRK_HANDLER),HL  ; Breakpoint handler target address
 
           ; Copy reserved 512 bytes from ZLoader to app space.
-          LD    A,(PAGE_MP+3)          ; Application page 3
-          OUT   (PG_PORT0+2),A         ; Temp map to block 1 to install drivers
+          BANK  2,(PAGE_MP+3)          ; Application page 3 => bank 2
 
           ; Map our second page into memory (should already be there!)
-          LD    A,MN2_PG
-          OUT   (PG_PORT0+3),A
+          BANK  3,MN2_PG               ; Supervisor page 2 => bank 3
 
-          ; Copy our driver code into the end of memory. It's currently at the end
-          ; of our second block.
-          LD    HL,$FE00
-          LD    DE,$BE00
-          LD    BC,512               ; Transfer 512 bytes
+          ; Copy our driver code into the end of APPLICATION memory. It's
+          ; currently at the end of our second bank.
+          LD    HL,$FE00               ; Supervisor second page
+          LD    DE,$BE00               ; Application last page
+          LD    BC,512                 ; Transfer 512 bytes
           LDIR
+
+          ; Patch the application SIO ISR. It's different for application
+          ; space because page memory tweaks will be requied.
+          LD   HL,CHR_ISR
+          LD   (8000h+SIO_ARX),HL
 
           ; Map all application pages except the first into Z80 memory
           CALL  MAPAPP
@@ -1480,13 +1468,11 @@ _nobrk:   LD    (BRK_HK),HL
 ; Map application pages 1 to 3 into Z80 memory. This leaves only the
 ; block zero to be mapped back into memory space.
 MAPAPP:   LD     HL,PAGE_MP+3
-          LD     C,PG_PORT0+3
-          LD     B,3
-_npg:     LD     A,(HL)
-          OUT    (C),A
-          DEC    C
+          BANK   3,(HL)
           DEC    HL
-          DJNZ   _npg
+          BANK   2,(HL)
+          DEC    HL
+          BANK   1,(HL)
           RET
 
 ; ------------------- RUN
@@ -1513,34 +1499,30 @@ PREPRUN:  ; Map application page 0 into block 1 so we can initialise the reserve
           OR    H
           JR    Z,_RMODE       ; Run from zero if not specified
 
-          LD    A,(PAGE_MP)          ; Application page 0
-          OUT   (PG_PORT0+1),A       ; Temp map to block 1 to install drivers
+          BANK  1,(PAGE_MP)    ; Application page 0
 
           ; Specific address so add a JP operation at address zero
-          LD    A,$F3          ; DI
-          LD    ($4000),A
           LD    A,$C3          ; JP
-          LD    ($4001),A
-          LD    ($4002),HL     ; Start address
+          LD    ($4000),A
+          LD    ($4001),HL     ; Start address
 
-_RMODE:   CALL  PAUSE          ; Let the UART complete sending
-          LD    A,(NVRAM)
-          AND   1
-          JR    NZ,AND_RUN     ; Drivers installed so don't need to jump through hoops
+_RMODE:   LD    A,(NVRAM)
+          RRCA                 ; Services installed?
+          JR    C,AND_RUN      ; Drivers installed so don't need to jump through hoops
 
-          ; Want to run without restricting any of the application code. Map
-          ; ourselves into bank 3, set up banks 1 and 2 then jump to end of memory
+          ; No seervices. Want to run without restricting any of the application
+          ; code. Map ourselves into bank 3, set up banks 1 and 2 then jump to end
+          ; of memory. This is running from supervisor page zero.
 RAWRUN:   LD    HL,(PAGE_MP)
           LD    DE,(PAGE_MP+2)
-          LD    A,H
-          OUT   (PG_PORT0+1),A
-          LD    A,E
-          OUT   (PG_PORT0+2),A
+
+          ; Banks 1 and 2 are safe to map now.
+          BANK  1,H
+          BANK  2,E
+
           ; HL needs: H: app page 3; L: app page 0. L already set.
           LD    H,D
           JR    RAWGO
-
-
 
 SHOWBCNT:  PUSH  HL
            PUSH  AF
@@ -2435,24 +2417,19 @@ PGADJ:    CALL  _PGCALC
 ; ------------- PGRESTX
 ; Restore page 1 and 2 to the application space. Used after extended instructions that have to map
 ; two pages to deal with page boundarys.
-PGRESTX:  LD    A,(PAGE_MP+2)
-          OUT   (PG_PORT0+2),A
+PGRESTX:  BANK  2,(PAGE_MP+2)
 
 ; ------------- PGREST
 ; Restore page 1 to the application space.
-PGREST:   LD    A,(PAGE_MP+1)
-          OUT   (PG_PORT0+1),A
+PGREST:   BANK  1,(PAGE_MP+1)
           RET
 
 ; HL - load address. Translate in a page and offset then load that page into board page 1 and 2
 ;      return the offset in HL
 ; A returns the page mapped.
 PGMAP:    PUSH  DE
-          CALL  PGADJ
-
-          ; And map into page 1 memory
-          OUT   (PG_PORT0+1),A
-
+          CALL  PGADJ    ; Returns the target page number in A
+          BANK  1        ; which we map to bank 1
           POP   DE
           RET
 
@@ -2467,11 +2444,14 @@ PGMAPX:   PUSH  DE
           LD    DE,PAGE_MP
           ADD   E
           LD    E,A      ; Monitor memory is linked from 2000h so won't cross a 256 byte boundary.
+
           LD    A,(DE)   ; DE is now the address of the PAGE_MP for the addressed page in application space
-          OUT   (PG_PORT0+1),A
+          BANK  1
+
           INC   DE
           LD    A,(DE)
-          OUT   (PG_PORT0+2),A
+          BANK  2
+
           POP   AF        ; AF includes the logical bock number (0-3)
           POP   DE
           RET
@@ -3024,10 +3004,8 @@ INITCSET:   PUSH     AF
             PUSH     DE
             PUSH     HL
 
-            LD       A,$FF     ; Where to write the data (Video memory)
-            OUT      (PG_PORT0+2), A
-            LD       A,CSET_PG ; Where to get the character set data
-            OUT      (PG_PORT0+1), A
+            BANK     2,$FF     ; Character set in flash
+            BANK     1,CSET_PG ; Where to get the character set data
 
             LD       BC,$1000  ; The character set is 4K
             LD       HL,$4000  ; Source address
@@ -3322,8 +3300,8 @@ LSETOFF:    PUSH  DE
 
 
 ; --------------------- STRINGS
-; _INTRO:   DEFB "Z80 ZIOS 1.18.8",NULL
-_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.18.8",NULL
+_INTRO:   DEFB "Z80 ZIOS 1.18.9",NULL
+; _INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.18.8",NULL
 _CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r",NULL
 
 ; Set scroll area for debug
@@ -3581,7 +3559,7 @@ LAST_CMD:  DEFS    1
 DUMP_ADDR: DEFS    2
 DUMP_MODE: DEFS    1
 ISRCTXT:   DEFS    1              ; True if the current ISR was called when in application space
-CTRLCH:    DEFS    1              ; True if the current ISR was called when in application space
+CTRLCH:    DEFS    1
 ; DUMP_CHRS: DEFS    2
            ; DEFS   16
            ; DEFS    1

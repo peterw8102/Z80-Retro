@@ -92,13 +92,13 @@ LD_PGSEL: LD     A,E
           LD     HL,PAGE_MP
           ADD    L
           LD     L,A            ; PAGE_MP will always be low in data store and not on a 256 byte boundary
-          LD     A,D
-          LD     (HL),A         ; Save the page we're about to map
-          LD     A,PG_PORT0     ; Calculate the right port number for the requested block
-          ADD    E
-          LD     C,A            ; C has the port number
-          LD     A,D            ; The page to select
-          OUT    (C),A          ; Make the change
+
+          ; HL points to the correct place in the PAGE_MP map
+          LD     (HL),D
+
+          ; E is the bank into which page D should be mapped.
+          BANK_I E,D
+
           POP    BC
           POP    HL
           RET

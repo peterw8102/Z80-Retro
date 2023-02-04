@@ -90,28 +90,16 @@ notWrap:        LD       (serInPtr),HL
                 JR       nextchr
 
                 ; set rts high
-setrts:         LD       A, $05        ; Select write register 5
-                OUT      (SIOA_C),A
-                LD       A,RTS_HIGH
-                OUT      (SIOA_C),A
+setrts:         SIO_WR   A,5,RTS_HIGH
                 JR       norts
-
-                ; No characters left...
-rts0:           LD       A,(useisr)
-                OR       A
-                JR       Z,_noisr1
-                POP      AF
-                ; This code is responsible for the ISR termination
-                EI
-                RETI
-
-                ; A standard subroutine. Delegate responsibility for ISR exit to the caller.
-_noisr1:        POP      AF
-                RET
 
 _full:          POP      AF
                 POP      HL
-                JR       rts0
+                ; Drop through to return
+
+                ; No characters left...
+rts0:           POP      AF
+                RET
 
                 ; There is a break handler. Hack the stack so we return to the
                 ; handler
@@ -119,7 +107,7 @@ brk:            LD       A,(BRK_HK+1) ; Break handler can't be in the first 256 
                 OR       A
                 LD       A,3
                 JR       Z,proc
-_prbrk:         ; Implement break handler. HL is still on the stack so can be used.
+
                 LD       HL,(BRK_HK)
 
                 ; The break handler will have a stack that looks like:
@@ -150,11 +138,10 @@ notRdWrap:      LD       (serRdPtr),HL
                 LD       (serBufUsed),A
                 CP       SER_EMPTYSIZE
                 JR       NC,rts1
+
                 ; set rts low
-                LD       A, $05
-                OUT      (SIOA_C),A
-                LD       A,RTS_LOW
-                OUT      (SIOA_C),A
+                SIO_WR   A,5,RTS_LOW
+
 rts1:           LD       A,(HL)
                 EI
                 POP      HL
@@ -165,8 +152,7 @@ TXA:            PUSH     AF              ; Store character
 conout1:        XOR      A
                 OUT      (SIOA_C),A
                 IN       A,(SIOA_C)
-                RRCA
-                BIT      1,A             ; Set Zero flag if still transmitting character
+                BIT      2,A             ; Set if still transmitting character
                 JR       Z,conout1       ; Loop until flag signals ready
                 POP      AF              ; Retrieve character
                 OUT      (SIOA_D),A      ; Output the character
@@ -179,25 +165,12 @@ CKINCHAR:       LD       A,(serBufUsed)
 ;------------------------------------------------------------------------------
 ; Initialise the SIO handlers. Assumed we're running from RAM and called from
 ; the application runtime and the memory paging is initialised. This library doesn't
-; understand how the memory is managed. Alos assumg the stack has been initialised.
+; understand how the memory is managed. Also assuming the stack has been initialised.
 INITSIO:      DI
-
-              ; A: Install ISR
-              ;    0: No ISR
-              ;    1: ISR
-              LD       (useisr),A
-              OR       A
               PUSH     AF
-              JR       Z,_skpisr
-
-              ; Set up RST 38H to call SERINT
-              LD        A,$C3
-              LD       (38h),A      ; JP
-              LD       HL,SERINT
-              LD       (39h),HL
 
               ; initialize input buffer for Port A - Port B is NOT currently buffered
-_skpisr:      LD        HL,serBuf
+              LD        HL,serBuf
               LD        (serInPtr),HL
               LD        (serRdPtr),HL
               XOR       A
@@ -208,77 +181,29 @@ _skpisr:      LD        HL,serBuf
               OUT     (SIOB_C),A
 
               ; Channel A - RESET
-              LD      A,00110000b      ; Error reset
-              OUT     (SIOA_C),A
-              LD      A,00011000b      ; Channel reset
-              OUT     (SIOA_C),A
+              SIO_C   A,00011000b    ; Channel reset
+              SIO_C   A,00110000b    ; Error reset
 
               ; Channel B - RESET
-              LD      A,00011000b      ; Channel reset
-              OUT     (SIOA_C),A
-              LD      A,00110000b      ; Error reset
-              OUT     (SIOA_C),A
+              SIO_C   B,00011000b    ; Channel reset
+              SIO_C   B,00110000b    ; Error reset
 
-              ; SET INTERRUPT VECTOR - ONLY USED FOR PORT A
-              LD      A,$02           ; write reg 2
-              OUT     (SIOB_C),A
-              LD      A,11100000b     ; INTERRUPT VECTOR ADDRESS
-              OUT     (SIOB_C),A
+              ; SET INTERRUPT VECTOR - ONLY USED FOR PORT A but set through port B. Port A is polled.
+              SIO_WR  B,2,SIO_INTV   ; INTERRUPT VECTOR ADDRESS
 
               ; INITIALISE CHANNEL A
-              LD      A,$04            ; write 4
-              OUT     (SIOA_C),A
-              LD      A,11000100b      ; X64, no parity, 1 stop - 115200 baud
-              ;LD      A,10000100b     ; X32, no parity, 1 stop - 230400 baud
-              OUT     (SIOA_C),A
-
-              LD      A,$05            ; write 5
-              OUT     (SIOA_C),A
-              LD      A,RTS_LOW        ; dtr enable, 8 bits, tx enable, rts OFF
-              OUT     (SIOA_C),A
-
-              ; WR1 - interrupts on RX
-              LD      A,$01            ; write 1
-              OUT     (SIOA_C),A
-              LD      A,00011000b      ; interrupt on all recv
-              OUT     (SIOA_C),A
-
-              LD      A,$03            ; write 3
-              OUT     (SIOA_C),A
-              LD      A,11100001b      ; 8 bits, auto enable, rcv enable
-              OUT     (SIOA_C),A
+              SIO_WR  A,1,00011000b  ; interrupt on all recv
+              SIO_WR  A,3,11100001b  ; 8 bits, auto enable, rcv enable
+              SIO_WR  A,4,11000100b  ; X64, no parity, 1 stop - 230400 baud with 14MHz sys clock
+              SIO_WR  A,5,RTS_LOW    ; dtr enable, 8 bits, tx enable, rts OFF
 
               ; INITIALISE CHANNEL B
-              ; WR4 - 32x Clock - 230400baud, 1 stop bit, no parity.
-              LD      A,$04
-              OUT     (SIOB_C),A
-              LD      A,10000100b
-              OUT     (SIOB_C),A
-
-              ; WR5 - TX 8 bits/char, Enable TX
-              LD      A,05h
-              OUT     (SIOB_C),A
-              LD      A,RTS_LOW
-              OUT     (SIOB_C),A
-
-              ; WR1 - Disable all interrupts
-              LD      A,01h
-              OUT     (SIOB_C),A
-              LD      A,00000000b
-              OUT     (SIOB_C),A
-
-              ; WR3 - Enable receiver, 8 bits per character
-              LD      A, 03h
-              OUT     (SIOB_C),A
-              LD      A,11000001b
-              OUT     (SIOB_C),A
+              SIO_WR  B,1,00000100b  ; Uses different vectors for each interrupt. Not really used right now!
+              SIO_WR  B,3,11000001b  ; WR3 - Enable receiver, 8 bits per character
+              SIO_WR  B,4,10000100b  ; WR4 - 32x Clock - 460800 baud with 14MHz sys clock, 1 stop bit, no parity.
+              SIO_WR  B,5,RTS_LOW    ; WR5 - TX 8 bits/char, Enable TX
 
               POP     AF
-              RET     Z     ; Return now because we're not responsible for the ISR
-
-              ; enable interrupts
-              IM      1
-              EI
               RET
 
 _ENDLIBS:

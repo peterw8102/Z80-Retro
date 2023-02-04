@@ -32,7 +32,7 @@ RTS_HIGH        .EQU     11101000b ; 0E8H
 RTS_LOW         .EQU     11101010b ; 0EAH
 
 ; Interuupt vector if operating in IM2. Make these the last 8 vectors in the table.
-SIO_INTV        .EQU     0F8h
+SIO_INTV        .EQU     0E0h
 
 ; Z80 CTC ports
 CTC_IV          .EQU      $40

@@ -41,6 +41,7 @@ import api.asm
           extrn  RAWGO
           extrn  R_AF_S
 
+          public R_AF
           public main,BADPS,OPMODE
 
           public PAGE_MP
@@ -100,15 +101,7 @@ BP_SIZE     EQU     4
 
 CONTXT    DEFS    1    ; 0 if running as supervisor, 1 if running as application
 
-; ----- Generic interrupt handler for MODE 1. Need to eventually move to MODE 2 and use more
-; flexible vectoring. For now though stick with mode 1.
-          ORG    38H
-          ; ----- _EISR
-_EISR:    CALL    SERINT
-          EI
-          RETI
-
-END_RES    EQU     $
+END_RES   EQU     $
 
 CSEG
 
@@ -209,10 +202,20 @@ endif
             ; and read the NV RAM
             CALL   NVLD
 
+            ; Initialise the interrupt vector table. Table will be right at the end of the
+            ; memory map which will be in our second RAM page and will be copied for
+            ; application context.
+            LD     A,VEC_BASE
+            LD     I,A
+
+            ; Add entry to vector table for supervisor SIO ISR
+            LD     HL,_EISR
+            LD     (0xC000+SIO_ARX),HL
+
             ; Initialise the serial IO module
             XOR    A              ; Initialise SIO without setting up interrupt vectors.
             CALL   INITSIO
-            IM     1              ; Using interrupt mode 1 AT THE MOMENT. Need to move to vectored at some point
+            IM     2              ; Using interrupt mode 1 AT THE MOMENT. Need to move to vectored at some point
             EI
 
 if IS_DEVEL
@@ -1396,7 +1399,7 @@ _lemp:    POP   HL
 INSTDRV:  ; Check configuration to see whether we're meant to be installing drivers
           LD     A,(NVRAM)
 if IS_DEVEL
-          LD     A,3 ; ALWAYS load drivers and break mode if this is a development build
+          LD     A,1 ; ALWAYS load drivers and break mode if this is a development build
 endif
           RRCA
           RET    NC  ; This application doesn't want drivers (not using core OS)
@@ -1427,16 +1430,11 @@ _nobrk:   LD    (BRK_HK),HL
 
           LD   A,$C3
           LD   (4030h),A             ; API entry point: RST 30h
-          LD   (4038h),A             ; ISR (IM1) - this goes when we move to IM2
           LD   (4000h+BRK_HANDLER),A ; Breakpoint handler
 
           ; Patch the dispatch point for the API
           LD   HL,AP_ST
           LD   (4031h), HL
-
-          ; Patch the ISR handler (using IM1 at the moment)
-          LD   HL,CHR_ISR
-          LD   (4039h),HL
 
           ; The breakpoint handler
           LD   HL,DO_BP_S
@@ -3297,6 +3295,16 @@ LSETOFF:    PUSH  DE
             CALL  MAPMPG
             POP   DE
             JP    SETOFF
+
+
+; ---- _EISR
+; Serial port rx ISR
+_EISR:    CALL    SERINT
+          EI
+          RETI
+
+
+
 
 
 ; --------------------- STRINGS

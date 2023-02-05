@@ -1,14 +1,15 @@
 ; Set of utilities used to manage virtual SDCard drive mappings.
 
+
     ; Utilities
     extrn  ADD8T16
 
+    import pcb_def.asm
     ; DEBUG
     ; extrn  WRITE_8,WRITE_16,NL
 
     ; Function exports
     public SDTXLT,SDTXLTD,SDMPADD,SDMPDSK,SDPREP,SDMPRAW ;,SDDRV
-    public DRVMAP
 
 CSEG
 
@@ -211,20 +212,3 @@ _div32:   PUSH  AF
           LD    L,A
           POP   AF
           RET
-
-DSEG
-
-; SDCard disk emulation. Treat the SD card as an array of 4M chunks (physical disks). The mapped
-; space is 10bit (1024 physical spaces) each 4MB is size allowing a theoretical maximum of 4GB
-; although at the moment we're limiting the code to the original 32bit address space mode of
-; smaller cards. Generally 2GB cards are the target. Each physical space can be mapped into
-; 16 logical drives. This allows an application to 'mount' up to 16x4MB partitions. By default
-; the 16 available logical drives map to physical drives 1-16. Drive 0 is used by the loaded
-; and so is not normally used by guest operating systems.
-;
-; Each entry in this table is three bytes:
-;   byte 0:   The physical SDCard (0 or 1)
-;   byte 1,2  The upper 10 bits of the 32 bit SD card address.
-;
-;THIS SPACE NEEDS TO BE INITIALISED ON RESTART.
-DRVMAP     DEFS    16*3

@@ -2,6 +2,8 @@ import ../zlib/defs.asm
 import config.asm
 import api.asm
 
+import pcb_def.asm
+
           ; Utilities
           extrn  PAUSE,STRCMP,ADD8T16,TOUPPER
 
@@ -41,10 +43,7 @@ import api.asm
           extrn  RAWGO
           extrn  R_AF_S
 
-          public R_AF
           public main,BADPS,OPMODE
-
-          public PAGE_MP
 
           public APP_STK
           public PGADJ,PGMAP,PGMAPX,PGREST
@@ -56,7 +55,6 @@ import api.asm
           public DO_BP
           public SCRATCH
           public ISRCTXT
-          public R_PC
           public CMD_TABLE
           public RUN_CLI
 
@@ -3573,11 +3571,6 @@ CTRLCH:    DEFS    1
            ; DEFS    1
 
 
-; -------------------- PROC
-; Gather together all the data that's specific to a process. Later we could have more
-; than one of these and allow multiple processes to exist at the same time.
-PAGE_MP:   DEFS    4              ; Used to restore/track active pages
-
 
 
 
@@ -3631,21 +3624,6 @@ STP_IN:    DEFS    1      ; Temp store for setting a BP. True means step into an
 
 ; 56 bytes of NV RAM. First 16 bytes used by the loader, others available by the application.
 NVRAM      DEFS    56
-
-; Suspenended execution registers. NOTE - application page 0
-; has the applications AF and PC.
-R_PC       DEFS    2
-R_SP       DEFS    2 ; Initial application stack is NOT the same as ours
-R_AF       DEFS    2
-R_AF_P     DEFS    2
-R_BC_P     DEFS    2
-R_DE_P     DEFS    2
-R_HL_P     DEFS    2
-R_BC       DEFS    2
-R_DE       DEFS    2
-R_HL       DEFS    2
-R_IX       DEFS    2
-R_IY       DEFS    2
 
 _ENDDS     EQU     $
 .END

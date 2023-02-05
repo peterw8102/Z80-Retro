@@ -1,0 +1,27 @@
+; Imports that define the process control block layout.
+;
+          extrn PROC
+          extrn PAGE_MP
+
+          ; Register stored
+          extrn R_PC
+          extrn R_SP
+          extrn R_AF
+          extrn R_AF_P
+          extrn R_BC_P
+          extrn R_DE_P
+          extrn R_HL_P
+          extrn R_BC
+          extrn R_DE
+          extrn R_HL
+          extrn R_IX
+          extrn R_IY
+
+; DRVMAP (Drive Map)
+; Each entry in this table is three bytes:
+;   byte 0:   The physical SDCard (0 or 1)
+;   byte 1,2  The upper 10 bits of the 32 bit SD card address.
+          extrn DRVMAP
+          extrn ENDPCB
+
+          extrn SZ_PCB

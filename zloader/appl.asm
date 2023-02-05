@@ -14,6 +14,7 @@ import config.asm
             public R_PC_S,R_AF_S
             extrn  CONTXT,PAGE_MP,AP_DISP,APP_STK,SERINT
             extrn  DO_BP,ISRCTXT
+            extrn  R_AF
 
             ASEG
             ORG   $7E00
@@ -23,42 +24,45 @@ import config.asm
 ; Entry point for the command handler WHEN CALLED FROM APPLICATION SPACE.
 AP_ST:    ; Map ZLoader into memory (Block 0). 'A' can't be used to pass parameters and
           ; doesn't need to be saved.
-          LD    (R_AF_S+1),A
+          LD     (R_AF_S+1),A
           DI
-          LD    A,MN_PG            ; Page mask for page zero monitor
-          OUT   (PG_PORT0),A
+          ; Move out pages into bank 0 and 3
+          BANK   0,MN_PG
+          LD     (R_AF_S+1),A
+          LD     (R_AF+1),A
+          BANK   3,MN2_PG          ; Need this one because the IV table changes
 
           ; Save the application stack
           LD     (APP_STK),SP      ; Save the application stack
           LD     SP,SP_STK         ; Replace with supervisor stack
           EI
-          LD    A,(R_AF_S+1)
+          LD     A,(R_AF+1)
           CALL   AP_DISP
 
           ; At the end of a dispatch called by the application, map application memory back and repair the stack
-AP_END:   LD     (R_AF_S+1),A       ; A needs to be preserved - many contain API results
+AP_END:   LD     (R_AF+1),A   ; A needs to be preserved - many contain API results
           DI
           LD     SP,(APP_STK)   ; Got the appication stack back but it might not be in our address space so can't use
 
-          ; Restore other pages that may have been modified first
-          LD     A,(PAGE_MP+1)
-          OUT    (PG_PORT0+1),A   ; Back into application space
-          ; Put block zero back last because we're using data stored here
-          LD     A,(PAGE_MP)
-          OUT    (PG_PORT0),A   ; Back into application space
+          ; Restore pages that may have been modified as part of service call
+          BANK   3,(PAGE_MP+3)  ; Back into application space
+          LD     A,(R_AF+1)     ; A needs to be preserved - many contain API results
+          LD     (R_AF_S+1),A
+          BANK   1,(PAGE_MP+1)  ; Back into application space
+          BANK   0,(PAGE_MP)
+
           EI                    ; Safe to allow interrupts again
 
           ; Block 2 is never modified by ZLoader and block 3 remains fixed.
-          LD     A,(R_AF_S+1)   ; Restore A. The flags are unchanged
+          LD     A,(R_AF_S+1)   ; Restore A from shadow. The flags are unchanged
           RET                   ; And carry on
 
 ;----- DO_BP_S
 ; Setup for DO_BP living in the application space.
 ; DON'T DO ANYTHING THAT SETS FLAGS!!!
 DO_BP_S:  DI                   ; have to disable interrupts while in the debugger
-          LD    (R_AF_S+1),A   ; So we can page switch... But flags NOT stored so don't damage!
-          LD    A,MN_PG
-          OUT   (PG_PORT0),A   ; Switched out the application page. Now running from supervisor
+          LD    (R_AF_S+1),A   ; Flags NOT stored so don't damage!
+          BANK  0,MN_PG        ; Page in supervisor
           LD    A,(R_AF_S+1)   ; So we can page switch... But flags NOT stored so don't damage!
           EI
           JR    DO_BP          ; In supervisor mode so can do breakpoint.
@@ -66,7 +70,7 @@ DO_BP_S:  DI                   ; have to disable interrupts while in the debugge
 ; ------ CONT
 ; Continue execution. Map all application pages into memory (PAGE_MP), restore the
 ; application registers then continue from where we left off.
-CNTINUE:  OUT   (PG_PORT0),A
+CNTINUE:  BANK  0              ; Map whatever's in A to bank 0
           POP   AF
 
           ; Everything now into application space so can just go...
@@ -75,14 +79,14 @@ CNTINUE:  OUT   (PG_PORT0),A
 
 ;----- RUN
 ; Just map application page 0 into bank 0 and go to zero.
-AND_RUN:  LD     A,(PAGE_MP)
-          OUT    (PG_PORT0),A
+AND_RUN:  BANK   0,(PAGE_MP)
           RST    0          ; And run from address zero
 
 ; Character ISR when running application code. Switch supervisor code to block zero
-CHR_ISR:  PUSH   AF
-          LD     A,MN_PG
-          OUT    (PG_PORT0),A        ; Supervisor in CPU memory page 0
+CHR_ISR:  DI
+          PUSH   AF
+
+          BANK   0,MN_PG             ; Supervisor in CPU memory page 0
           LD     (APP_STK),SP        ; Save the application stack
           LD     SP,SP_STK           ; Get our supervisor stack
           LD     (ISRCTXT),A         ; Will be non-zero
@@ -90,13 +94,13 @@ CHR_ISR:  PUSH   AF
           XOR    A
           LD     (ISRCTXT),A         ; Clear the context flag
           LD     SP,(APP_STK)        ; Restore the application stack
-          LD     A,(PAGE_MP)         ; Context switch page 0
-          OUT    (PG_PORT0),A        ; Back into application space
+          BANK   0,(PAGE_MP)         ; Application space back into bank 0
+
           POP    AF
           EI                         ; Back to application
           RETI
 
-
+TMP_X:    DB     1
 R_AF_S:   DS     2
 
 ; Debugger. Storage must be in page 0 reserved space
@@ -108,7 +112,7 @@ JP_RUN:    DEFB    $C3
 ; Storage area for working registers
 R_PC_S     DEFS    2
 
-END_APP:  EQU    $
+END_APP:   EQU    $
 
           DEPHASE
           ORG   $3FFA
@@ -119,7 +123,5 @@ END_APP:  EQU    $
 ; application code at Z80 address 0.
 ; H: page number for app page 3
 ; L: page number for app page 0
-RAWGO:   LD     A,L
-         OUT    (PG_PORT0),A
-         LD     A,H
-         OUT    (PG_PORT0+3),A     ; Overwrite ourselves
+RAWGO:   BANK   0,L
+         BANK   3,H

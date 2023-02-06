@@ -24,36 +24,29 @@ import config.asm
 ; Entry point for the command handler WHEN CALLED FROM APPLICATION SPACE.
 AP_ST:    ; Map ZLoader into memory (Block 0). 'A' can't be used to pass parameters and
           ; doesn't need to be saved.
-          LD     (R_AF_S+1),A
           DI
           ; Move out pages into bank 0 and 3
           BANK   0,MN_PG
-          LD     (R_AF_S+1),A
-          LD     (R_AF+1),A
           BANK   3,MN2_PG          ; Need this one because the IV table changes
 
           ; Save the application stack
           LD     (APP_STK),SP      ; Save the application stack
           LD     SP,SP_STK         ; Replace with supervisor stack
           EI
-          LD     A,(R_AF+1)
           CALL   AP_DISP
 
           ; At the end of a dispatch called by the application, map application memory back and repair the stack
 AP_END:   LD     (R_AF+1),A   ; A needs to be preserved - many contain API results
           DI
-          LD     SP,(APP_STK)   ; Got the appication stack back but it might not be in our address space so can't use
-
+          PUSH   AF             ; Our stack so in bank 0 and save
           ; Restore pages that may have been modified as part of service call
           BANK   3,(PAGE_MP+3)  ; Back into application space
-          LD     A,(R_AF+1)     ; A needs to be preserved - many contain API results
-          LD     (R_AF_S+1),A
           BANK   1,(PAGE_MP+1)  ; Back into application space
-          BANK   0,(PAGE_MP)
-
+          POP    AF             ; Before loosing the stack
+          LD     (R_AF_S+1),A   ; Store A from shadow so we can get it back after the final page switch
+          LD     SP,(APP_STK)   ; Got the appication stack back but it might not be in our address space so can't use
+          BANK   0,(PAGE_MP)    ; And restore that final bank 0 to application space
           EI                    ; Safe to allow interrupts again
-
-          ; Block 2 is never modified by ZLoader and block 3 remains fixed.
           LD     A,(R_AF_S+1)   ; Restore A from shadow. The flags are unchanged
           RET                   ; And carry on
 

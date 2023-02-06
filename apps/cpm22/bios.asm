@@ -449,7 +449,7 @@ _nomtch:   ; Address block mismatch. Load the new block. The loader already has
            RET
 
 ; The content of the cached sector can no longer be relied upon so invalidate it.
-_flush:    LD      HL,$FF
+_flush:    LD      HL,$FFFF
            LD      (lststrt),HL
            LD      (lststrt+1),HL
            RET
@@ -457,8 +457,9 @@ _flush:    LD      HL,$FF
 ; -- _calcblk
 ; Convert disk/track/sector into a logical sector address for the SD card. In
 ; this case. Each disk has 512 sectors per track. Each sector is 127 bytes so
-; 32K per track. The first 4M block is researved for the OS loader.
-; byte offset containing 512B block. Store result in 'blkstrt'.
+; 32K per track.
+;
+; Store result in 'blkstrt'.
 ;
 ;   +------------+------------+------------+------------+
 ;   |  virtdisk  |  Not Used  | N/U |<--13 bit offset-->|

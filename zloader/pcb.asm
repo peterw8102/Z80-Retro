@@ -53,10 +53,12 @@ R_IY       DEFS    2
 ;
 ; Each entry in this table is three bytes:
 ;   byte 0:   The physical SDCard (0 or 1)
+;   byte 1:   Flags (bitmapped)
+;      bit 0: Read-only
 ;   byte 1,2  The upper 10 bits of the 32 bit SD card address.
 ;
 ;THIS SPACE NEEDS TO BE INITIALISED ON RESTART.
-DRVMAP     DEFS    16*3
+DRVMAP     DEFS    16*4
 
 ENDPCB     EQU     $
 SZ_PCB     EQU   ENDPCB-PROC

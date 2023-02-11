@@ -164,7 +164,7 @@ function exportData(ev) {
       byteStr += toHex2(byte);
       cs += byte;
     }
-    output.push(':10'+toHex4(addr)+'00'+byteStr+toHex2((~cs) & 0xff)+'\n');
+    output.push(':10'+toHex4(addr)+'00'+byteStr+toHex2((-cs) & 0xff)+'\n');
     addr += 16;
   }
   output.push(':00000001FF\n');

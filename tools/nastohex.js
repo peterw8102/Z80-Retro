@@ -77,7 +77,7 @@ function convertFile(lines) {
       cs += ((addr >> 8) & 0xff);
       if (bytes.length>0) {
         // Calculate the output record for Intel format.
-        writeout(':'+toHex2(bytes.length)+toHex4(addr)+'00'+byteStr+toHex2((~cs) & 0xff)+'\n');
+        writeout(':'+toHex2(bytes.length)+toHex4(addr)+'00'+byteStr+toHex2((-cs) & 0xff)+'\n');
       }
     }
   }

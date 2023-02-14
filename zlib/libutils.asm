@@ -50,7 +50,9 @@ _sfail:     INC   A
 ; ------ ADD8T16
 ; Add A to HL and correctly deal with carry from L to H. HL and A changed. No
 ; other registers used or changed.
-ADD8T16:  ADD   L
+ADD8T16:  OR    A
+          RET   Z       ; Optimise for adding zero...
+          ADD   L
           LD    L,A
           RET   NC
           INC   H

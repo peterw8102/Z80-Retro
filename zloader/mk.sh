@@ -30,11 +30,10 @@ else
   zmac -DRELEASE -j -J --rel7 --oo obj,lst ./sdblk.asm
 fi
 
-ld80 -o ./loader.hex -P 0040 -D 3400 -O ihex -s - \
+ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - \
      -m ./zout/loader.rel \
         ./zout/drive.rel \
         ./zout/commands.rel \
-        ./zout/appl.rel \
         ./zout/mempage.rel \
         ./zout/pcb.rel \
         ../zlib/zout/libutils.rel \
@@ -49,5 +48,11 @@ ld80 -o ./loader.hex -P 0040 -D 3400 -O ihex -s - \
         ../zlib/zout/libmisc.rel \
         ./zout/services.rel \
         ./zout/devmap.rel \
+        -P C000 \
         ./zout/disassembler.rel \
         ./zout/sdblk.rel \
+        -P FE00 \
+        ./zout/appl.rel \
+
+node ../tools/hextform --fix --move=C000,FFFF,4000 loader.tmp > loader.hex
+rm ./loader.tmp

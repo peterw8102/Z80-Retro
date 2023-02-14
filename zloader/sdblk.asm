@@ -21,9 +21,7 @@ ifdef IS_DEBUG
       public CACHE,META,LRU,DIRTY
 endif
 
-      ASEG
-      ORG     $4A00
-      PHASE   $CA00
+      CSEG
 
 ; --------- HLDE contains the virtual drive and offset in 128 byte blocks:
 ;   +------------+------------+------------+------------+

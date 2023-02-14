@@ -16,10 +16,7 @@ import config.asm
             extrn  DO_BP,ISRCTXT
             extrn  R_AF
 
-            ASEG
-            ORG   $7E00
-            PHASE $FE00
-
+            CSEG
 
 ; Entry point for the command handler WHEN CALLED FROM APPLICATION SPACE.
 AP_ST:    ; Map ZLoader into memory (Block 0). 'A' can't be used to pass parameters and
@@ -107,9 +104,8 @@ R_PC_S     DEFS    2
 
 END_APP:   EQU    $
 
-          DEPHASE
-          ORG   $3FFA
-          PHASE $FFFA
+          ASEG
+          ORG   $FFFA
 
 ; Map out last two application pages and allow the application to run from bank 0
 ; This code MUST be right at the end of bank 3 (last bytes) and "runs into" the

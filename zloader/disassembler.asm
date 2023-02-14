@@ -6,10 +6,7 @@ import ../zlib/defs.asm
           extrn  SCRATCH
           public DISASS,SETOFF
 
-          ASEG
-          ORG     $4000
-          PHASE   $C000
-
+          CSEG
 
 
 ; Experimental simple Z80 disassembler which *might* replace the sime line dump DI operation

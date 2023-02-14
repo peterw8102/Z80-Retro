@@ -14,9 +14,13 @@ A_DSKRD      EQU    13    ; Disk read
 A_DSKRW      EQU    14    ; Disk raw-read
 A_DSKWR      EQU    15    ; Disk write
 A_DSKWW      EQU    16    ; Disk raw-write
+A_CPMRD      EQU    17    ; Read 128 byte block (optimised for CP/M)
+A_CPMWR      EQU    18    ; Write 128 byte block (optimised for CP/M)
+A_CPPRG      EQU    19    ; Purge write data to device
+A_CPFLS      EQU    20    ; Purge write data to device and clear RAM cache
 
-A_HWINV      EQU    20    ; Hardware inventory
-A_DVINV      EQU    21    ; Device inventory
+A_HWINV      EQU    24    ; Hardware inventory
+A_DVINV      EQU    25    ; Device inventory
 
 ; ZLoader private calls
 S_DSKDM      EQU    $86    ; Set DMA address to ZLoader buffer (no params)

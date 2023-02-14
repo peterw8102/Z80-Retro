@@ -40,6 +40,10 @@ CSEG
 ;
 ; DRVMAP contains the values to replace 'v' in the resultant address.
 ;
+; INPUTS:   HLDE   - Logical SDCard address
+; OUTPUTS   A      - Physical SDCard (0 or 1)
+;           HLDE   - Physical address in the specified SDCard
+;
 SDMPADD:  LD     A,H        ; The upper 8 bits contain logical drive, needs to be mapped
                             ; to the fully qualified upper 10 bits of the sector number.
           CALL   SDTXLT     ; Upper 16 bit address of SDCard now in HL

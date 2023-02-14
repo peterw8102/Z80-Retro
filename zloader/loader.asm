@@ -3554,9 +3554,6 @@ _STRTDS    EQU     $
 LOAD_MODE: DEFB    0
 LOAD_CNT   DEFW    0
 APP_STK:   DEFS    2              ; Place to store the applications stack pointer before an IOS call
-DMA_PAGE   DEFS    1              ; Page the application wants us to wrote SDcard data to
-DMA_ADDR   DEFS    2              ; Offset into the page of the DMA buyffer
-;FNAME:     DEFS   22              ; 20 byte file name for boot
 LOADADD:   DEFS    2              ; For the load command, where to start loading binary data
 INITD:     DEFS    1              ; Set to '1' once OS initialissation for an application has been done.
 OPMODE:    DEFS    1              ; Operational mode. 1=normal. 2=debug

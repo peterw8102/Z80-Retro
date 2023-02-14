@@ -1,5 +1,6 @@
 import ../zlib/defs.asm
 import config.asm
+import pcb_def.asm
 
           extrn  SD_INIT,SD_RBLK,SD_WBLK,SD_PRES,SD_SEL
           extrn  PAGE_MP,PGMAPX
@@ -8,11 +9,14 @@ import config.asm
           extrn  SDMPADD,SDMPDSK
           extrn  HASPIO,HASVDU,SW_CFG
           extrn  SDPAGE
-          extrn  WRITE_8,WRITE_16,NL
           extrn  ADD8T16
           extrn  DEVMAP
-          extrn  P_ALLOC, P_FREE
+          extrn  P_ALLOC,P_FREE
           extrn  SDTXLTD
+          extrn  SD_BKRD,SD_BKWR,SD_PRG
+
+          ; ------------ DEBUG ----------
+          extrn  WRITE_8,WRITE_16,NL,PRINT
 
           public  AP_DISP
 
@@ -193,7 +197,7 @@ _nxdrv:   EX       DE,HL       ; Save target address for output into DE
           POP      BC
           RET                  ; TBD
 
-; --------- LD_STDMA (CMD 6)
+; --------- LD_STDMA (CMD 12)
 ; Record the address (in application space) of the SD Card DMA buffer
 ; HL - Address into application pages.
 ; Translate into a page and offset and store in local memory
@@ -211,7 +215,7 @@ LD_EDMA:  LD     A,MN_PG
           LD     (DMA_ADDR),HL
           RET
 
-; --------- LD_SDRD (CMD 8)
+; --------- LD_SDRD (CMD 13)
 ; SDCard Read Block.
 ;   HLDE is the logical address (H: virtual disk 0-15, DE sector offset into drive)
 ; The result will be written to the currently defined DMA address. Note that for
@@ -222,7 +226,7 @@ LD_SDRD:  CALL   SDMPADD
           LD     B,A
           ; Drop through to a raw read
 
-; --------- LD_SDRD (CMD 9)
+; --------- LD_RWRD (CMD 14)
 ; SDCard Read Block.
 ;   HLDE is the raw **SECTOR ADDRESS** (32 bits)
 ;   B is the physical SDCard to read.
@@ -232,11 +236,58 @@ LD_RWRD:  ; Select the SDCard referenced in B
           LD     A,B                  ; Physical SDCard
           CALL   SD_SEL
           LD     BC,(DMA_ADDR)
-          LD     A,(DMA_PAGE)         ; Get the buffer page into bank 1
-          OUT    (PG_PORT0+1),A
+          BANK   1,(DMA_PAGE)         ; Get the buffer page into bank 1
           CALL   SD_INIT
           CALL   SD_RBLK              ; Get the SDCard data
           RET
+
+
+; --------- LD_SDRD (CMD 17)
+; Read a 128 byte CP/M sized block from a 512 byte SDCard sector. This
+; operation does the blocking/deblocking along with caching making CP/M
+; faster and the BIOS smaller. NOTE: The CP/M 128 byte buffer to receive
+; the data MUST NOT cross a 16K bank boundary!
+; INPUTS:  HLDE   - Logical SDCard address (mapped drive)
+;
+; NOTE: The OFFSET portion of the logical address is in 128 byte blocks NOT
+; 512 byte sectors as with the standard SDCard routines. This means the offset
+; is 15 bits to address 4MB rather than 13 bits.
+;   +------------+------------+------------+------------+
+;   |  virtdisk  |  Not Used  | N |<---15 bit offset--->|
+;   +------------+------------+------------+------------+
+;
+LD_CPRD:  JP   SD_BKRD
+
+; --------- LD_SDRD (CMD 17)
+; Write a 128 byte CP/M sized block from a 512 byte SDCard sector. This
+; operation does the blocking/deblocking along with caching making CP/M
+; faster and the BIOS smaller. NOTE: The CP/M 128 byte buffer to receive
+; the data MUST NOT cross a 16K bank boundary!
+;
+; NOTE: The OFFSET portion of the logical address is in 128 byte blocks NOT
+; 512 byte sectors as with the standard SDCard routines. This means the offset
+; is 15 bits to address 4MB rather than 13 bits.
+;   +------------+------------+------------+------------+
+;   |  virtdisk  |  Not Used  | N |<---15 bit offset--->|
+;   +------------+------------+------------+------------+
+LD_CPWR:   JP   SD_BKWR
+
+; --------- LD_CPFLSH (CMD 20)
+; Purge dirty cache data to SDCard and discard all read cache data
+; and reload from the device.
+LD_CPPRG:  XOR  A
+           JP   SD_PRG
+
+; --------- LD_CPFLSH (CMD 20)
+; Purge dirty cache data to SDCard and discard all read cache data
+; and reload from the device.
+LD_CPFLS:  LD    A,1
+           JP   SD_PRG
+
+
+
+
+
 
 ; --------- LD_SDWR (CMD 10)
 ; SDCard Write Block.
@@ -255,8 +306,7 @@ LD_RWWR:  LD     A,B
           CALL   SD_SEL
           PUSH   BC
           LD     BC,(DMA_ADDR)
-          LD     A,(DMA_PAGE)         ; Get the buffer address into page 1
-          OUT    (PG_PORT0+1),A
+          BANK   1,(DMA_PAGE)         ; Get the buffer address into page 1
           CALL   SD_WBLK
           POP    BC
           RET
@@ -369,19 +419,18 @@ JTAB:     DW     LD_MON       ; CMD 0  - Jump back to ZLoader
           DW     LD_RWRD      ; CMD 14 - SDCard Raw read - absolute sector (512 byte) address
           DW     LD_SDWR      ; CMD 15 - SDCard Write
           DW     LD_RWWR      ; CMD 16 - SDCard Write to raw sector (unmapped)
-          DW     LD_NOP       ; CMD 17 - NOP
-          DW     LD_NOP       ; CMD 18 - NOP
-          DW     LD_NOP       ; CMD 19 - NOP
-          DW     SD_INV       ; CMD 20 - Hardware inventory
-          DW     SD_DINV      ; CMD 21 - Inventory of logical devices
+          DW     LD_CPRD      ; CMD 17 - SDRead CP/M - optimised cached for CP/M 128 byte reads
+          DW     LD_CPWR      ; CMD 18 - SDRead CP/M - optimised cached for CP/M 128 byte writes
+          DW     LD_CPPRG     ; CMD 19 - Purge CP/M buffers
+          DW     LD_CPFLS     ; CMD 20 - Purge and flush CP/M buffers
+          DW     LD_NOP       ; CMD 21 - NOP
+          DW     LD_NOP       ; CMD 22 - NOP
+          DW     LD_NOP       ; CMD 23 - NOP
+          DW     SD_INV       ; CMD 24 - Hardware inventory
+          DW     SD_DINV      ; CMD 25 - Inventory of logical devices
 
 MAX_CODE: EQU          ($ - JTAB) << 1
 
 _M_MONS:  DEFB   10,13,"Monitor...", 0
-
-          DSEG
-
-DMA_PAGE   DEFS    1              ; Page the application wants us to write SDcard data to
-DMA_ADDR   DEFS    2              ; Offset into the page of the DMA buyffer
 
 .END

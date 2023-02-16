@@ -4,6 +4,16 @@
 YES      .EQU      1
 NO       .EQU      0
 
+; ZIOS reservices the first 16 bytes of NVRAM in the RTC and are
+; protected by a checksum. The first byte contains the default
+; application run flags .
+CF_LOADOS   EQU   00000001b
+CF_BREAK    EQU   00000010b
+CF_DEBUG    EQU   00000100b
+
+; Default flag byte if NVRAM invalid
+CFG_DEF     EQU   CF_DEBUG|CF_LOADOS|CF_BREAK
+
 ; Where to initialise the supervisors stack If the stack is already configured set
 ; this to zero. The entire monitor runs in the bottom 16K and so runs in a single
 ; memory page. The stack goes below the 512byte reserved area and the libsio history

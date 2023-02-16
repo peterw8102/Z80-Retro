@@ -1,8 +1,9 @@
-import ../zlib/defs.asm
+import defs.asm
 import config.asm
 import api.asm
 
 import pcb_def.asm
+import zios.asm
 
           ; Utilities
           extrn  PAUSE,STRCMP,ADD8T16,TOUPPER
@@ -21,7 +22,7 @@ import pcb_def.asm
           extrn  MAPMPG
 
           ; And the RTC/i2c library
-          extrn  RTC_INI, RTC_MRD, RTC_MWR, RTC_GET, RTC_SET
+          extrn  RTC_INI, RTC_GET, RTC_SET
 
           extrn  FILL,CLRSCR,INPUT,OUTPUT,MODIFY,SDMOD,HELP
 
@@ -63,13 +64,6 @@ import pcb_def.asm
 
 ; OP Code to use in RST vectors
 VEC_CODE    EQU   $C3
-
-; Config flags (for byte 0, NVRAM)
-CF_LOADOS   EQU   00000001b
-CF_BREAK    EQU   00000010b
-
-; Default flag byte if NVRAM invalid
-CFG_DEF     EQU   CF_LOADOS|CF_BREAK
 
 ; Number of breakpoint locations (in code)
 NUM_BK      EQU    64
@@ -414,11 +408,7 @@ shtime:   CALL     SH_DTIME
 
 ; ------------------- DNVRAM
 ; Dump the 56 bytes of NVRAM in the RTC chip
-DNVRAM:   LD     HL,NVRAM
-          LD     BC,3800h    ; Read 56 bytes from offset 0
-          PUSH   HL
-          CALL   RTC_MRD
-          POP    HL
+DNVRAM:   CALL   NVRD
           LD     C,7         ; 7 rows
 _nrnv:    LD     B,8         ; 8 bytes per row
 _ncnv:    LD     A,(HL)
@@ -2493,69 +2483,6 @@ _nxt_wd:  ; Add in the next 16 bits
           CP    H
           RET
 
-; ------- _NVC
-; Calculate the NVRAM checksum. 1s complement of the sum of the first 15 bytes
-; Return: HL - Points to the first byte after the data
-;         A  - Calculate checksum
-_NVC:     PUSH  BC
-          LD    HL,NVRAM
-          LD    B,15
-          LD    C,0
-_nvnx:    LD    A,(HL)
-          INC   HL
-          CPL
-          ADD   C
-          LD    C,A
-          DJNZ  _nvnx
-          POP   BC
-          RET
-
-; ------- NVCHK
-; Checksum the first 15 bytes of the NV memory and compare with the check sum in the last byte. Calculated on
-; the 1s complement of each data byte.
-; Return: A Calculate checksum
-;         Z is set on exit of the checksum matches the stored value.
-NVCHK:   CALL   _NVC
-         CP     (HL)
-         RET
-
-; ------- NVCALC
-; Calculate and store the checksum for the current NVRAM data
-NVCALC:  CALL   _NVC
-         LD     (HL),A
-         RET
-
-; ------- NVLD
-; Load NVRAM and validate. If not valid then initialise
-NVLD:     LD     HL,NVRAM
-          LD     BC,1000h    ; Read 16 bytes from offset 0
-          CALL   RTC_MRD
-
-          ; Check chksum
-          CALL   NVCHK
-          CALL   NZ,NVINI
-          RET
-
-; ------- NVINI
-; Initialise the NVRAM structure
-NVINI:   LD      HL,NVRAM
-         LD      (HL),CFG_DEF
-         INC     HL
-         LD      B,14
-         XOR     A
-_nvcl:   LD      (HL),A
-         INC     Hl
-         DJNZ    _nvcl
-         ; DROP THROUGH TO SAVE THE INITIALISED NVRAM
-
-; ------- NVSAV
-; Save the content of the NVRAM area to the RTC
-NVSAV:   CALL   NVCALC
-         LD     HL,NVRAM
-         LD     BC,1000h    ; WRITE 16 bytes from offset 0
-         CALL   RTC_MWR
-         RET
-
 _wrdev:  PUSH   HL
          PUSH   AF
          LD     A,':'
@@ -3619,8 +3546,6 @@ DUMP_CHRS  EQU   SCRATCH
 STP_CNT    DEFS    2      ; Up to 64K steps!!!
 STP_IN:    DEFS    1      ; Temp store for setting a BP. True means step into and CALL ops.
 
-; 56 bytes of NV RAM. First 16 bytes used by the loader, others available by the application.
-NVRAM      DEFS    56
 
 _ENDDS     EQU     $
 .END

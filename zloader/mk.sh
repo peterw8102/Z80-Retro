@@ -27,6 +27,7 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ../zlib/zout/libsio.rel \
         -P C200 -D C000 \
         ../zios/zout/nvram.rel \
+        ../zios/zout/init.rel \
         ../zios/zout/mempage.rel \
         ../zios/zout/drive.rel \
         ../zlib/zout/libutils.rel \
@@ -41,6 +42,7 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ../zios/zout/services.rel \
         ../zios/zout/devmap.rel \
         ../zios/zout/sdblk.rel \
+        ../zios/zout/process.rel \
         -P FE00 \
         ./zout/appl.rel \
 

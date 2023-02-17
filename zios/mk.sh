@@ -11,6 +11,8 @@ if [ -z "$RELEASE" ]; then
   zmac -j -J --rel7 --oo obj,lst ./pcb.asm
   zmac -j -J --rel7 --oo obj,lst ./sdblk.asm
   zmac -j -J --rel7 --oo obj,lst ./nvram.asm
+  zmac -j -J --rel7 --oo obj,lst ./init.asm
+  zmac -j -J --rel7 --oo obj,lst ./process.asm
 else
   echo "Building RELEASE version"
   zmac -DRELEASE -j -J --rel7 --oo obj,lst ./services.asm
@@ -21,4 +23,6 @@ else
   zmac -DRELEASE -j -J --rel7 --oo obj,lst ./pcb.asm
   zmac -DRELEASE -j -J --rel7 --oo obj,lst ./sdblk.asm
   zmac -DRELEASE -j -J --rel7 --oo obj,lst ./nvram.asm
+  zmac -DRELEASE -j -J --rel7 --oo obj,lst ./init.asm
+  zmac -DRELEASE -j -J --rel7 --oo obj,lst ./process.asm
 fi

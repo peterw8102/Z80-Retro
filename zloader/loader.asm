@@ -32,8 +32,6 @@ import zios.asm
           extrn  SDMPRAW
           extrn  SDPREP
 
-          extrn  P_RES
-
           ; Code dispatch in application code
           extrn  AP_ST, END_APP
           extrn  DO_BP_S
@@ -146,16 +144,18 @@ endif
             LD    BC,$8000
             LDIR
 
-            BANK  0,RAM_PG_0   ; RAM page 0 now matches Flash page 0 so replace flash with RAM
 
             ; Flash page 1 is in RAM page 1 and RAM page 1 is mapped to bank 3, end of Z80 memory
+            BANK  0,RAM_PG_0   ; RAM page 0 now matches Flash page 0 so replace flash with RAM
 
 RUN_CLI:    ; We're running in supervisor mode
-            XOR   A
-            LD    (CONTXT),A
+            BANK  0,MN_PG      ; RAM page 0 into bank 2
+            BANK  3,MN2_PG     ; RAM page 1 into bank 3
 
             ; Give ourselves a stack at the end of our reserved page.
             LD    SP,SP_STK
+
+            CALL  ZIOS_INI
 
             ; Set mode
             LD    A,1
@@ -171,60 +171,6 @@ if CSET
             ; Install character set
             CALL   INITCSET
 endif
-            ; Set up initialisation vectors
-            ; LD     A,VEC_CODE     ; Set up RST jump table
-            ; LD     ($08),A
-            ; LD     ($10),A
-            ; LD     ($18),A
-            ;
-            ; LD     HL,TXA
-            ; LD     ($09),HL
-            ; LD     HL,RXA
-            ; LD     ($11),HL
-            ; LD     HL,CKINCHAR
-            ; LD     ($19),HL
-
-            ; Initialise drive map. Map logical drives 0-15 to physical blocks 1-16. Need to store
-            ; the physical address << 6 (Upper 10 bits of the 32 bit SD card address).
-            CALL   SDPREP
-
-            ; Initialise i2c
-            CALL   RTC_INI
-
-            ; and read the NV RAM
-            CALL   NVLD
-
-            ; Initialise the interrupt vector table. Table will be right at the end of the
-            ; memory map which will be in our second RAM page and will be copied for
-            ; application context.
-            LD     A,VEC_BASE
-            LD     I,A
-
-            ; Add entry to vector table for supervisor SIO ISR
-            LD     HL,_EISR
-            LD     (0xC000+SIO_ARX),HL
-
-            ; Initialise the serial IO module
-            XOR    A              ; Initialise SIO without setting up interrupt vectors.
-            CALL   INITSIO
-            IM     2              ; Using interrupt mode 1 AT THE MOMENT. Need to move to vectored at some point
-            EI
-
-if IS_DEVEL
-            ; If this is a developement build, reserve the base pages.
-            LD    A,20h
-            CALL  P_RES
-            LD    A,21h
-            CALL  P_RES
-endif
-            LD    A,LD_PAGE
-            LD    HL,PAGE_MP
-            LD    B,4
-_wrn:       LD    (HL),A         ; Initialise the application page map
-            CALL  P_RES          ; Reserve this page
-            INC   A
-            INC   HL
-            DJNZ  _wrn
 
             ; Really simple CLI now. Display
 NOSIO:      LD    HL, _INTRO

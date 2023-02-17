@@ -7,13 +7,24 @@ import config.asm
 
         extrn  ADD8T16
 
-        public P_ALLOC, P_FREE, P_RES, _pages
+        public P_ALLOC,P_FREE,P_RES,P_MIN,_pages
+
+        ; ----- DEBUG -----
+        extrn  PRINT,WRITE_8,NL
 
 ; ------- P_RES
 ; Force reserve of a specific page.
 ; A: Contains the page number to reserve.
 P_RES:    PUSH    HL
           PUSH    BC
+          PUSH    AF
+          LD      HL,_m1
+          CALL    PRINT
+          POP     AF
+          PUSH    AF
+          CALL    WRITE_8
+          CALL    NL
+          POP     AF
           PUSH    AF
           CALL    _getpg
           JR      C,_badpg1
@@ -26,7 +37,33 @@ _badpg1:  POP     AF
           POP     BC
           POP     HL
           RET
+_m1       DEFB   'Reserve: ',0
 
+
+; ------ P_MIN
+; Set the minimum usable page number for applications. All RAM pages lower
+; than this limit are pre-reserved.
+; INPUT  A  - Minimum page number that can be allocated. RAM pages so
+;             20 is the first RAM page.
+P_MIN:    PUSH   HL
+          PUSH   AF
+          LD     HL,_m2
+          CALL   PRINT
+          POP    AF
+          PUSH   AF
+          CALL   WRITE_8
+          CALL   NL
+          POP    AF
+          POP    HL
+
+.dec      DEC    A
+          CP     1Fh
+          RET    Z
+          CALL   P_RES
+          JR     NZ,.dec
+          RET
+
+_m2       DEFB   'SET MIN: ',0
 
 
 ; ------- P_ALLOC
@@ -80,7 +117,7 @@ _nxtbt:   AND     L              ; If zero then this bit represents a free page
 _fndpg:   OR      L              ; Set bit
           POP     HL
           LD      (HL),A         ; Save modified mask
-          LD      C,A            ; Get the allocated page number
+          LD      A,C            ; Get the allocated page number
           OR      A              ; Clear carry flag
           POP     HL
           POP     BC
@@ -147,7 +184,7 @@ _shft:    RLCA
 ; Map of pages that have been allocated and are in use by the current application. Each
 ; page is represented by a bit in this map, currently supporting 32 pages (512KB), the
 ; base memory. If a bit is zero then the page is available, 1: the page has already
-; been allocated.
+; been allocated. The bit number must have 20h added (first RAM page is 20h)
 _pages:  DB   0,0,0,0
 
 

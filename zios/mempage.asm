@@ -18,14 +18,6 @@ import config.asm
 P_RES:    PUSH    HL
           PUSH    BC
           PUSH    AF
-          LD      HL,_m1
-          CALL    PRINT
-          POP     AF
-          PUSH    AF
-          CALL    WRITE_8
-          CALL    NL
-          POP     AF
-          PUSH    AF
           CALL    _getpg
           JR      C,_badpg1
           ; Set the bit
@@ -45,22 +37,11 @@ _m1       DEFB   'Reserve: ',0
 ; than this limit are pre-reserved.
 ; INPUT  A  - Minimum page number that can be allocated. RAM pages so
 ;             20 is the first RAM page.
-P_MIN:    PUSH   HL
-          PUSH   AF
-          LD     HL,_m2
-          CALL   PRINT
-          POP    AF
-          PUSH   AF
-          CALL   WRITE_8
-          CALL   NL
-          POP    AF
-          POP    HL
-
-.dec      DEC    A
+P_MIN:    DEC    A
           CP     1Fh
           RET    Z
           CALL   P_RES
-          JR     NZ,.dec
+          JR     NZ,P_MIN
           RET
 
 _m2       DEFB   'SET MIN: ',0

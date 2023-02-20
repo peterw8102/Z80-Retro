@@ -4,7 +4,7 @@
 YES      .EQU      1
 NO       .EQU      0
 
-; ZIOS reservices the first 16 bytes of NVRAM in the RTC and are
+; ZIOS reserves the first 16 bytes of NVRAM in the RTC and are
 ; protected by a checksum. The first byte contains the default
 ; application run flags .
 CF_LOADOS   EQU   00000001b
@@ -14,11 +14,11 @@ CF_DEBUG    EQU   00000100b
 ; Default flag byte if NVRAM invalid
 CFG_DEF     EQU   CF_DEBUG|CF_LOADOS|CF_BREAK
 
-; Where to initialise the supervisors stack If the stack is already configured set
-; this to zero. The entire monitor runs in the bottom 16K and so runs in a single
-; memory page. The stack goes below the 512byte reserved area and the libsio history
-; buffer.
-SP_STK:      .EQU     4000h - 1024
+; Bits of the flag byte that are used for process execution.
+CFG_EXEC    EQU   CF_DEBUG|CF_LOADOS|CF_BREAK
+
+; Where to initialise the supervisors stack.
+SP_STK:      .EQU     $FE00
 
 ; Breakpoints in code are handled by replacing the opcode at the break location with a RST instruction. The
 ; default is RST 20h. You can change this if your system is using RST 20 for something else.
@@ -79,3 +79,15 @@ SIO_ATX      EQU   SIO_IB+8
 SIO_AST      EQU   SIO_IB+10
 SIO_ARX      EQU   SIO_IB+12
 SIO_ASP      EQU   SIO_IB+14
+
+
+; ------------- KNOWN ADDRESSES -------------
+; A loader application (LOADER) should install several entry points
+; at a number of well known locations in the loader code page 0:
+;    Address 04:  ZIOS will jump here to warm start the monitor CLI
+;            0B:  ZIOS jumps here when a breakpoint (RST 28h) occurs
+; Declare a warm start address for whatever loaded ZIOS. Jump to this to get
+; back to the monitor level CLI.
+WARMSTRT     EQU   04h
+HNDL_BP      EQU   0bh
+HNDL_BRK     EQU   13h

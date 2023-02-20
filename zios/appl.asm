@@ -13,7 +13,7 @@ import pcb_def.asm
 ; Now ZIOS is taking two RAM pages both must be mapped into the Z80 address
 
             public AP_ST,END_APP,DO_BP_S,CNTINUE,AND_RUN,CHR_ISR,RAWGO
-            public R_PC_S,JP_RUN
+            public R_PC_S,JP_RUN,ZS_BRK
             extrn  AP_DISP
             extrn  ISRCTXT
 
@@ -87,11 +87,16 @@ CHR_ISR:  DI
           XOR    A
           LD     (ISRCTXT),A         ; Clear the context flag
           LD     SP,(R_SP)           ; Restore the application stack
-          BANK   0,(PAGE_MP)         ; Application space back into bank 0
+          BANK   3,(PAGE_MP+3)       ; Application space back into bank 0
 
           POP    AF
           EI                         ; Back to application
           RETI
+
+; -------- ZIOS_BRK
+; Place to jump to when a break character is trapped.
+ZS_BRK::  BANK   0,MN_PG
+          JR     HNDL_BRK
 
 TMP_X:    DB     1
 R_ACC:    DS     1

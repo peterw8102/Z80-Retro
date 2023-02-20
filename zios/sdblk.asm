@@ -4,13 +4,13 @@
 ; here there that overhead is removed from application code space AND the additional meory available
 ; to the supervisor allows caching more data. Specifically two cached sectors allows file
 ; copies to be much more efficient.
-import ../zlib/defs.asm
+import defs.asm
 import config.asm
 import pcb_def.asm
 
 ;IS_DEBUG EQU 1
 
-      extrn  SD_INIT,SD_RBLK,SD_WBLK,SD_PRES,SD_SEL,SDMPADD,ADD8T16,SCRATCH
+      extrn  SD_INIT,SD_RBLK,SD_WBLK,SD_PRES,SD_SEL,SDMPADD,ADD8T16
 
       public SD_BKRD, SD_BKWR, SD_PRG, ENDBLK
 

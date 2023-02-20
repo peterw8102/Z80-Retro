@@ -2,6 +2,7 @@
 ;
           extrn PROC
           extrn PAGE_MP
+          extrn P_FLAGS
 
           ; Register stored
           extrn R_PC

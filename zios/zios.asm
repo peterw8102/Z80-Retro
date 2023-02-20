@@ -11,3 +11,9 @@
 
   ; Running code
   extrn INSTDRV
+
+  ; SDCard mapping utilities imported from 'drive.asm'
+  extrn  SDTXLTD
+  extrn  SDMPADD
+  extrn  SDMPRAW
+  extrn  SDPREP

@@ -1,6 +1,6 @@
 import ../zlib/defs.asm
 import config.asm
-
+  extrn main
 ; appl.asm
 ; This code is assembled to be located in the top 512 bytes of RAM and be
 ; copied there from the ZIOS address space. To do this the origin is
@@ -11,10 +11,10 @@ import config.asm
 ; Now ZIOS is taking two RAM pages both must be mapped into the Z80 address
 
             public AP_ST,END_APP,DO_BP_S,CNTINUE,AND_RUN,CHR_ISR,RAWGO
-            public R_PC_S,R_AF_S
-            extrn  CONTXT,PAGE_MP,AP_DISP,APP_STK,SERINT
-            extrn  DO_BP,ISRCTXT
-            extrn  R_AF
+            public R_PC_S,R_ACC,JP_RUN
+            extrn  PAGE_MP,AP_DISP,SERINT
+            extrn  ISRCTXT
+            extrn  R_SP,R_AF
 
             CSEG
 
@@ -27,63 +27,65 @@ AP_ST:    ; Map ZLoader into memory (Block 0). 'A' can't be used to pass paramet
           BANK   3,MN2_PG          ; Need this one because the IV table changes
 
           ; Save the application stack
-          LD     (APP_STK),SP      ; Save the application stack
+          LD     (R_SP),SP         ; Save the application stack
           LD     SP,SP_STK         ; Replace with supervisor stack
           EI
           CALL   AP_DISP
 
           ; At the end of a dispatch called by the application, map application memory back and repair the stack
-AP_END:   LD     (R_AF+1),A   ; A needs to be preserved - many contain API results
-          DI
-          PUSH   AF             ; Our stack so in bank 0 and save
-          ; Restore pages that may have been modified as part of service call
-          BANK   3,(PAGE_MP+3)  ; Back into application space
+AP_END:   DI
+          LD     I,A            ; I is the only register we can safely use at the moment.
+          LD     SP,(R_SP)      ; Got the application stack back but it might not be in our address space so can't use
+          ; Restore application memory pages. Could be done faster but this only uses A
+          BANK   0,(PAGE_MP)
           BANK   1,(PAGE_MP+1)  ; Back into application space
-          POP    AF             ; Before loosing the stack
-          LD     (R_AF_S+1),A   ; Store A from shadow so we can get it back after the final page switch
-          LD     SP,(APP_STK)   ; Got the appication stack back but it might not be in our address space so can't use
-          BANK   0,(PAGE_MP)    ; And restore that final bank 0 to application space
+          BANK   2,(PAGE_MP+2)  ; Back into application space
+          BANK   3,(PAGE_MP+3)  ; Back into application space
+          LD     A,I            ; Now the memory is OK, put A somewhere we can get to it (could be stack)
+          LD     (R_ACC),A   ; Definitely have the stack now so push AF where we can get it
+          LD     A,VEC_BASE     ; Restore interrupt vector
+          LD     I,A            ; Put I back to our vector before EI
           EI                    ; Safe to allow interrupts again
-          LD     A,(R_AF_S+1)   ; Restore A from shadow. The flags are unchanged
+          LD     A,(R_ACC)   ; And restore A
           RET                   ; And carry on
 
 ;----- DO_BP_S
 ; Setup for DO_BP living in the application space.
 ; DON'T DO ANYTHING THAT SETS FLAGS!!!
 DO_BP_S:  DI                   ; have to disable interrupts while in the debugger
-          LD    (R_AF_S+1),A   ; Flags NOT stored so don't damage!
-          BANK  0,MN_PG        ; Page in supervisor
-          LD    A,(R_AF_S+1)   ; So we can page switch... But flags NOT stored so don't damage!
+          LD    I,A            ; Only register I can safely use
+          BANK  0,MN_PG        ; Map in both ZIOS pages
+          BANK  3,MN2_PG
+          LD    A,I
+          LD    (R_AF+1),A     ; So we can page switch... But flags NOT stored so don't damage!
+          LD    A,VEC_BASE
+          LD    I,A
+          LD    A,(R_AF+1)     ; Get it back now
           EI
-          JR    DO_BP          ; In supervisor mode so can do breakpoint.
+          JR    HNDL_BP        ; In supervisor mode so can do breakpoint.
 
 ; ------ CONT
 ; Continue execution. Map all application pages into memory (PAGE_MP), restore the
 ; application registers then continue from where we left off.
-CNTINUE:  BANK  0              ; Map whatever's in A to bank 0
-          POP   AF
+CNTINUE:  BANK  3              ; Map whatever's in A to bank 0
+          POP   AF             ; App stack definitely now in memory so get AF back
 
           ; Everything now into application space so can just go...
           EI
           JR     JP_RUN
 
-;----- RUN
-; Just map application page 0 into bank 0 and go to zero.
-AND_RUN:  BANK   0,(PAGE_MP)
-          RST    0          ; And run from address zero
-
 ; Character ISR when running application code. Switch supervisor code to block zero
 CHR_ISR:  DI
           PUSH   AF
 
-          BANK   0,MN_PG             ; Supervisor in CPU memory page 0
-          LD     (APP_STK),SP        ; Save the application stack
+          BANK   3,MN2_PG            ; ZIOS in CPU memory page 3
+          LD     (R_SP),SP           ; Save the application stack into PCB
           LD     SP,SP_STK           ; Get our supervisor stack
           LD     (ISRCTXT),A         ; Will be non-zero
           CALL   SERINT              ; Do the interrupt
           XOR    A
           LD     (ISRCTXT),A         ; Clear the context flag
-          LD     SP,(APP_STK)        ; Restore the application stack
+          LD     SP,(R_SP)           ; Restore the application stack
           BANK   0,(PAGE_MP)         ; Application space back into bank 0
 
           POP    AF
@@ -91,26 +93,33 @@ CHR_ISR:  DI
           RETI
 
 TMP_X:    DB     1
-R_AF_S:   DS     2
+R_ACC:    DS     1
+
+;----- RUN
+; Just map application page 0 into bank 0 and go to zero.
+AND_RUN:  ; BANK   0,MN_PG
+;           BANK   3,MN2_PG          ; Need this one because the IV table changes
+;           JR     main
+
+          BANK   3,(PAGE_MP+3)
 
 ; Debugger. Storage must be in page 0 reserved space
 ; JP_RUN - C3 is the JP opcode. By jumping to JP_RUN execution will
 ; continue from the current value of the PC. This avoids us having to
 ; push values onto the applications stack.
-JP_RUN:    DEFB    $C3
+JP_RUN:   DEFB    $C3
 
 ; Storage area for working registers
-R_PC_S     DEFS    2
+R_PC_S    DEFS    2
 
-END_APP:   EQU    $
+END_APP:  EQU    $
 
           ASEG
-          ORG   $FFFA
+          ORG   $FFFE
 
 ; Map out last two application pages and allow the application to run from bank 0
 ; This code MUST be right at the end of bank 3 (last bytes) and "runs into" the
 ; application code at Z80 address 0.
-; H: page number for app page 3
+; A: page number for app page 3
 ; L: page number for app page 0
-RAWGO:   BANK   0,L
-         BANK   3,H
+RAWGO:   BANK   3

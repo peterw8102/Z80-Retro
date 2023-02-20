@@ -1,7 +1,5 @@
   extrn  NVRD,NVLD,NVSAV,NVRAM
   extrn  ZIOS_INI
-  ; extrn  CONTXT
-
 
   ; From mempage.asm
   extrn P_ALLOC,P_FREE,P_RES,P_MIN
@@ -12,4 +10,4 @@
   extrn PR_INIT,PR_RUN,PR_REST
 
   ; Running code
-  extrn INSTDRV,MAPAPP
+  extrn INSTDRV

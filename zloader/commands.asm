@@ -1,13 +1,11 @@
 import ../zlib/defs.asm
 import config.asm
+import zios.asm
+import zlib.asm
 
-          ; Imports from 'zlib'
-          extrn  PRINT,PRINT_LN,SKIPSPC,WASTESPC,GET_LINE,BUFCHR,WRITE_8,WRITE_16,INHEX_2
-          extrn  GET_HEX, SDPAGE
 
           ; Imports from 'zloader'
-          extrn  PGMAPX,main,BADPS,NL,OPMODE,PGMAPX
-          extrn  SCRATCH
+          extrn  main,BADPS,OPMODE,SCRATCH,SDPAGE
 
           ; Exports
           public FILL,INPUT,OUTPUT,MODIFY,SDMOD,HELP
@@ -16,7 +14,7 @@ import config.asm
 ; Fill from HL, length BC value A
 _bfill:   PUSH  DE
           PUSH  AF
-          CALL  PGMAPX
+          CALL  P_MAPX
           LD    D,H
           LD    E,L
           INC   DE
@@ -181,7 +179,7 @@ MODIFY:  CALL  WASTESPC
          ; Make a copy in DE
          LD    D,H
          LD    E,L
-         CALL  PGMAPX     ; Translate HL into an offset and a page number and map application pages into memory
+         CALL  P_MAPX     ; Translate HL into an offset and a page number and map application pages into memory
 
          ; HL: Mapped address to write to
          ; DE: The original address that we should display

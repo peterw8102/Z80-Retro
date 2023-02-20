@@ -3,93 +3,52 @@ import config.asm
 import api.asm
 
 import pcb_def.asm
+import zlib.asm
 import zios.asm
 
           ; Utilities
-          extrn  PAUSE,STRCMP,ADD8T16,TOUPPER
-
-          extrn  PRINT,PRINT_LN,NL,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,BUFCHUP,UNGET,RESINP
-          extrn  WRITE_D,WRITE_8,WRITE_16,INHEX,INHEX_2,INHEX_4
-          extrn  BRK_HK,SETHIST,GETHIST
-          extrn  CMD_B
           extrn  DISASS, SETOFF
-          extrn  GET_HEX,GET_DEC,INPTR,INBUF,INITSIO,RXA,TXA,CKINCHAR,SERINT
-          extrn  DEC2BIN
-          extrn  SD_PRES
 
-          extrn  AP_DISP
-          extrn  SW_CFG
-          extrn  MAPMPG
-
-          ; And the RTC/i2c library
-          extrn  RTC_INI, RTC_GET, RTC_SET
-
+          ; External commands for the command table.
           extrn  FILL,CLRSCR,INPUT,OUTPUT,MODIFY,SDMOD,HELP
-
-          ; Imports from 'drive.asm'
-          extrn  SDTXLTD
-          extrn  SDMPADD
-          extrn  SDMPRAW
-          extrn  SDPREP
-
-          ; Code dispatch in application code
-          extrn  AP_ST, END_APP
-          extrn  DO_BP_S
-          extrn  CNTINUE
-          extrn  R_PC_S
-          extrn  AND_RUN
-          extrn  CHR_ISR
-          extrn  RAWGO
-          extrn  R_AF_S
 
           public main,BADPS,OPMODE
 
-          public APP_STK
-          public PGADJ,PGMAP,PGMAPX,PGREST
           public SDPAGE
           public PRTERR
-          public CONTXT
           public END_RES
-          public _IOERR
-          public DO_BP
           public SCRATCH
           public ISRCTXT
-          public CMD_TABLE
-          public RUN_CLI
 
-          public START,_STRTDS,_ENDDS
-          public _EISR
+          public START
 
 ; OP Code to use in RST vectors
-VEC_CODE    EQU   $C3
+VEC_CODE  EQU   $C3
 
 ; Number of breakpoint locations (in code)
-NUM_BK      EQU    64
-BP_SIZE     EQU     4
+NUM_BK    EQU    64
+BP_SIZE   EQU     4
 
           ASEG
           ORG    0
           DI
           JR     START
+          JR     main       ; Warm start for the loader.
 
           ORG    $08
           JR     TXA
 
+          ORG    $0b
+          JR     DO_BP      ; Entry point for breakpoints
+
           ORG    $10
           JR     RXA
 
+          ORG    $13
+          JR     BRK_HDLR   ; Entry point for breakpoints
+
           ORG    $18
           JR     CKINCHAR
-
-; 30h is the OS entry point. This allows applications running in other pages to request
-; a low level OS function (eg page mapping). Installed code can optionally handle all the
-; hardware itself or can rely on the OS installing this handler. Note: It has to be one
-; or the other!!! If installed then RST 30h invokes the OS services See '_DIS2' for available
-; services and parameters.
-          ORG    30h           ; OS entry point
-          JP     AP_DISP       ; Can jump straight into the dispatcher. No memory changes required.
-
-CONTXT    DEFS    1    ; 0 if running as supervisor, 1 if running as application
 
 END_RES   EQU     $
 
@@ -144,10 +103,6 @@ endif
             LD    BC,$8000
             LDIR
 
-
-            ; Flash page 1 is in RAM page 1 and RAM page 1 is mapped to bank 3, end of Z80 memory
-            BANK  0,RAM_PG_0   ; RAM page 0 now matches Flash page 0 so replace flash with RAM
-
 RUN_CLI:    ; We're running in supervisor mode
             BANK  0,MN_PG      ; RAM page 0 into bank 2
             BANK  3,MN2_PG     ; RAM page 1 into bank 3
@@ -156,6 +111,7 @@ RUN_CLI:    ; We're running in supervisor mode
             LD    SP,SP_STK
 
             CALL  ZIOS_INI
+            LD    (HW_SWTCH),A       ; State of the hardware config switches
 
             ; Set mode
             LD    A,1
@@ -179,7 +135,7 @@ NOSIO:      LD    HL, _INTRO
 
 if !IS_DEVEL
           ; Check the state of the DIL switches and look for autoboot mode
-          CALL  SW_CFG
+          LD    A,(HW_SWTCH)       ; State of the hardware config switches
           AND   03h             ; Only interested in bits 0 and 1.
 
           DEC   A               ; If 01 then do Pi boot
@@ -195,7 +151,6 @@ if !IS_DEVEL
 endif
           ; In development mode don't use the DIL switches. This allows us to develop the loader more efficiently.
           JR    main
-
 
 E_NOSD:   LD    HL,_NOSDADD
           JR    _prterr
@@ -393,7 +348,7 @@ _useval:  LD    (DUMP_ADDR),HL
           LD    C,8
 
 dloop2:   CALL  WRITE_16          ; 4 hex digits from HL
-          CALL  PGMAPX            ; Translate into an offset and a page number and map application pages into memory
+          CALL  P_MAPX            ; Translate into an offset and a page number and map application pages into memory
 
           ; Dump address (start of line)
           CALL  DMP16
@@ -404,7 +359,7 @@ dloop2:   CALL  WRITE_16          ; 4 hex digits from HL
           LD    (DUMP_ADDR), HL
           DEC   C
           JR    NZ,dloop2
-          CALL  PGRESTX            ; Reset application space registers
+          CALL  P_RESTX            ; Reset application space registers
           JR    main
 
 ; -------------------- DMP16 --------------------
@@ -495,7 +450,7 @@ _procln:  CALL  BUFCHR
 
           ; The upper two bits of the address identifies the page block - set
           ; up the page register so it's in the range 4000h-7fffh.
-          CALL  PGMAP
+          CALL  P_MAP
 
           ; And write these bytes into that page
 next_b:   CALL  INHEX_2            ; Get a hex byte
@@ -514,7 +469,7 @@ decode:   LD    B,20       ; Number of instructions
 _nexti:   CALL  DECINST
           DJNZ  _nexti
           LD    (DUMP_ADDR), HL
-          CALL  PGRESTX    ; Undo any application space page damage
+          CALL  P_RESTX    ; Undo any application space page damage
           JR    main
 
 ; -- DECINST
@@ -528,7 +483,7 @@ DECINST:  PUSH  BC         ; DISASS returns instruction information we don't nee
           PUSH  DE
           PUSH  HL         ; Application space address we want to display
 _appdec2: CALL  WRITE_16   ; Write out the application space address
-          CALL  PGMAPX     ; Translate into an offset and a page number and map application pages into memory
+          CALL  P_MAPX     ; Translate into an offset and a page number and map application pages into memory
 
           ; A contains the block number of the address, 0-3:
           RRCA
@@ -537,12 +492,12 @@ _appdec2: CALL  WRITE_16   ; Write out the application space address
           LD    D,A
           LD    E,0
           EX    DE,HL
-          CALL  LSETOFF
+          CALL  SETOFF
           EX    DE,HL
 
           WRITE_CHR SPC
           PUSH  HL
-          CALL  LDISASS    ; HL now points at the description
+          CALL  DISASS     ; HL now points at the description
           LD    C,A        ; The length of the instruction - saved for later
           LD    D,H        ; Save pointer to disassembled string
           LD    E,L
@@ -657,7 +612,7 @@ _blkdn:   ; File is OPEN. LOAD_MODE tells us whether to process input blocks as 
           LD    DE,(PROGADD)   ; Where to put the file we're loading (binary load)
 
           EX    DE,HL
-          CALL  PGMAP          ; Map programme space address into user space.
+          CALL  P_MAP          ; Map programme space address into user space.
           LD    (PROGPG),A     ; Save the selected page
           EX    DE,HL
 
@@ -741,7 +696,7 @@ _goon:    DJNZ  _nexchr
 _eofhxok: LD    A,(AUTO_RUN)
           OR    A
           LD    HL,0        ; Run from address 0000h
-          JR    NZ,PREPRUN
+          JR    NZ,PR_RUN
           JR    M_COMP
 
 ; ------------------- SET_RGS
@@ -908,7 +863,7 @@ _rnxt:    DJNZ  _nextreq
           ADD   HL,DE
           LD    E,L            ; HL is the application address
           LD    D,H            ; Save application address in DE
-          CALL  PGMAPX         ; HL is now the physical address, DE application address
+          CALL  P_MAPX         ; HL is now the physical address, DE application address
           LD    B,8
 _nextstk: PUSH  HL             ; HL is now the physical address, DE application address
           LD    HL,STK_NXT
@@ -962,6 +917,8 @@ _noadd:   LD    HL,1
           LD    (STP_CNT),HL ; Make sure we don't keep running when we hit a breakpoint!!
           LD    E,2
           XOR   A            ; Want breakpoints added
+
+          ; DE contains WHAT?????
 DO_GO:    PUSH  DE
           CALL  INSTBP       ; Install all permanent breakpoints
           POP   DE
@@ -973,48 +930,7 @@ DO_GO:    PUSH  DE
           JR    NZ,SSTEP     ; Transmute into a single step
 
 _godo:    ; Install the drivers.
-          CALL  INSTDRV
-          LD    HL,(R_SP)
-          PUSH  HL
-          CALL  PGMAPX                ; Stack memory now accessible in HL
-          LD    DE,(R_AF)             ; Simulate pushing AF onto app stack
-          DEC   HL
-          LD    (HL),D
-          DEC   HL
-          LD    (HL),E
-          POP   HL                    ; Get the original unmapped stack
-          DEC   HL
-          DEC   HL                    ; So we can later POP AF
-          LD    (R_SP),HL
-
-          ; Map all pages EXCEPT page 0 (where we're running!!!)
-          CALL   MAPAPP
-
-          ; Set up the jump address
-          LD    HL,(R_PC)
-          LD    (R_PC_S),HL           ; Where we want to continue execution from
-
-          ; Restore as many regs as possible here. No longer need our stack so can
-          ; discard. Only thing that can't be restored is A which is needed to reset
-          ; the application space.
-          LD    SP,R_AF_P
-          POP   AF
-          EX    AF,AF'      ; '
-          POP   BC
-          POP   DE
-          POP   HL
-          EXX               ; Alternate register set restored
-          POP   BC
-          POP   DE
-          POP   HL
-          POP   IX
-          POP   IY
-
-          LD    SP,(R_SP)   ; and load the application SP
-          LD    A,(PAGE_MP) ; and the page that needs to go into bank 0
-
-          JR    CNTINUE     ; And......... GO!
-
+          JP    PR_REST
 
 ; ------- SSTEP_BP
 ; Set a single step break point. Uses the current R_PC, disassembles the current
@@ -1026,10 +942,10 @@ SSTEP_BP: LD    A,E
           LD    HL, (R_PC)  ; HL is the current application PC
           ; Get this into physical memory
           PUSH  HL          ; Save application space address
-          CALL  PGMAPX      ; Convert app space to physical space
+          CALL  P_MAPX      ; Convert app space to physical space
           LD    D,H
           LD    E,L         ; DE now points into the first physical address
-          CALL  LDISASS     ; Only disassemble to get control flow information
+          CALL  DISASS      ; Only disassemble to get control flow information
           POP   HL          ; And get the original PC back again (pointing to start of instruction for rel jumps)
           ; A: Instruction length
           ; C: Extended status
@@ -1087,7 +1003,7 @@ _type3:   DEC   A
           JR    NZ,_type4
           ; It's a RET instruction or variant. Return address is on the stack.
           LD    HL,(R_SP)
-          CALL  PGMAPX      ; Convert app space to physical space
+          CALL  P_MAPX      ; Convert app space to physical space
           LD    E,(HL)
           INC   HL
           LD    D,(HL)      ; DE is return address read from the stack
@@ -1103,7 +1019,7 @@ _type4:   DEC   A
 _type5:   DEC   A
           JR    NZ,_type6
           LD    HL,(R_PC)  ; JP (XX) - HL, IX, IY. Instruction determines which
-          CALL  PGMAPX      ; Convert app space to physical space
+          CALL  P_MAPX      ; Convert app space to physical space
           LD    A,(HL)
           CP    0E9h
           JR    NZ,_not_hl
@@ -1130,7 +1046,7 @@ _type6    ; It's a subroutine call. Same as absolute jump except check E=0. If 0
 ;    AF at start of ISR
 ;    AF containing the break character
 ;    <--- SP
-; The application stack (APP_STK) in application stack will have AF at the top
+; The application stack (RP_SP) in application stack will have AF at the top
 ; and above that the the application execution address in operation when break
 ; was pressed.
 ;
@@ -1139,6 +1055,7 @@ BRK_HDLR: LD     HL,_exitisr    ; Get us out of ISR mode
           PUSH   HL
           EI
           RETI
+
 _exitisr: LD     HL,_BRK
           CALL   PRINT_LN
           ; Disable multi-step
@@ -1166,8 +1083,8 @@ _exitisr: LD     HL,_BRK
           ; Application was running. Will have supervisor stack but data is on app stack.
 _appbrk:  PUSH   DE
 
-          LD     HL,(APP_STK)   ; Application stack pointer, AF is at the top of that stack
-          CALL   PGMAPX         ; Map stack pages into memory - txlated address in HL
+          LD     HL,(R_SP)      ; Application stack pointer, AF is at the top of that stack
+          CALL   P_MAPX         ; Map stack pages into memory - txlated address in HL
           LD     E,(HL)
           INC    HL
           LD     D,(HL)         ; DE contains what was in AF
@@ -1178,7 +1095,7 @@ _appbrk:  PUSH   DE
           PUSH   DE             ; Original AF
           POP    AF             ; Get back into the AF registers
 
-          LD     HL,(APP_STK)   ; Remove the AF value just retrieved from the stack
+          LD     HL,(R_SP)      ; Remove the AF value just retrieved from the stack
           INC    HL
           INC    HL             ; HL now has the old value of the stack pointer
           LD     (R_SP),HL
@@ -1193,7 +1110,6 @@ _appbrk:  PUSH   DE
 ; ------------------- DO_BP
 ; This is the target of the BP handler. We're operating in supervisor mode. The following
 ; registers have been saved in shadow memory and need to be copied to our OS copy:
-;     R_PC_S, R_SP_S, R_HL_S, R_AF_S
 ; All other registers need to be saved. Interrupts are currently DISABLED.
 DO_BP:    LD    (R_SP),SP      ; Save registers so we can do some real work
 _cnt_bp:  LD    SP,R_IY+2      ; Now push everything we have into temp store.
@@ -1217,7 +1133,7 @@ _appbp:   LD    SP,SP_STK     ; Restore our own SP
           ; Only thing left is the PC. TO get this we need to read the top of the
           ; application's stack, which might not be visible.
           LD    HL,(R_SP)      ; Find the stack
-          CALL  PGMAPX         ; Map into sys space, stack memory now accessible in HL
+          CALL  P_MAPX         ; Map into sys space, stack memory now accessible in HL
           LD    E,(HL)
           INC   HL
           LD    D,(HL)         ; DE is now one more than the actual PC address (unless it's CTRL-C)
@@ -1245,7 +1161,7 @@ _bp_nf:   LD    A,(AUTO_STP)
           ; AUTO_STP is set so do another exec
           XOR   A
           LD    (AUTO_STP),A
-          JR    GO            ; Go again
+          JR    GO         ; Go again
 
 _bfdo:    EX    DE,HL         ; Put the current address into HL so we can display it
           XOR   A             ; Use application space memory
@@ -1328,133 +1244,16 @@ _lemp:    POP   HL
           DJNZ  _lnxt
           JR    main
 
-; ------- INSTDRV
-; Check whether drivers are installed. If not check if they should be installed. Then intall them if reqjuired.
-INSTDRV:  ; Check configuration to see whether we're meant to be installing drivers
-          LD     A,(NVRAM)
-if IS_DEVEL
-          LD     A,1 ; ALWAYS load drivers and break mode if this is a development build
-endif
-          RRCA
-          RET    NC  ; This application doesn't want drivers (not using core OS)
-          RRCA       ; Get bit one from NVRAM flags
-
-          BANK  1,(PAGE_MP)          ; Application page 0 => bank 1
-
-          LD     HL,0
-          JR     NC,_nobrk
-
-          ; Install the break driver. Conditional on bit 1 of the flags tested above.
-          LD    HL,BRK_HDLR
-_nobrk:   LD    (BRK_HK),HL
-
-          ; Set the ISR context and CTRLCH to zero - set as part of application ISR preamble
-          ; CTRLCH will be set in the CTRL-C handler and prevents an eroneous decrement of
-          ; the programme handler in DO_BP
-          LD    HL,0
-          LD    (ISRCTXT),HL
-
-          ; And FORCE the CONTXT value to be 1 to identify application context
-          INC   A
-          LD    (CONTXT+$4000),A
-
-          ; Set up RST handlers. Only ones currently mandated are:
-          ;   RST 28h     - Used for debugger breakpoints
-          ;   RST 30h     - API entry point
-
-          LD   A,$C3
-          LD   (4030h),A             ; API entry point: RST 30h
-          LD   (4000h+BRK_HANDLER),A ; Breakpoint handler
-
-          ; Patch the dispatch point for the API
-          LD   HL,AP_ST
-          LD   (4031h), HL
-
-          ; The breakpoint handler
-          LD   HL,DO_BP_S
-          LD   (4001h+BRK_HANDLER),HL  ; Breakpoint handler target address
-
-          ; Copy reserved 512 bytes from ZLoader to app space.
-          BANK  2,(PAGE_MP+3)          ; Application page 3 => bank 2
-
-          ; Map our second page into memory (should already be there!)
-          BANK  3,MN2_PG               ; Supervisor page 2 => bank 3
-
-          ; Copy our driver code into the end of APPLICATION memory. It's
-          ; currently at the end of our second bank.
-          LD    HL,$FE00               ; Supervisor second page
-          LD    DE,$BE00               ; Application last page
-          LD    BC,512                 ; Transfer 512 bytes
-          LDIR
-
-          ; Patch the application SIO ISR. It's different for application
-          ; space because page memory tweaks will be requied.
-          LD   HL,CHR_ISR
-          LD   (8000h+SIO_ARX),HL
-
-          ; Map all application pages except the first into Z80 memory
-          CALL  MAPAPP
-          RET
-
-; ------------------- MAPAPP
-; Map application pages 1 to 3 into Z80 memory. This leaves only the
-; block zero to be mapped back into memory space.
-MAPAPP:   LD     HL,PAGE_MP+3
-          BANK   3,(HL)
-          DEC    HL
-          BANK   2,(HL)
-          DEC    HL
-          BANK   1,(HL)
-          RET
-
 ; ------------------- RUN
 ; This initial version loads the first four RAM pages into the four
 ; banks, reserving the last 16 bytes of page 03 to store an address
 ; switcher. Once switch it jumps to address 0 to run that code.
 RUN:      DI
           CALL  WASTESPC
-          JR    Z,PREPRUN
+          JR    Z,PR_RUN
           CALL  GET_HEX    ; Get optional execution address into HL
-          JR    NZ,PREPRUN
+          JR    NZ,PR_RUN
           LD    HL,0
-
-PREPRUN:  ; Map application page 0 into block 1 so we can initialise the reserved
-          ; space. HL contains the execution address.
-          PUSH   HL
-          CALL   INSTDRV
-          POP   HL
-
-          ; Running with or without drivers, but everything is now ready to run. If
-          ; the API is loaded then we can use installed drivers to make life easy,
-          ; otherwise need to do a raw run to avoid poluting application space.
-          LD    A,L
-          OR    H
-          JR    Z,_RMODE       ; Run from zero if not specified
-
-          BANK  1,(PAGE_MP)    ; Application page 0
-
-          ; Specific address so add a JP operation at address zero
-          LD    A,$C3          ; JP
-          LD    ($4000),A
-          LD    ($4001),HL     ; Start address
-
-_RMODE:   LD    A,(NVRAM)
-          RRCA                 ; Services installed?
-          JR    C,AND_RUN      ; Drivers installed so don't need to jump through hoops
-
-          ; No seervices. Want to run without restricting any of the application
-          ; code. Map ourselves into bank 3, set up banks 1 and 2 then jump to end
-          ; of memory. This is running from supervisor page zero.
-RAWRUN:   LD    HL,(PAGE_MP)
-          LD    DE,(PAGE_MP+2)
-
-          ; Banks 1 and 2 are safe to map now.
-          BANK  1,H
-          BANK  2,E
-
-          ; HL needs: H: app page 3; L: app page 0. L already set.
-          LD    H,D
-          JR    RAWGO
 
 SHOWBCNT:  PUSH  HL
            PUSH  AF
@@ -1471,10 +1270,6 @@ SHOWBCNT:  PUSH  HL
 ; ------- SDDIR
 ; List the set of bootable images
 ;
-; Running from monitor in bank 0. Map ourselves into bank 3.
-; Map application into banks 1 and 2, map monitor into
-; bank 3 and add init code to the end of page page.
-
 ; Record format
 ; All records are 32 bytes and the 512 byte first block contains 15 records
 ;  0 - 00 (1): TYPE              : 0: unused, 1: used
@@ -1611,6 +1406,20 @@ SDLDDEF:  LD    C,1
           JR    _bsload
 
 
+
+
+; ------- SETDMA
+; Tell ZIOS to DMA SDCard data into our own memory (SDPAGE buffer).
+SETDMA:   PUSH  HL
+          PUSH  BC
+          LD    HL,SDPAGE     ; The address (offset into page)
+          LD    B,MN_PG       ; The page
+          LD    C,S_DSKDM
+          RST   30h
+          POP   BC
+          POP   HL
+          RET
+
 ; ------- SDBREAD
 ; Load data from SDCard into memory. Handles both absolute and drive relative addresses.
 ; INPUTS   (SDDRV):   Drive (0 or 1 at the moment)
@@ -1680,9 +1489,7 @@ _nxt1:    POP    HL
           ; DE contains number of bytes from last partial block. HL
           ; is the target address. Standard buffer and use from there.
           PUSH   HL
-          LD     C,S_DSKDM
-          RST    30h                  ; Set system DMA buffer
-
+          CALL   SETDMA
           LD     DE,(SDADDR)
           LD     HL,(SDADDR+2)
           LD     A,(SDDRV)
@@ -1693,7 +1500,7 @@ _nxt1:    POP    HL
 
           ; Copy to destination
           POP    HL                   ; Current load address. Need to know translate into a valid page address
-          CALL   PGMAP                ; HL contains the target address
+          CALL   P_MAP                ; HL contains the target address
 
           LD     DE,SDPAGE            ; The partial block
           LD     BC,(LASTB)           ; Number of bytes
@@ -1710,7 +1517,7 @@ SDLOAD:   XOR   A
 
 ; ------- SDLOAD
 ; SD Card Load. Options:
-;    No parameters - Load OS type 01 - which is CP/M
+;    No parameters - Load OS type 01 - Default
 ;    With a digit (0-9) look for and load a specific type
 ;    With '?' - display all available options and exit
 SDRUN:    ; Default to auto-run
@@ -1795,9 +1602,9 @@ _na:      DJNZ  _nchr
           LD    (EXECADD),DE
           INC   HL
           LD    A,(NVRAM)     ; Default flag byte
-          AND   $7C           ; Clear the lower two bits and MSB
-          OR    A,(HL)        ; Add in our own flags (OS and break handler)
-          LD    (NVRAM),A
+          AND   ~CF_DEBUG     ; Clear the lower bits and MSB
+          OR    A,(HL)        ; Add in our own flags (OS, break handler, debugger)
+          LD    (P_FLAGS),A   ; Store in the PCB
 
           ; Stored address is always absolute but if it was specified as relative when
           ; the boot record was created then map the address into logical disk drive A
@@ -1808,7 +1615,6 @@ _na:      DJNZ  _nchr
           ; the most significant 16 bits of the address
           LD    HL,(SDADDR+1)   ; Logical drive number
 
-          ; ----------------- TO CHANGE --------------
           ; Boot record needs to include a device number (one more byte!)
           LD    A,(SDDRV)       ; Which SDCard
           LD    D,A             ; must be passed as B to SDMPRAW
@@ -1830,7 +1636,7 @@ _absadd:  ; Need to work out how many whole blocks we need to load
 
           LD    A,(AUTO_RUN)
           OR    A
-          JR    NZ,PREPRUN
+          JR    NZ,PR_RUN
           JR    main
 
 ; ----- SETBP - set breakpoint
@@ -1847,7 +1653,7 @@ SETBP:    PUSH  BC
           ; Need to get the physical memory/address for the BP
           LD    D,H             ; Save the application space address
           LD    E,L
-          CALL  PGMAPX          ; A: page number, HL: mapped address
+          CALL  P_MAPX          ; A: page number, HL: mapped address
           LD    A,(HL)          ; If there's already a BP at this location do nothing
           CP    BRK_OPCODE
           JR    Z,_dupbp
@@ -1877,7 +1683,7 @@ fndbp:    LD    (HL),C          ; Save the BP type
           JR    NZ,_dupbp
           ; Inefficient, but not time critical. Convert BP address back to physical address
           EX    DE,HL
-          CALL  PGMAPX           ; A: page number, HL: mapped address
+          CALL  P_MAPX           ; A: page number, HL: mapped address
           LD    A,(HL)           ; HL is the address at which we're setting the BP. We need the op-code stored there (in A)
           LD    (DE),A           ; And store that in the BP record
           LD    (HL),BRK_OPCODE  ; Replace programme opcode with our break point opcode.
@@ -1966,7 +1772,7 @@ _insbp:   PUSH  HL                      ; Store a BP at this location.
           JR    _iskip
 
 _insok:   EX    DE,HL                   ; Needs to be set so...
-          CALL  PGMAPX                  ; ...Convert and map...
+          CALL  P_MAPX                  ; ...Convert and map...
           LD    A,(HL)                  ; BP already installed?
           CP    BRK_OPCODE
           JR    Z,_iskip
@@ -1975,7 +1781,7 @@ _insok:   EX    DE,HL                   ; Needs to be set so...
 _iskip:   POP   HL
           RET
 _insrm:   EX    DE,HL                   ; Needs to be removed so...
-          CALL  PGMAPX                  ; ...Convert and map...
+          CALL  P_MAPX                  ; ...Convert and map...
           LD    A,(HL)
           CP    BRK_OPCODE
           JR    NZ,_noclr
@@ -2045,7 +1851,7 @@ _prm:     INC   HL
           LD    D,(HL)
           INC   HL          ; And the last byte is the one we replaced with the BP trigger RST opcode
           EX    DE,HL       ; HL now contains the address in application space of the BP
-          CALL  PGMAPX      ; Convert app space to physical space
+          CALL  P_MAPX      ; Convert app space to physical space
           LD    A,(HL)      ; Byte stored at the application address
           CP    BRK_OPCODE  ; It *should* be the BP opcode if it's already installed
           JR    NZ,_nobp    ; It's not so nothing to clear
@@ -2327,6 +2133,7 @@ _PGCALC:  LD    A,H
           LD    A,D        ; Return the page we selected in A and D
           RET
 
+ifdef EXCLUDE
 ; ------------ PGADJ
 ; Take a 16 bit address in application space and translate that into a page number and an offset.
 ; HL - load address. Translate in a page and offset then load that page into board page 1 and
@@ -2388,12 +2195,13 @@ PGMAPX:   PUSH  DE
           POP   DE
           RET
 
+endif
+
 ; ---- BTPREP
 ; Prepare the way for managing the ZLoader boot menu. Load the first 512 bytes from the SDCard
 ; and set the DMA buffer.
 BTPREP:   ; Always need to load the first 512 byte block that includes the boot information
-          LD    C,S_DSKDM
-          RST   30h           ; Set system DMA buffer
+          CALL  SETDMA
           LD    HL,0          ; Sector 0
           LD    DE,0
           LD    B,0           ; SDCard 0
@@ -2554,8 +2362,7 @@ _gotsd:   LD     E,A        ; SDCard (into D) as a letter '0' or '1'
 ; Returns Carry: True if error, false if ok
 ;         C:     The *read* command code
 ;         HLDE:  The offset (either raw or relative to logical drive letter)
-SADDR:   LD    C,S_DSKDM   ; Reset the SDCard input buffer
-         RST   30h
+SADDR:   CALL  SETDMA
 
          CALL  WASTESPC
          JR    NZ,_ginp
@@ -2666,8 +2473,7 @@ _nocs:   LD    A,A_DSKWR-A_DSKRD
 ;   NNNNNNN: - 32 bit sector offset into the currently selected default drive (last mapped or listed)
 ;   NNNNNN:L - 32 bit offset into the specified logical drive (L becomes the default)
 SDUMP:   JR    Z,E_NOSD
-         LD    C,S_DSKDM
-         RST   30h
+         CALL  SETDMA
          CALL  WASTESPC
          JR    NZ,_getsd      ; By default load the next available sector
 
@@ -3113,8 +2919,7 @@ _wrbos:     CALL  _calc_cs
             LD    (SDPAGE+481),HL
 
             ; Patched, calculate checksum and write back to the SDCard
-            LD    C,S_DSKDM
-            RST   30h
+            CALL  SETDMA
             LD    HL,0
             LD    DE,0
             LD    C,A_DSKWW
@@ -3147,35 +2952,6 @@ _nc1:       LD    A,(HL)
             XOR   A
             LD    (HL),A
             JR    _wrbos
-
-
-; ---- LDISASS
-; Call DISASS, but the code resides in the extended page. Map this into page 3 and then call the
-; code. Don't need to map the page back again afterwards.
-LDISASS:    PUSH  DE
-            LD    DE,$0300 | MN2_PG
-            CALL  MAPMPG
-            POP   DE
-            JP    DISASS
-
-; ---- LDISASS
-; Call DISASS, but the code resides in the extended page. Map this into page 3 and then call the
-; code. Don't need to map the page back again afterwards.
-LSETOFF:    PUSH  DE
-            LD    DE,$0300 | MN2_PG
-            CALL  MAPMPG
-            POP   DE
-            JP    SETOFF
-
-
-; ---- _EISR
-; Serial port rx ISR
-_EISR:    CALL    SERINT
-          EI
-          RETI
-
-
-
 
 
 ; --------------------- STRINGS
@@ -3422,11 +3198,8 @@ _TIME:    DEFB 00h             ; Secs + enable clock
           DSEG
 ; ---------------------- VARIABLES
 ; If you want the monitor code in ROM then add an ORG here to locate variables somewhere in RAM
-_STRTDS    EQU     $
-
 LOAD_MODE: DEFB    0
 LOAD_CNT   DEFW    0
-APP_STK:   DEFS    2              ; Place to store the applications stack pointer before an IOS call
 LOADADD:   DEFS    2              ; For the load command, where to start loading binary data
 INITD:     DEFS    1              ; Set to '1' once OS initialissation for an application has been done.
 OPMODE:    DEFS    1              ; Operational mode. 1=normal. 2=debug
@@ -3436,14 +3209,8 @@ DUMP_ADDR: DEFS    2
 DUMP_MODE: DEFS    1
 ISRCTXT:   DEFS    1              ; True if the current ISR was called when in application space
 CTRLCH:    DEFS    1
-; DUMP_CHRS: DEFS    2
-           ; DEFS   16
-           ; DEFS    1
 
-
-
-
-
+HW_SWTCH:  DEFS    1              ; Status of the 3 hardware config bits on boot
 
 ; Define a 256 byte RAM block to receive data from the Pi file system
 FIN_CODE:  DEFB    0
@@ -3491,7 +3258,4 @@ DUMP_CHRS  EQU   SCRATCH
 ; Single Step Count...
 STP_CNT    DEFS    2      ; Up to 64K steps!!!
 STP_IN:    DEFS    1      ; Temp store for setting a BP. True means step into and CALL ops.
-
-
-_ENDDS     EQU     $
 .END

@@ -17,3 +17,6 @@
   extrn  SDMPADD
   extrn  SDMPRAW
   extrn  SDPREP
+
+  ; Break handler context byte
+  extrn  ISRCTXT

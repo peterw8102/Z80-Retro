@@ -1,6 +1,8 @@
-import ../zlib/defs.asm
+import defs.asm
 import config.asm
-  extrn main
+import zlib.asm
+import pcb_def.asm
+
 ; appl.asm
 ; This code is assembled to be located in the top 512 bytes of RAM and be
 ; copied there from the ZIOS address space. To do this the origin is
@@ -11,10 +13,9 @@ import config.asm
 ; Now ZIOS is taking two RAM pages both must be mapped into the Z80 address
 
             public AP_ST,END_APP,DO_BP_S,CNTINUE,AND_RUN,CHR_ISR,RAWGO
-            public R_PC_S,R_ACC,JP_RUN
-            extrn  PAGE_MP,AP_DISP,SERINT
+            public R_PC_S,JP_RUN
+            extrn  AP_DISP
             extrn  ISRCTXT
-            extrn  R_SP,R_AF
 
             CSEG
 
@@ -74,7 +75,7 @@ CNTINUE:  BANK  3              ; Map whatever's in A to bank 0
           EI
           JR     JP_RUN
 
-; Character ISR when running application code. Switch supervisor code to block zero
+; Character ISR when running application code. Switch supervisor code
 CHR_ISR:  DI
           PUSH   AF
 
@@ -97,11 +98,7 @@ R_ACC:    DS     1
 
 ;----- RUN
 ; Just map application page 0 into bank 0 and go to zero.
-AND_RUN:  ; BANK   0,MN_PG
-;           BANK   3,MN2_PG          ; Need this one because the IV table changes
-;           JR     main
-
-          BANK   3,(PAGE_MP+3)
+AND_RUN:  BANK   3,(PAGE_MP+3)
 
 ; Debugger. Storage must be in page 0 reserved space
 ; JP_RUN - C3 is the JP opcode. By jumping to JP_RUN execution will

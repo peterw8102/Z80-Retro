@@ -15,7 +15,7 @@ import pcb_def.asm
 
             extrn  ISRCTXT,R_PC_S,AND_RUN,RAWGO
             extrn  BRK_HK,AP_ST,DO_BP_S,CHR_ISR
-            extrn  P_MAPX
+            extrn  P_MAPX,ZS_BRK
             extrn  CNTINUE
 
             CSEG
@@ -78,7 +78,7 @@ endif
           JR     NC,_nobrk
 
           ; Install the break driver. Conditional on bit 1 of the flags tested above.
-          LD    HL,HNDL_BRK  ; Break handler stored in ZIOS memory
+          LD    HL,ZS_BRK    ; Break handler stored in ZIOS memory
 _nobrk:   LD    (BRK_HK),HL
           PUSH  AF           ; Still the flags rotated once more
 

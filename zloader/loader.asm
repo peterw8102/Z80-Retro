@@ -1069,7 +1069,7 @@ _exitisr: LD     HL,_BRK
           OR    A              ; If zero then running in supervisor, non-zero was application
           JR    NZ,_appbrk
 
-          ; ISR was in ZIOS space so real AF is on the stack. Simples.
+          ; ISR was in ZIOS space so real HL and AF is on the stack. Simples.
           POP   HL
           POP   AF
 
@@ -1100,7 +1100,6 @@ _appbrk:  PUSH   DE
           LD     (R_SP),HL
 
           ; Everything now is back where we need it to be so can do standard break point processing
-          POP    BC
           POP    DE
           POP    HL
 
@@ -1249,10 +1248,10 @@ _lemp:    POP   HL
 ; switcher. Once switch it jumps to address 0 to run that code.
 RUN:      DI
           CALL  WASTESPC
+          LD    HL,0
           JR    Z,PR_RUN
           CALL  GET_HEX    ; Get optional execution address into HL
-          JR    NZ,PR_RUN
-          LD    HL,0
+          JR    PR_RUN
 
 SHOWBCNT:  PUSH  HL
            PUSH  AF
@@ -3020,13 +3019,13 @@ BDG_TABLE:      DB       'B'+80h
                 DB       'G'+80h
                 DW        GO
 
-CMD_TABLE:      DB       'B','O','S','?'+80h
+CMD_TABLE:      DB       'BOS','?'+80h
                 DW        SDDIR
-                DB       'B','O','S','-'+80h
+                DB       'BOS','-'+80h
                 DW        SDLOAD
-                DB       'B','O','S'+80h
+                DB       'BO','S'+80h
                 DW        SDRUN
-                DB       'B','O','-'+80h
+                DB       'BO','-'+80h
                 DW        BOOTIX
                 DB       'B','O'+80h
                 DW        BOOT

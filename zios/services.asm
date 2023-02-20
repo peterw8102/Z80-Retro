@@ -3,27 +3,21 @@ import config.asm
 import pcb_def.asm
 
           extrn  SD_INIT,SD_RBLK,SD_WBLK,SD_PRES,SD_SEL
-          extrn  PAGE_MP,PGMAPX
-          extrn  PGADJ
+          extrn  PAGE_MP
+          extrn  P_ADJ,P_MAPX
           extrn  PRTERR
           extrn  SDMPADD,SDMPDSK
           extrn  HASPIO,HASVDU,SW_CFG
-          extrn  SDPAGE
           extrn  ADD8T16
           extrn  DEVMAP
           extrn  P_ALLOC,P_FREE
           extrn  SDTXLTD
           extrn  SD_BKRD,SD_BKWR,SD_PRG
-
-          ; ------------ DEBUG ----------
-          extrn  WRITE_8,WRITE_16,NL,PRINT
-
-          public  AP_DISP
+          extrn  PRINT_LN
 
           ; For debug
-          public LD_MON,LD_PGSEL,LD_NOP,LD_STDSK,LD_QSDMP,LD_STDMA
-          public LD_SDRD,LD_RWRD,LD_SDWR,LD_RWWR
-
+          ; public LD_MON,LD_PGSEL,LD_NOP,LD_STDSK,LD_QSDMP,LD_STDMA
+          ; public LD_SDRD,LD_RWRD,LD_SDWR,LD_RWWR
 
 CSEG
 
@@ -48,7 +42,7 @@ CSEG
 ; 13: PIO Card Status
 ;
 ; All other registers are command specific.
-AP_DISP:  LD     A,C
+AP_DISP:: LD     A,C
           RLA
           LD     A,C
           JR     C,_dosys
@@ -76,12 +70,13 @@ _dosys:   CP     86h
           ; Unknown function
           RET
 
-; Jump to monitor. Basically an abort from the application. The monitor page is
+; Jump to monitor. Basically an abort from the application. ZIOS memory pages are
 ; already mapped into CPU space so just restart the monitor
 LD_MON:   LD     HL,_M_MONS
           LD     SP,SP_STK
           EI
-          JR     PRTERR
+          CALL   PRINT_LN
+          JR     WARMSTRT
 
 ; ---------- LD_PGSEL (CMD 1)
 ; Map memory page
@@ -112,11 +107,11 @@ LD_PGSEL: LD     A,E
 ; Returns a page that's not already been allocated to another
 ; process. At the moment there's only one process so this is easy.
 ; RETURN:  A:  Page number allocated. Zero if no page available.
-LD_PGALC: JR     P_ALLOC
+; LD_PGALC: JR     P_ALLOC
 
 ; ---------- LD_PGFRE (CMD 3)
 ; Free a page. A contains the page to be freed.
-LD_PGFRE: JR     P_FREE
+; LD_PGFRE: JR     P_FREE
 
 ; --------- RX_CHR (CMD 2)
 ; Transmit the character in E
@@ -165,7 +160,7 @@ LD_QSDMP: PUSH     BC
           PUSH     HL
 
           ; Make application space HL pointer usable here.
-          CALL   PGMAPX
+          CALL    P_MAPX
 
           ; Clear the output address space.
           LD       B,64
@@ -201,17 +196,22 @@ _nxdrv:   EX       DE,HL       ; Save target address for output into DE
 ; Record the address (in application space) of the SD Card DMA buffer
 ; HL - Address into application pages.
 ; Translate into a page and offset and store in local memory
-LD_STDMA: CALL   PGADJ
+LD_STDMA: CALL   P_ADJ
           LD     (DMA_PAGE),A
           LD     (DMA_ADDR),HL
           RET
 
 ; --------- LD_STDMA (CMD 86)
-; Set the DMA address to the SDPage address. Fixed buffer so no
-; required parameters.
-LD_EDMA:  LD     A,MN_PG
+; Set the DMA address to a specific page and offset within that page.
+;
+; INPUTS: B   - The page holding the target buffer
+;         HL  - The offset into that page
+LD_EDMA:  LD     A,B
           LD     (DMA_PAGE),A
-          LD     HL,SDPAGE+0x4000
+          ; Address will be mapped into bank 1 so add 4000h
+          LD     A,40h
+          ADD    H
+          LD     H,A
           LD     (DMA_ADDR),HL
           RET
 
@@ -256,7 +256,7 @@ LD_RWRD:  ; Select the SDCard referenced in B
 ;   |  virtdisk  |  Not Used  | N |<---15 bit offset--->|
 ;   +------------+------------+------------+------------+
 ;
-LD_CPRD:  JP   SD_BKRD
+; LD_CPRD:  JP   SD_BKRD
 
 ; --------- LD_SDRD (CMD 17)
 ; Write a 128 byte CP/M sized block from a 512 byte SDCard sector. This
@@ -270,7 +270,7 @@ LD_CPRD:  JP   SD_BKRD
 ;   +------------+------------+------------+------------+
 ;   |  virtdisk  |  Not Used  | N |<---15 bit offset--->|
 ;   +------------+------------+------------+------------+
-LD_CPWR:   JP   SD_BKWR
+; LD_CPWR:   JP   SD_BKWR
 
 ; --------- LD_CPFLSH (CMD 20)
 ; Purge dirty cache data to SDCard and discard all read cache data
@@ -369,7 +369,7 @@ _novdu:   CALL   SW_CFG
 SD_DINV:  PUSH   BC
           PUSH   DE
           PUSH   HL
-          CALL   PGMAPX     ; Get the target address mapped into memory (into HL)
+          CALL   P_MAPX     ; Get the target address mapped into memory (into HL)
           LD     DE,DEVMAP  ; System device map
 
           ; Only copy entries that are not empty
@@ -419,8 +419,8 @@ JTAB:     DW     LD_MON       ; CMD 0  - Jump back to ZLoader
           DW     LD_RWRD      ; CMD 14 - SDCard Raw read - absolute sector (512 byte) address
           DW     LD_SDWR      ; CMD 15 - SDCard Write
           DW     LD_RWWR      ; CMD 16 - SDCard Write to raw sector (unmapped)
-          DW     LD_CPRD      ; CMD 17 - SDRead CP/M - optimised cached for CP/M 128 byte reads
-          DW     LD_CPWR      ; CMD 18 - SDRead CP/M - optimised cached for CP/M 128 byte writes
+          DW     SD_BKRD      ; CMD 17 - SDRead CP/M - optimised cached for CP/M 128 byte reads
+          DW     SD_BKWR      ; CMD 18 - SDRead CP/M - optimised cached for CP/M 128 byte writes
           DW     LD_CPPRG     ; CMD 19 - Purge CP/M buffers
           DW     LD_CPFLS     ; CMD 20 - Purge and flush CP/M buffers
           DW     LD_NOP       ; CMD 21 - NOP

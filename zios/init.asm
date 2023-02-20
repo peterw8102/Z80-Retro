@@ -1,7 +1,9 @@
-import ../zlib/defs.asm
+import defs.asm
 import config.asm
+import zlib.asm
 
-  extrn   P_MIN, PR_INIT
+  extrn   P_MIN,PR_INIT
+  extrn   AP_DISP
   public  ZIOS_INI
 
 ; init.asm
@@ -13,8 +15,13 @@ import config.asm
 
             CSEG
 
-ZIOS_INI::  ; If this is a developement build, reserve the base pages.
-            LD    A,MN2_PG+1
+; ---------- ZIOS_INI
+; Flash has been copied to RAM and before using any ZIOS services this function
+; must be called. There are no parameters however the function will return
+; the status of the hardware configuration switches. The lower bits of this
+; will tell the loader what automatic/boot behaviour to take.
+; OUTPUT: A   - the hardware status register (bits 0-2)
+ZIOS_INI::  LD    A,MN2_PG+1
             CALL  P_MIN
             CALL  PR_INIT
 
@@ -43,6 +50,16 @@ ZIOS_INI::  ; If this is a developement build, reserve the base pages.
             CALL   INITSIO
             IM     2              ; Using interrupt mode 1 AT THE MOMENT. Need to move to vectored at some point
             EI
+
+            ; Install RST 30h for API access.
+            LD     A,$C3
+            LD     (30h),A
+            LD     HL,AP_DISP
+            LD     (31h),HL
+
+            ; Return the status of the hardware configuration switch
+            CALL   SW_CFG
+
             RET
 
 ; ---- _EISR

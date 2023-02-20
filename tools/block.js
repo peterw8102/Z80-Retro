@@ -4,8 +4,13 @@ const fs = require('fs');
 const raspi = require('raspi');
 const Serial = require('raspi-serial').Serial;
 
+const debug=false;
 function log(...args) {
-  console.log(...args);
+  if (debug)
+    console.log(...args);
+}
+function statusLog(msg) {
+  process.stdout.write(msg);
 }
 
 
@@ -113,6 +118,8 @@ function closeFile() {
 }
 function requestFile(serial, req, payload) {
   // Payload should be the fully qualified name of file to load
+  statusLog("Request File: : "+payload.toString()+'\n');
+
   log("PAYLOAD FILE TO OPEN: ", payload.toString());
   // Close any existing file
   closeFile().then(() => {
@@ -141,6 +148,10 @@ function requestFile(serial, req, payload) {
 }
 async function readFile(serial, req, payload) {
   log("PAYLOAD READ OPEN: ", payload);
+  if (blockCount==0)
+    statusLog('Sending');
+  statusLog('.');
+  // statusLog("Read file content. Block: : "+blockCount);
   // There must be an open file for this to work
   if (openFile!=null) {
     // Set the correct command response code
@@ -170,6 +181,7 @@ async function readFile(serial, req, payload) {
       if (eofMarker!=0) {
         // Close the file
         fs.closeSync(openFile);
+        statusLog('\nComplete\n\n');
         openFile = null;
       }
     });
@@ -298,6 +310,29 @@ raspi.init(() => {
     function processBuffer() {
       // Check whether the command is complete. Don't process anything if the
       // number of characters received is less than 5.
+      if (offset<5) {
+        log("INPUT BUFFER LENGTH: ",offset);
+        return;
+      }
+      // Look for start sequence *0x55 0xAA
+      let cmdStart = 0;
+      let found = false;
+
+      while (!found && cmdStart<offset-1) {
+        if (currBuff[cmdStart]==0x55 && currBuff[cmdStart+1]==0xAA) {
+          // Found the start of command marker. Shift start of the command to the start of the buffer.
+          if (cmdStart>0) {
+            let from = cmdStart;
+            let to   = 0;
+            while (from<offset)
+              currBuff[to++] = currBuff[from++];
+            offset -= cmdStart;
+            statusLog("Found start token 55 AA");
+          }
+          found = true;
+        }
+        cmdStart++;
+      }
       if (offset<5) {
         log("INPUT BUFFER LENGTH: ",offset);
         return;

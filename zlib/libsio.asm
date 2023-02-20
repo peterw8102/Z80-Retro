@@ -26,7 +26,7 @@
 ;==================================================================================
 ; import config.asm
 import defs.asm
-                extrn  WRITE_16
+
                 public INITSIO, TXA, RXA, CKINCHAR, _ENDLIBS, BRK_HK, SERINT
 
 ; Full input buffering with incoming data hardware handshaking
@@ -106,8 +106,6 @@ brk:            LD       HL,(BRK_HK)
                 OR       H
                 LD       A,3
                 JR       Z,proc
-
-                LD       HL,(BRK_HK)
 
                 ; The break handler will have a stack that looks like:
                 ;    Ret address from SERINT

@@ -23,9 +23,9 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/loader.rel \
         ./zout/commands.rel \
         ./zout/disassembler.rel \
-        ../zios/zout/pcb.rel \
+        -P C300 -D C000 \
         ../zlib/zout/libsio.rel \
-        -P C200 -D C000 \
+        ../zios/zout/pcb.rel \
         ../zios/zout/nvram.rel \
         ../zios/zout/init.rel \
         ../zios/zout/mempage.rel \
@@ -43,8 +43,9 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ../zios/zout/devmap.rel \
         ../zios/zout/sdblk.rel \
         ../zios/zout/process.rel \
+        ../zios/zout/run.rel \
         -P FE00 \
-        ./zout/appl.rel \
+        ../zios/zout/appl.rel \
 
 node ../tools/hextform --fix --move=C000,FFFF,4000 loader.tmp > loader.hex
 rm ./loader.tmp

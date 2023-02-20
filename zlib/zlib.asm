@@ -1,0 +1,16 @@
+import defs.asm
+
+  ; Symbols exported from ZLIB to clients.
+  extrn  STRCMP,ADD8T16,TOUPPER
+  extrn  PRINT,PRINT_LN,NL,GET_LINE,SKIPSPC,WASTESPC,BUFCHR,BUFCHUP,UNGET,RESINP
+  extrn  WRITE_D,WRITE_8,WRITE_16,INHEX,INHEX_2,INHEX_4
+  extrn  BRK_HK,SETHIST,GETHIST
+  extrn  CMD_B
+
+  extrn  GET_HEX,GET_DEC,INPTR,INBUF,INITSIO,RXA,TXA,CKINCHAR,SERINT
+  extrn  DEC2BIN
+  extrn  SD_PRES
+  extrn  SW_CFG
+
+  ; And the RTC/i2c library
+  extrn  RTC_INI, RTC_GET, RTC_SET

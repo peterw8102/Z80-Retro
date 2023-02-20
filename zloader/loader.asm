@@ -18,7 +18,6 @@ import zios.asm
           public PRTERR
           public END_RES
           public SCRATCH
-          public ISRCTXT
 
           public START
 
@@ -3207,7 +3206,6 @@ CMDTAB:    DEFS    2              ; Operational mode. 1=normal. 2=debug
 LAST_CMD:  DEFS    1
 DUMP_ADDR: DEFS    2
 DUMP_MODE: DEFS    1
-ISRCTXT:   DEFS    1              ; True if the current ISR was called when in application space
 CTRLCH:    DEFS    1
 
 HW_SWTCH:  DEFS    1              ; Status of the 3 hardware config bits on boot

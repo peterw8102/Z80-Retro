@@ -11,7 +11,7 @@ import zlib.asm
 ; has copied the code into executable RAM.
 
             extrn  SDPREP,RTC_INI,NVLD,INITSIO,SERINT
-            ; public ZIOS_INI
+            public ISRCTXT
 
             CSEG
 
@@ -67,3 +67,7 @@ ZIOS_INI::  LD    A,MN2_PG+1
 _EISR:      CALL    SERINT
             EI
             RETI
+
+
+            DSEG
+ISRCTXT     DEFB    0

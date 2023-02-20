@@ -1,5 +1,6 @@
-import ../zlib/defs.asm
+import defs.asm
 import config.asm
+import pcb_def.asm
 
 ; Responsible for mapping available memory (RAM) pages to processes. There are
 ; currently 32 pages and a global map of used pages. Each process knows which
@@ -153,6 +154,96 @@ _shft:    RLCA
 
           ; Now A contains a single '1' identifying the bit representing the requested page.
           OR      A               ; Clear carry flag
+          RET
+
+; ------------ _PGCALC
+; Take a 16 bit address in application space and translate that into a block number (0-3)
+; and a 16 offset. Arrange for the 16 bit offset to point into a block one address. This
+; then allows us to map the application space page into block one regardless of where it
+; is in the application space.
+; HL - load address. Translate into an offset  and return the offset in HL
+; Return:
+; A  - The block number (0-3) in application space
+; HL - The adjusted offset into that page, mapped as though in block 1.
+; DE - WORKING SPACE, NOT SAVED!!
+_PGCALC:  LD    A,H
+          RLCA
+          RLCA
+          AND   03h        ; A now contains the block number.
+          LD    D,A        ; Save to return
+
+          ; And map the address in HL so it's in BLOCK 1.
+          LD    A,3Fh
+          AND   H
+
+          ; Set bit 6 so it's in block 1
+          OR    A,40h
+
+          ; And move back to the address
+          LD    H,A
+          LD    A,D        ; Return the page we selected in A and D
+          RET
+
+; ------------ PGADJ
+; Take a 16 bit address in application space and translate that into a page number and an offset.
+; HL - load address. Translate in a page and offset then load that page into board page 1 and
+;      return the offset in HL
+; Return:
+; A  - The actual physical page number to be mapped
+; HL - The adjusted offset into that page
+; DE - WORKING SPACE, NOT SAVED!!
+P_ADJ::   CALL  _PGCALC
+
+          ; A is the logical block number in application space. Translate that in a RAM
+          ; page number.
+          LD    DE,PAGE_MP
+          ADD   E
+          LD    E,A      ; Monitor memory is linked from 2000h so won't cross a 256 byte boundary.
+          LD    A,(DE)   ; DE is now the address of the PAGE_MP for the addressed page in application space
+          RET
+
+
+; ------------- PGRESTX
+; Restore page 1 and 2 to the application space. Used after extended instructions that have to map
+; two pages to deal with page boundarys.
+P_RESTX:: BANK  2,(PAGE_MP+2)
+
+; ------------- PGREST
+; Restore page 1 to the application space.
+P_REST::  BANK  1,(PAGE_MP+1)
+          RET
+
+; ------------- PGMAP
+; HL - load address. Translate in a page and offset then load that page into board page 1 and 2
+;      return the offset in HL
+; A returns the page mapped.
+P_MAP::   PUSH  DE
+          CALL  P_ADJ    ; Returns the target page number in A
+          BANK  1        ; which we map to bank 1
+          POP   DE
+          RET
+
+; ---- PGMAPX
+; Same as PGMAP but also places the *next* application space page into bank 2. Use this if
+; operations could cross a 16K page boundary.
+; INPUT:   HL - address in application space
+; OUTPUT:  HL - mapped address to use within supervisor map
+P_MAPX::  PUSH  DE
+          CALL  _PGCALC  ; HL: Adjusted address, A the 16K application block number to map (0-3)
+          PUSH  AF
+          LD    DE,PAGE_MP
+          ADD   E
+          LD    E,A      ; Monitor memory is linked from 2000h so won't cross a 256 byte boundary.
+
+          LD    A,(DE)   ; DE is now the address of the PAGE_MP for the addressed page in application space
+          BANK  1
+
+          INC   DE
+          LD    A,(DE)
+          BANK  2
+
+          POP   AF        ; AF includes the logical bock number (0-3)
+          POP   DE
           RET
 
 

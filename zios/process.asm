@@ -5,8 +5,7 @@ import pcb_def.asm
 ; Utility routines for managing processes.
 
             public PR_INIT
-            extrn  P_ALLOC
-            extrn  WRITE_8
+            extrn  P_ALLOC,NVRAM
 
             CSEG
 
@@ -19,14 +18,14 @@ import pcb_def.asm
 PR_INIT:    LD    HL,PAGE_MP
             LD    B,4
             CALL  P_ALLOC
-            PUSH  AF
-            CALL  WRITE_8
-            LD    A,'-'
-            RST   08h
-            POP   AF
             RET   C
 _wrn:       LD    (HL),A         ; Initialise the application page map
             INC   A
             INC   HL
             DJNZ  _wrn
+
+            ; Set the default execution flags for this process to match the NVRAM exec flags
+            LD    A,(NVRAM)
+            AND   CFG_EXEC
+            LD    (P_FLAGS),A
             RET

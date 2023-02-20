@@ -8,17 +8,12 @@ import config.asm
 ; System initialisation code. ZIOS must be initialised after the loader
 ; has copied the code into executable RAM.
 
-            extrn  CONTXT
             extrn  SDPREP,RTC_INI,NVLD,INITSIO,SERINT
             ; public ZIOS_INI
 
             CSEG
 
-ZIOS_INI::  ; We're running in supervisor mode
-            XOR   A
-            LD    (CONTXT),A
-
-            ; If this is a developement build, reserve the base pages.
+ZIOS_INI::  ; If this is a developement build, reserve the base pages.
             LD    A,MN2_PG+1
             CALL  P_MIN
             CALL  PR_INIT
@@ -52,6 +47,6 @@ ZIOS_INI::  ; We're running in supervisor mode
 
 ; ---- _EISR
 ; Serial port rx ISR
-_EISR:    CALL    SERINT
-          EI
-          RETI
+_EISR:      CALL    SERINT
+            EI
+            RETI

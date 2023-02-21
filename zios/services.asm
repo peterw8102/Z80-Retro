@@ -1,8 +1,8 @@
-import ../zlib/defs.asm
+import defs.asm
 import config.asm
 import pcb_def.asm
 
-          extrn  SD_INIT,SD_RBLK,SD_WBLK,SD_PRES,SD_SEL
+          extrn  SD_INIT,SD_RBLK,SD_WBLK,SD_PRES,SD_SEL,SD_STAT
           extrn  PAGE_MP
           extrn  P_ADJ,P_MAPX
           extrn  PRTERR
@@ -285,7 +285,21 @@ LD_CPFLS:  LD    A,1
            JP   SD_PRG
 
 
-
+; --------- LD_CPST (CMD 20)
+; Copy SDCard read/write/cache stats to buffer in application space
+; provided in HL
+; INPUTS:  HL  - Address of buffer to receive stats
+;          B   - If not zero then clear the stats after the copy to app buffer
+; NOTE: The output is a set of 32 bit counters. Currently there are three:
+;    + Number of read operations from an SDCard
+;    + Number opf write operations to an SDCard
+;    + Number of times an SDCard operation was avoided because the data was cached
+;
+; Although there are currently only 3 defined counters this could change in future
+; and applications should provide a pointer to a buffer AT LEAST 'Z_BUFSZ'
+; bytes long, which is defined in zapi.asm
+LD_CPST:: CALL   P_MAPX     ; Get the buffer address mapped into our memory
+          JP     SD_STAT
 
 
 
@@ -420,10 +434,10 @@ JTAB:     DW     LD_MON       ; CMD 0  - Jump back to ZLoader
           DW     LD_SDWR      ; CMD 15 - SDCard Write
           DW     LD_RWWR      ; CMD 16 - SDCard Write to raw sector (unmapped)
           DW     SD_BKRD      ; CMD 17 - SDRead CP/M - optimised cached for CP/M 128 byte reads
-          DW     SD_BKWR      ; CMD 18 - SDRead CP/M - optimised cached for CP/M 128 byte writes
+          DW     SD_BKWR      ; CMD 18 - SDWrite CP/M - optimised cached for CP/M 128 byte writes
           DW     LD_CPPRG     ; CMD 19 - Purge CP/M buffers
           DW     LD_CPFLS     ; CMD 20 - Purge and flush CP/M buffers
-          DW     LD_NOP       ; CMD 21 - NOP
+          DW     LD_CPST      ; CMD 21 - CP/M storage transaction stats
           DW     LD_NOP       ; CMD 22 - NOP
           DW     LD_NOP       ; CMD 23 - NOP
           DW     SD_INV       ; CMD 24 - Hardware inventory

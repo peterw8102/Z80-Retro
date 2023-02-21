@@ -12,17 +12,20 @@ if [ -z "$RELEASE" ]; then
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./loader.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./commands.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./disassembler.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./more.asm
 else
   echo "Building RELEASE version"
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./loader.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./commands.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./disassembler.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./more.asm
 fi
 
 ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/loader.rel \
         ./zout/commands.rel \
         ./zout/disassembler.rel \
+        ./zout/more.rel \
         -P C300 -D C000 \
         ../zlib/zout/libsio.rel \
         ../zios/zout/pcb.rel \

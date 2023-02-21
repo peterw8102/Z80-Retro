@@ -1,5 +1,5 @@
 ; import config.asm
-import ../zlib/defs.asm
+import defs.asm
 
 
           extrn  WRITE_8,HEX_FROM_A

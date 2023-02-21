@@ -1,4 +1,4 @@
-import ../zlib/defs.asm
+import defs.asm
 import config.asm
 
 ; DEPRECATED - NOT LINKED INTO THE MONITOR.

@@ -1,6 +1,6 @@
-import ../zlib/defs.asm
+import defs.asm
 import config.asm
-import api.asm
+import zapi.asm
 
 ; Embryonic device map. Currently mostly fixed. At some point this will become
 ; more dynamic.

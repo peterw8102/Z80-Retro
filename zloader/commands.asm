@@ -1,4 +1,4 @@
-import ../zlib/defs.asm
+import defs.asm
 import config.asm
 import zios.asm
 import zlib.asm

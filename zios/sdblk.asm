@@ -8,14 +8,15 @@ import defs.asm
 import config.asm
 import pcb_def.asm
 
-;IS_DEBUG EQU 1
+IS_DEBUG EQU 1
+IS_TRACE EQU 1
 
       extrn  SD_INIT,SD_RBLK,SD_WBLK,SD_PRES,SD_SEL,SDMPADD,ADD8T16
 
       public SD_BKRD, SD_BKWR, SD_PRG, ENDBLK
 
       ; --------------- DEBUG SYMBOLS --------------
-ifdef IS_DEBUG
+if IS_DEBUG || IS_TRACE
       extrn  PRINT,PRINT_LN,NL,RESINP
       extrn  WRITE_D,WRITE_8,WRITE_16,INHEX,INHEX_2,INHEX_4
       public CACHE,META,LRU,DIRTY
@@ -33,7 +34,7 @@ endif
 ;
 ; The output buffer must have been set with a call to A_DSKDM
 SD_BKRD:  ; Translate the logical address into an SDCard address we can use.
-ifdef IS_DEBUG
+if IS_TRACE
           PUSH   HL
           PUSH   AF
           LD     HL,_m19
@@ -44,7 +45,7 @@ ifdef IS_DEBUG
 endif
           CALL   prep
 
-ifdef IS_DEBUG
+if IS_DEBUG
           ; Display resolved address
           ;---------------- DEBUG ---------------
           PUSH   HL
@@ -76,8 +77,13 @@ endif
           CALL   cpout
           RET
 
+if IS_DEBUG
 _m9       DEFB   'SDCard Sector Address: ',0
+endif
+
+if IS_TRACE
 _m19      DEFB   '------------- READ ------------',0
+endif
 
 ; --------- HLDE contains the virtual drive and offset in 128 byte blocks:
 ;   +------------+------------+------------+------------+
@@ -98,7 +104,7 @@ _m19      DEFB   '------------- READ ------------',0
 ;
 ; The output buffer must have been set with a call to A_DSKDM
 SD_BKWR:  ; Translate the logical address into an SDCard address we can use.
-ifdef IS_DEBUG
+if IS_TRACE
           PUSH   HL
           PUSH   AF
           LD     HL,_m20
@@ -112,7 +118,7 @@ ifdef IS_DEBUG
 endif
           CALL   prep
 
-ifdef IS_DEBUG
+if IS_DEBUG
           ;---------------- DEBUG ---------------
           PUSH   HL
           PUSH   AF
@@ -145,7 +151,7 @@ endif
           LD     A,(SLOT)
           CALL   MARK
 
-ifdef IS_DEBUG
+if IS_DEBUG
           ;---------------- DEBUG ---------------
           PUSH   AF
           PUSH   BC
@@ -176,21 +182,23 @@ endif
           JR     NZ,_defer
           XOR    A
           CALL   SD_PRG
-ifdef IS_DEBUG
+if IS_DEBUG
           LD     HL,_m16
           CALL   PRINT_LN
 endif
 
 _defer:   RET
 
-ifdef IS_DEBUG
+if IS_DEBUG
 _m14:     DEFB   'DIRTY PAGES: ',0
 _m16:     DEFB   'Purge complete...',0
+endif
+if IS_TRACE
 _m20      DEFB   '------------- WRITE------------',0
 endif
 
 ; -------- MARK --------
-; Mark the cache page referenced in A as DIRTY. Set the Matchng
+; Mark the cache page referenced in A as DIRTY by setting the matchng
 ; byte in the DIRTY array.
 MARK:     PUSH   HL
           LD     HL,DIRTY
@@ -225,7 +233,7 @@ _nxtdrt:  LD      A,(DE)
           OR      A
           RET     Z           ; Don't invalidate the cached data
 
-ifdef IS_DEBUG
+if IS_DEBUG
           LD      HL,_m13
           CALL    PRINT_LN
 endif
@@ -247,7 +255,7 @@ endif
           LDIR
           RET
 
-ifdef IS_DEBUG
+if IS_DEBUG
 _m12      DEFB    'Purging dirty pages...',0
 _m13      DEFB    'Flushing stored cache data',0
 endif
@@ -261,7 +269,7 @@ DOPURG:   PUSH    BC
           PUSH    DE
           PUSH    HL
 
-ifdef IS_DEBUG
+if IS_DEBUG
           PUSH    HL
           LD      HL,_m15
           CALL    PRINT
@@ -288,7 +296,7 @@ endif
           POP     BC
           RET
 
-ifdef IS_DEBUG
+if IS_DEBUG
 _m15      DEFB    'Purge to disk. PAGE: ',0
 endif
 
@@ -314,6 +322,10 @@ PURGE:   LD     A,(HL)    ; SDCard number
          EX     DE,HL
          POP    DE        ; Address data loaded (HLDE). BC already contains buffer address
          CALL   SD_WBLK
+
+         ; Update stats
+         LD     HL,ST_WRITE
+         CALL   INC64
          RET
 
 ; ----- PURGONE  ------
@@ -321,7 +333,7 @@ PURGE:   LD     A,(HL)    ; SDCard number
 ; INPUTS: HL   - Points to the dirty flag
 ;         A    - Cache page number
 PURGONE:  PUSH   HL
-ifdef IS_DEBUG
+if IS_DEBUG
           PUSH   AF
           LD     HL,_m1
           CALL   PRINT
@@ -350,7 +362,7 @@ _fndisx:  LD     E,(HL)     ; Address of the metadata
           POP    HL
           RET
 
-ifdef IS_DEBUG
+if IS_DEBUG
 _m1:      DEFB   'PURGE ONE PAGE: ',0
 endif
 
@@ -360,7 +372,7 @@ endif
 ; the A_DSKDM services API.
 cpout:  LD     BC,(SLOTADD)
 
-ifdef IS_DEBUG
+if IS_DEBUG
         ; ------------- DEBUG --------------
         LD     HL,_m3
         CALL   PRINT
@@ -382,7 +394,7 @@ endif
         LD     A,(SCT_OFF)   ; Add blk offset to base in BC
         CALL   calcoff       ; HL points to the start of the 128 bytes wanted
 
-ifdef IS_DEBUG
+if IS_DEBUG
         ; ------------- DEBUG --------------
         PUSH   AF
         PUSH   HL
@@ -402,7 +414,7 @@ endif
         LDIR                 ; Copy the data
         RET
 
-ifdef IS_DEBUG
+if IS_DEBUG
 _m3     DEFB 'Copy Out: ',0
 endif
 
@@ -414,7 +426,7 @@ cpin:   BANK   1,(DMA_PAGE)  ; Get the buffer page into bank 1
         LD     A,(SCT_OFF)   ; Add blk offset to base in BC
         LD     BC,(SLOTADD)
 
-ifdef IS_DEBUG
+if IS_DEBUG
         PUSH   AF
         PUSH   HL
         LD     HL,_m18
@@ -435,7 +447,7 @@ endif
         LDIR                 ; Copy the data
         RET
 
-ifdef IS_DEBUG
+if IS_DEBUG
 _m18    DEFB   'Start of SDCard buffer: ',0
 endif
 
@@ -482,7 +494,7 @@ prep:     LD     A,B
 primebuf:  CALL    getslot         ; BC receiving buffer address
            LD      (SLOTADD),BC    ; The cached block address
 
-ifdef IS_DEBUG
+if IS_DEBUG
            ; ----------------- DEBUG ----------------
            PUSH   HL
            PUSH   AF
@@ -502,7 +514,7 @@ endif
 
            RET    NZ               ; Already loaded
 
-ifdef IS_DEBUG
+if IS_DEBUG
            ; ----------------- DEBUG ----------------
            PUSH   AF
            PUSH   HL
@@ -533,10 +545,13 @@ ifdef IS_DEBUG
            CALL    NL
            ; ----------------- DEBUG ----------------
 endif
-
            ; Select the correct SDCard for the read operation
            LD      A,(SDCARD)
            CALL    SD_SEL
+
+           ; Update read stats
+           LD      HL,ST_READ
+           CALL    INC64
 
            ; Buffer address is in BC. Need the SDCard address
            LD      DE,(SECTOR)
@@ -547,7 +562,7 @@ endif
            LD      HL,(SLOTADD)    ; The cached block address
            RET
 
-ifdef IS_DEBUG
+if IS_DEBUG
 _m2        DEFB    "Load Address: ",0
 _m6        DEFB    "Cache slot: ",0
 _m7        DEFB    "Load from SDCard",0
@@ -566,7 +581,7 @@ endif
 ; OUTPUT: BC    - Address of the 512 byte buffer to be used
 getslot:  CALL  _chkcach
 
-ifdef IS_DEBUG
+if IS_DEBUG
           ; --------------- DEBUG ------------
           PUSH  AF
           PUSH  HL
@@ -579,7 +594,7 @@ _xx1:     POP   HL
 endif
           RET   NZ         ; Found. BC already set
 
-ifdef IS_DEBUG
+if IS_DEBUG
           ; --------------- DEBUG ------------
           PUSH  HL
           LD    HL,_m5
@@ -605,7 +620,7 @@ endif
           XOR   A
           RET
 
-ifdef IS_DEBUG
+if IS_DEBUG
 _m4       DB    "Found in cache",0
 _m5       DB    "Not found in cache",0
 endif
@@ -701,7 +716,7 @@ nxtlru:   INC   (HL)
           XOR   A
           LD    (HL),A
 
-ifdef IS_DEBUG
+if IS_DEBUG
           LD    HL,_m8
           CALL  PRINT
           LD    HL,LRU
@@ -719,7 +734,7 @@ endif
           POP   HL
           RET
 
-ifdef IS_DEBUG
+if IS_DEBUG
 _m8:      DEFB  'LRU Values: ',0
 endif
 
@@ -747,13 +762,18 @@ _nxtb:     LD   A,(DE)
            ; If we get here then the target block is in this
            ; cache entry so won't need to load. Don't need to
            ; change the cache values but need to update the
-           ; correct LRU.
+           ; correct LRU and stats.
+
+           ; Update cache hit stats
+           LD   HL,ST_HITS
+           CALL INC64
+
            POP  DE       ; Discard the start of meta data
            POP  BC       ; Get the block number stored in C
            LD   A,C
            LD   (SLOT),A ; Store for later
 
-ifdef IS_DEBUG
+if IS_DEBUG
            PUSH  HL
            PUSH  AF
            LD    HL,_m10
@@ -788,14 +808,14 @@ _miss:     POP  DE          ; Start of last meta data
 
            DJNZ  _nxtent
 
-ifdef IS_DEBUG
+if IS_DEBUG
            CALL  NL
 endif
            ; Get to here then there's no match in the cache
            XOR   A          ; Return zero for cache miss
            RET
 
-ifdef IS_DEBUG
+if IS_DEBUG
 _m10:      DEFB  "Cache match in page: ",0
 endif
 
@@ -841,7 +861,22 @@ calcoff:    LD    HL,0
             LD    H,A         ; HL: Start of sector data
             RET
 
-ifdef IS_DEBUG
+; -- INC64
+; Increment the 64 bit number pointed to by HL
+; INPUT  HL -  pointer to the number
+; A, HL, B not preserved
+INC64:      LD    B,4
+.nextb      LD    A,(HL)
+            INC   A
+            LD    (HL),A
+            OR    A
+            RET   NZ
+            ; If it's wrapped to zero then next byte
+            INC   HL
+            DJNZ  .nextb
+            RET
+
+if IS_DEBUG
 
 _showlog:   PUSH  AF
             PUSH  BC
@@ -953,3 +988,10 @@ DIRTY    DC    NUMSECT,0
 CACHE    DEFS  NUMSECT*SECTSZ ; buffer to receive a single 512B block
 
 ENDBLK   EQU   $
+
+; Keep some stats
+ST_READ::  DEFW  0,0
+ST_WRITE:: DEFW  0,0
+ST_HITS::  DEFW  0,0
+
+  END

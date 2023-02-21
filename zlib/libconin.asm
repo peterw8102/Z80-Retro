@@ -9,6 +9,9 @@ import defs.asm
 ;
 ; Input functions:
 ; GET_LINE: Read in a complete line, including history butter
+; SET_LINE: Set the input line buffer to contain this string (HL)
+; EDT_LINE: Edit the content of the input bufffer. Usually set by
+;           first calling SET_LINE
 ; SETHIST:  Switch on or off cursor controls/history in GET_LINE
 ; GETHIST:  Return a specific line from the history buffer
 ;
@@ -32,7 +35,7 @@ import defs.asm
           extrn  ADD8T16,TOUPPER
 
           ; Input functions
-          public GET_LINE
+          public GET_LINE,SET_LINE,EDT_LINE
           public SKIPSPC,WASTESPC,BUFCHR,BUFCHUP
           public SETHIST,GETHIST
           public INHEX,INHEX_2,INHEX_4,GET_HEX,GET_DEC
@@ -238,6 +241,38 @@ chklwr:     CP    'f'+1        ; Check if it's lower a-f
 SETHIST:  LD      (MLINE),A
           RET
 
+; --------------------- SET_LINE
+; Write a null terminated string into the input buffer and treat it as though
+; it was typed by the user.
+; INPUT:  HL  - Pointer to the null terminated string
+SET_LINE: PUSH    HL
+          PUSH    DE
+          PUSH    BC
+          PUSH    AF
+          LD      DE,INBUF
+          LD      B,LINELEN   ; Maximum line length allowed
+.nextch:  LD      A,(HL)
+          LD      (DE),A
+          OR      A
+          JR      Z,.done
+          INC     DE
+          INC     HL
+          DJNZ    .nextch
+.done:    ; Clear the rest of the line
+          XOR     A           ; Make sure there's definitely a null terminator
+.clrbuf:  LD      (DE),A
+          INC     DE
+          DJNZ    .clrbuf
+
+          ; Store current position
+          LD      (CURSOR),DE
+          LD      HL,INBUF
+          LD      (INPTR),HL
+          POP     AF
+          POP     BC
+          POP     DE
+          POP     HL
+          RET
 ; --------------------- GET_LINE
 ; Block until the user types RETURN. The entered line is in the input buffer (INBUF). The
 ; line can be processed either using GETCHR/SKIPSPC/WASTESPC etc or the client code can
@@ -338,6 +373,29 @@ _esc:     LD      A,(MLINE)     ; MLINE is true if history buffer (up/down arrow
           ; Delete the current character
           CALL    DELETE
           JR      getc         ; Not a recognised escape sequence.
+
+; --------- EDT_LINE
+; As GET_LINE but use the current content of the INBUF. Cursor positioning
+; for this along with getting the correct line display is left to the client code.
+;
+; Generally clients will call SET_LINE to fill the input buffer with the line
+; to be edited then call EDT_LINE for the interractive part.
+EDT_LINE: PUSH    HL
+          PUSH    BC
+          LD      HL,INBUF
+          LD      B,0         ; Column
+.nxt      LD      A,(HL)
+          OR      A
+          JR      Z,.atend
+          INC     HL          ; Not end of line so move forward
+          INC     B
+          OR      A
+          JR      .nxt
+
+          ; HL points to the null terminator, C is the number of
+.atend:   LD      (CURSOR),HL
+          LD      C,0
+          JR      getc
 
 ; -------------------------
 ; CURSOR CONTROL FUNCTIONS
@@ -747,7 +805,7 @@ BUFCHUP:  CALL      BUFCHR
 ; ------ UNGET
 ; Wind back ONE character unless at start of buffer. This function is NOT currently exported.
 ; All registers are preserved.
-UNGET:    PUSH     AF
+UNGET::   PUSH     AF
           PUSH     HL
           PUSH     DE
           LD       HL, INBUF    ; Start of buffer

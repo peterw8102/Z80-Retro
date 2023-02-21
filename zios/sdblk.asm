@@ -8,8 +8,8 @@ import defs.asm
 import config.asm
 import pcb_def.asm
 
-IS_DEBUG EQU 1
-IS_TRACE EQU 1
+IS_DEBUG EQU 0
+IS_TRACE EQU 0
 
       extrn  SD_INIT,SD_RBLK,SD_WBLK,SD_PRES,SD_SEL,SDMPADD,ADD8T16
 
@@ -259,6 +259,38 @@ if IS_DEBUG
 _m12      DEFB    'Purging dirty pages...',0
 _m13      DEFB    'Flushing stored cache data',0
 endif
+
+; -------- SD_STAT --------
+; Copy out the disk stats to the buffer proviced (if not null). If B is zero
+; then also clear the stats after they are copied.
+; INPUTS:  HL  - Points to buffer to receive stats (or zero for no copy)
+;          B   - if not zero then clear the stats after the copy
+; HL,A not preserved
+SD_STAT:: LD      A,L
+          OR      H
+          JR      Z,.nocopy
+
+          ; Copy stats to the buffer pointed to by HL
+          LD      DE,ST_READ
+          EX      DE,HL
+          PUSH    BC
+          LD      B,ENDSTAT-ST_READ
+          LDIR
+          POP     BC
+
+.nocopy:  LD      A,B      ; Clear stats?
+          OR      A
+          RET     Z        ; No clear required
+
+          XOR     A
+          LD      HL,ST_READ
+          LD      B,ENDSTAT-ST_READ
+.clr      LD      (HL),A
+          INC     HL
+          DJNZ    .clr
+          RET
+
+
 
 ; -------- DOPURG --------
 ; Purge cache page 'C' to SDCard.
@@ -550,8 +582,10 @@ endif
            CALL    SD_SEL
 
            ; Update read stats
+           PUSH    BC
            LD      HL,ST_READ
            CALL    INC64
+           POP     BC
 
            ; Buffer address is in BC. Need the SDCard address
            LD      DE,(SECTOR)
@@ -876,7 +910,7 @@ INC64:      LD    B,4
             DJNZ  .nextb
             RET
 
-if IS_DEBUG
+if IS_DEBUG || IS_TRACE
 
 _showlog:   PUSH  AF
             PUSH  BC
@@ -990,8 +1024,9 @@ CACHE    DEFS  NUMSECT*SECTSZ ; buffer to receive a single 512B block
 ENDBLK   EQU   $
 
 ; Keep some stats
-ST_READ::  DEFW  0,0
-ST_WRITE:: DEFW  0,0
-ST_HITS::  DEFW  0,0
+ST_READ  DEFW  0,0
+ST_WRITE DEFW  0,0
+ST_HITS  DEFW  0,0
+ENDSTAT  EQU   $
 
   END

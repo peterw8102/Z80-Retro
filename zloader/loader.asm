@@ -2526,8 +2526,7 @@ _nocs:   LD    A,A_DSKWR-A_DSKRD
 ;   NNNNNNNN - 32 bit sector address into the whole SDCard
 ;   NNNNNNN: - 32 bit sector offset into the currently selected default drive (last mapped or listed)
 ;   NNNNNN:L - 32 bit offset into the specified logical drive (L becomes the default)
-SDUMP:   ;JR    Z,E_NOSD
-         CALL  SETDMA
+SDUMP:   CALL  SETDMA
          CALL  WASTESPC
          JR    NZ,_getsd      ; By default load the next available sector
 
@@ -2543,8 +2542,6 @@ SDUMP:   ;JR    Z,E_NOSD
 
          LD    A,(SDMP_MD)
          LD    C,A
-         ; LD    A,'}'
-         ; RST   08h
          JR    _ldsd
 
 _getsd:  CALL  SADDR

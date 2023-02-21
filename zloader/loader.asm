@@ -11,6 +11,7 @@ import zios.asm
 
           ; External commands for the command table.
           extrn  FILL,CLRSCR,INPUT,OUTPUT,MODIFY,SDMOD,HELP
+          extrn  MORE
 
           public main,BADPS,OPMODE
 
@@ -182,6 +183,7 @@ main:     LD    SP,SP_STK       ; Dump the stack and restart on *main*
           JR    Z, main
 
 ; Process an unbroken chain of characters looking for a command match
+EXEC_LN::
 FNDCMD:   LD    HL,(CMDTAB)
 _nxtchr:  CALL  BUFCHR
           JR    Z,_miss
@@ -308,7 +310,8 @@ shtime:   CALL     SH_DTIME
 
 ; ------------------- DNVRAM
 ; Dump the 56 bytes of NVRAM in the RTC chip
-DNVRAM:   CALL   NVRD
+DNVRAM:   LD     HL,0
+          CALL   NVRD
           LD     C,7         ; 7 rows
 _nrnv:    LD     B,8         ; 8 bytes per row
 _ncnv:    LD     A,(HL)
@@ -329,22 +332,48 @@ DUMPM:    LD     A,'M'
 DUMPI:    LD     A,'I'
           JR     _dodmp
 
+GETDPAR:  LD     C,8              ; Default count
+          CALL   WASTESPC
+          JR     Z,.noaddr
+          CP     '.'              ; Use the current PC address
+          JR     NZ,.gethex
+
+          CALL   BUFCHR
+          LD     HL,(R_PC)
+          JR     .gotval
+
+.gethex:  CALL   GET_HEX          ; May or may not be a number. If not use last address
+          JR     NZ,.gotval
+
+.noaddr:  LD     HL,(DUMP_ADDR)   ; Default value to use
+
+          ; Using default
+.gotval   CALL   SKIPSPC
+          CP     ','
+          RET    NZ
+          PUSH   HL
+          CALL   GET_DEC
+          LD     A,L
+          OR     A
+          JR     Z,.udef
+          LD     C,L
+.udef:    POP    HL
+          RET
+
 ; ------------------- DUMP
 DUMP:     LD    A,(DUMP_MODE)     ; Use previous/default dump mode
 _dodmp:   LD    B,A               ; Accepted mode in 'B'
           LD    (DUMP_MODE),A     ; Store mode
 
-no_mode:  CALL  GET_HEX           ; Get the address to dump
-          JR    NZ,_useval        ; If no value then use previously stored address
-cnt_dump: LD    HL,(DUMP_ADDR)
+          ; Format of parameters is [addr][,count]
+          CALL  GETDPAR           ; HL: address, A: count
 
-_useval:  LD    (DUMP_ADDR),HL
+          LD    (DUMP_ADDR),HL
           LD    A,B               ; Get the mode character back
           CP    'M'
           JR    NZ,decode         ; Mode is not 'M' so it's an instruction level dump
 
-          ; Display 8 blocks of 16 characters
-          LD    C,8
+          LD    A,C
 
 dloop2:   CALL  WRITE_16          ; 4 hex digits from HL
           CALL  P_MAPX            ; Translate into an offset and a page number and map application pages into memory
@@ -359,7 +388,8 @@ dloop2:   CALL  WRITE_16          ; 4 hex digits from HL
           DEC   C
           JR    NZ,dloop2
           CALL  P_RESTX            ; Reset application space registers
-          JR    main
+          LD    HL,_MOREBLK
+          JR    MORE
 
 ; -------------------- DMP16 --------------------
 ; Dump 16 bytes from content of HL to stdout.
@@ -464,12 +494,22 @@ next_b:   CALL  INHEX_2            ; Get a hex byte
 
 ; ---- decode
 ; DUMP decode (instruction decode and display)
-decode:   LD    B,20       ; Number of instructions
+decode:   LD    B,C        ; Number of instructions
 _nexti:   CALL  DECINST
           DJNZ  _nexti
           LD    (DUMP_ADDR), HL
           CALL  P_RESTX    ; Undo any application space page damage
-          JR    main
+          LD    HL,_MOREBLK
+          JR    MORE
+
+_MOREBLK  DEFW  .more1
+          DEFW  .more2
+          DEFW  .more3
+
+.more1    DEFB  "--- more ---",0
+.more2    DEFB  "D",0
+.more3    DEFB  "D ,1",0
+
 
 ; -- DECINST
 ; Decode and display single instruction. HL points to the sart of the instruction. Displays
@@ -892,7 +932,9 @@ _nextstk: PUSH  HL             ; HL is now the physical address, DE application 
           RET
 
 ; ----- Single Step
-SSTEP:    CALL  GET_DEC        ; Get optional step count
+SSTEP:    LD    A,'S'
+          LD    (STP_HOW),A
+          CALL  GET_DEC        ; Get optional step count
           JR    C,_stp1
           INC   HL
 _stp1:    LD    (STP_CNT),HL   ; By default step once
@@ -1169,13 +1211,25 @@ _bfdo:    EX    DE,HL         ; Put the current address into HL so we can displa
           DEC   HL
           LD    A,L
           OR    H
-          JR    Z,main
+          JR    Z,bpmore
           LD    (STP_CNT),HL
 
           ; Step again
           LD    A,(STP_IN)
           CALL  SSTEP_BP    ; Set single step BP then go
           JR    DO_GO
+
+bpmore:   LD    HL,_MORESTP
+          JR    MORE
+
+_MORESTP  DEFW  .morest1
+          DEFW  STP_HOW
+          DEFW  STP_HOW
+
+.morest1  DEFB  "% ",0
+STP_HOW:  DEFB  "S",0
+
+
 
 ;
 ; ------------------- BP: Set breakpoint
@@ -1864,7 +1918,9 @@ _clrbp:   LD    (HL),0      ; Clear the 'type' field to free this slot
           JR    SUSBP
 
 ; ----- Step Over
-NSTEP:    LD    HL,1
+NSTEP:    LD    A,'N'
+          LD    (STP_HOW),A
+          LD    HL,1
           LD    (STP_CNT),HL   ; By default step once
           LD    E,0          ; In E
           CALL  SSTEP_BP
@@ -2470,7 +2526,7 @@ _nocs:   LD    A,A_DSKWR-A_DSKRD
 ;   NNNNNNNN - 32 bit sector address into the whole SDCard
 ;   NNNNNNN: - 32 bit sector offset into the currently selected default drive (last mapped or listed)
 ;   NNNNNN:L - 32 bit offset into the specified logical drive (L becomes the default)
-SDUMP:   JR    Z,E_NOSD
+SDUMP:   ;JR    Z,E_NOSD
          CALL  SETDMA
          CALL  WASTESPC
          JR    NZ,_getsd      ; By default load the next available sector
@@ -2487,6 +2543,8 @@ SDUMP:   JR    Z,E_NOSD
 
          LD    A,(SDMP_MD)
          LD    C,A
+         ; LD    A,'}'
+         ; RST   08h
          JR    _ldsd
 
 _getsd:  CALL  SADDR
@@ -2523,7 +2581,18 @@ _sdnxt:  ; Display a row
          JR    NC,_sdnx3
          INC   D
 _sdnx3:  DJNZ  _sdnxt
+
+         LD    HL,_MORESD
+         JR    MORE
          JR    main
+
+_MORESD   DEFW  .more1
+          DEFW  .sdmore2
+          DEFW  .sdmore2
+
+.sdmore2    DEFB  "SD",0
+
+
 
 ; --------------------- SH_DTIME
 ; Display date/time from RTC

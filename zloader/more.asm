@@ -44,8 +44,14 @@ MORE:    LD     E,(HL)    ; Display the prompt
          CP     0Dh        ; Carriage return
          JR     Z,_ret
 
-         ; Key we don't want pressed. 'unget' this and return to the
-         LD     (_prompt+2),A
+         ; Key we don't want pressed. If this is NOT a control character then
+         ; use this character for the start of a new line.
+         CP     20h
+         JR     NC,.okchar
+
+         XOR    A
+
+.okchar: LD     (_prompt+2),A
          LD     HL,_clrln
          CALL   PRINT
          LD     HL,_prompt

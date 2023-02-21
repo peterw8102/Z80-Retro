@@ -1,5 +1,6 @@
 import defs.asm
 import config.asm
+import zlib.asm
 import pcb_def.asm
 
           extrn  SD_INIT,SD_RBLK,SD_WBLK,SD_PRES,SD_SEL,SD_STAT
@@ -13,6 +14,7 @@ import pcb_def.asm
           extrn  P_ALLOC,P_FREE
           extrn  SDTXLTD
           extrn  SD_BKRD,SD_BKWR,SD_PRG
+
           extrn  PRINT_LN
 
           ; For debug
@@ -23,24 +25,7 @@ CSEG
 
 ; IO system dispatcher. Registers:
 ; A: Not used but NOT saved. Can be used for outputs
-; C: Command
-;  1: Select RAM page
-;  2: TX serial port A
-;  3: RX serial port A (wait for char)
-;  4: Check for character on RXA
-;  5: Map logical disk address (10 bits)
-;  6: Set disk DMA address
-;  7: SD Card Read
-;  8: SD Card Read Raw
-;  9: SD Card Write
-; 10: SD Card Write Raw
-; 11: Hardware inventory
-; 12: Device inventory
-;
-;
-; 12: Video Card Status
-; 13: PIO Card Status
-;
+; C: Command. See dispatch table at end of file for code numbers
 ; All other registers are command specific.
 AP_DISP:: LD     A,C
           RLA
@@ -285,7 +270,7 @@ LD_CPFLS:  LD    A,1
            JP   SD_PRG
 
 
-; --------- LD_CPST (CMD 20)
+; --------- LD_CPST (CMD 21)
 ; Copy SDCard read/write/cache stats to buffer in application space
 ; provided in HL
 ; INPUTS:  HL  - Address of buffer to receive stats
@@ -416,6 +401,99 @@ _enddv:   XOR    A
           POP    BC
 LD_NOP:   RET
 
+
+; ----- LD_DTIME
+; Return the date/time from the RTC.
+; INPUTS:  HL - Pointer to a buffer in application space to receive the data. Data is
+; in the format:
+;
+LD_DTIME: PUSH     BC
+          CALL     P_MAPX        ; Map output buffer into Z80 memory
+          PUSH     HL
+          CALL     RTC_INI       ; Initialise RTC
+          LD       HL,_TIME      ; and
+          CALL     RTC_GET       ; get the current time
+
+          ; This is in the interal RTC chip format. Decode into
+          ; something more userful:
+          ; 00:   Seconds (0-59)      - BCD
+          ; 01:   Minutes (0-59)      - BCD
+          ; 02:   Hours (0-23)        - BCD
+          ; 03:   Day of month (1-31) - BCD
+          ; 04:   Month (1-12)        - BCD
+          ; 05:   Year (0-99)         - BCD
+          POP      DE            ; Where to write the data
+          LD       HL,_TIME
+
+          LD       A,(HL)        ; Seconds in a BCD format
+          AND      7fh           ; 10s
+          LD       (DE),A        ; Store
+          INC      HL
+          INC      DE
+
+          ; Minutes
+          LD       A,(HL)        ; Minutes in a BCD format
+          AND      7fh           ; 10s of seconds
+          LD       (DE),A        ; Store
+          INC      HL
+          INC      DE
+
+          ; Hours
+          LD       A,(HL)        ; Hours in a BCD format
+          AND      3fh           ; 10s
+          LD       (DE),A        ; Store
+          INC      HL
+          INC      DE
+
+          ; Step over day of week
+          INC      HL
+
+          ; Date (in month)
+          LD       A,(HL)        ; Date in a BCD format
+          AND      3fh           ; 10s
+          LD       (DE),A        ; Store
+          INC      HL
+          INC      DE
+
+          ; Month
+          LD       A,(HL)        ; Month in a BCD format
+          AND      1fh           ; 10s
+          LD       (DE),A        ; Store
+          INC      HL
+          INC      DE
+
+          ; Year
+          LD       A,(HL)        ; Year in a BCD format
+          LD       (DE),A        ; Store
+          POP      BC
+          RET
+
+
+; Time format from the RTC:
+; 00: ESSSSSSS - E: 1 to disable clock. S - seconds
+; 01: MINS
+; 02: 0-X-Y-HRS
+;       X: 0 - 12 hour, 1 - 24 hour reply
+;       Y: 0 - AM/PM if 12 hour, or MSB of 24 hour clock
+; 03: DAY OF WEEK - 1 to 7
+; 04: DATE
+; 05: MONTH
+; 06: YEAR, 0-99
+; 07: X00X00XX
+;     |  |  ++ -> RS1,RS0  - 00: 1Hz, 01: 4KHz, 10: 8KHz, 11: 32KHz
+;     |  +------> SQWE     - 1: Enable square wave output
+;     +---------> OUT      - State of clock out when SQWE is disabled. 0 or 1
+_TIME:    DEFB 00h             ; Secs + enable clock
+          DEFB 22h             ; Mins
+          DEFB 00000000b | 23h ; 24hr clock, 1am
+          DEFB 01h             ; Day of week (?)
+          DEFB 12h             ; Date
+          DEFB 01h             ; Month
+          DEFB 20h             ; Year
+          DEFB 10010000b       ; Output enabled, 1Hz clock
+
+
+
 JTAB:     DW     LD_MON       ; CMD 0  - Jump back to ZLoader
           DW     LD_PGSEL     ; CMD 1  - RAM Page Select (map)
           DW     P_ALLOC      ; CMD 2  - Allocate a new memory page
@@ -442,6 +520,9 @@ JTAB:     DW     LD_MON       ; CMD 0  - Jump back to ZLoader
           DW     LD_NOP       ; CMD 23 - NOP
           DW     SD_INV       ; CMD 24 - Hardware inventory
           DW     SD_DINV      ; CMD 25 - Inventory of logical devices
+          DW     LD_NOP       ; CMD 26 - NOP
+          DW     LD_NOP       ; CMD 27 - NOP
+          DW     LD_DTIME     ; CMD 28 - Get date/time
 
 MAX_CODE: EQU          ($ - JTAB) << 1
 

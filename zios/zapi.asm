@@ -34,6 +34,8 @@ A_CPSTS      EQU    21    ; Return and optionally clear CP/M request stats
 A_HWINV      EQU    24    ; Hardware inventory
 A_DVINV      EQU    25    ; Device inventory
 
+A_DTIME      EQU    28    ; Return current date time (via a buffer)
+
 ; ZLoader private calls
 S_DSKDM      EQU    $86    ; Set DMA address to ZLoader buffer (no params)
 
@@ -49,3 +51,12 @@ DM_MBLK:   EQU   4
 ; address space. In these cases the application should provide a
 ; pointer to an area of memory AT LEAST this number of bytes long.
 Z_BUFSZ    EQU   64
+
+; ------------ TIME OFFSETS ------------
+; Offsets of values into the buffer given to command 28 (date/time retrieval)
+ZT_SEC     EQU   0
+ZT_MIN     EQU   1
+ZT_HOUR    EQU   2
+ZT_DATE    EQU   3
+ZT_MNTH    EQU   4
+ZT_YEAR    EQU   5

@@ -51,12 +51,12 @@ MORE:    LD     E,(HL)    ; Display the prompt
 
          XOR    A
 
-.okchar: LD     (_prompt+2),A
+.okchar: LD     (_cmd),A
          LD     HL,_clrln
          CALL   PRINT
          LD     HL,_prompt
          CALL   PRINT
-         LD     HL,_prompt+2
+         LD     HL,_cmd
          CALL   SET_LINE
          CALL   EDT_LINE
          CALL   NL
@@ -75,4 +75,5 @@ _spc:    LD     E,(HL)
          JR     EXEC_LN
 
 _clrln   DEFB   13,ESC,'[2K',NULL
-_prompt  DEFB ">  ",0
+_prompt  DEFB "> ",0
+_cmd     DEFB " ",0

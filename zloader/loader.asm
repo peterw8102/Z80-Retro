@@ -1928,14 +1928,15 @@ NSTEP:    LD    A,'N'
 
 ; ----- SHWHIST
 ; Display history with index rows
-SHWHIST:  LD    B,$10
-_nhist:   LD    A,B
+SHWHIST:  LD    B,$11
+_nhist:   DEC   B
           CALL  GETHIST
-          JR    Z,_shist      ; Nothing in that slot
-
-          ; Got a history line.
+          JR    Z,_gnxt      ; Nothing in that slot
+          ; Got a history line, pointer in HL.
           CALL  PRINT_LN
-_shist:   DJNZ  _nhist
+_gnxt:    LD    A,B
+          OR    A
+          JR    NZ,_nhist
           JR    main
 
 
@@ -2788,12 +2789,12 @@ DECCHR:     RST      10h
 IMG:        CALL  SADDR      ; Sets up the target write address
             JR    C,BADPS
             CALL  WASTESPC
-            CALL  INHEX_4    ; Start address in application RAM
-            JR    C,BADPS
+            CALL  GET_HEX   ; Start address in application RAM
+            JR    Z,BADPS
             EX    DE,HL
             CALL  WASTESPC
-            CALL  INHEX_4    ; End address => HL
-            JR    C,BADPS
+            CALL  GET_HEX    ; End address => HL
+            JR    Z,BADPS
 
             ; DE: Start address
             ; HL: End address
@@ -2814,6 +2815,17 @@ _nornd:     SRL   H               ; H is now the number of 512 blocks to write. 
             JR    NZ,_dowr
             LD    H,80h           ; Trying to write the maximum 64K which causes an overflow. Max is 80h pages.
 _dowr:      LD    B,H
+            PUSH  HL
+            PUSH  AF
+            LD    HL,_WSDPG
+            CALL  PRINT
+            LD    L,B
+            LD    H,0
+            CALL  WRITE_D
+            CALL  NL
+            POP   AF
+            POP   HL
+
             EX    DE,HL           ; DE back to being the start address.
 _nxblk:     PUSH  BC
             PUSH  HL
@@ -3072,6 +3084,7 @@ _SFND:       DEFB "Found", NULL
 _NOTF:       DEFB "Not found", NULL
 _NOTEMP:     DEFB "Not empty", NULL
 _TODEL:      DEFB "Delete image: ", NULL
+_WSDPG:      DEFB "SDCard sector count: ",NULL
 
 ; Alternate command table format: LETTER:ADDRESS
 BDG_TABLE:      DB       'B'+80h

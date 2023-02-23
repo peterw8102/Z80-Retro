@@ -1665,13 +1665,26 @@ _na:      DJNZ  _nchr
 
           ; Relative so MAP the logical drive number into virtual drive zero (the A drive). Get
           ; the most significant 16 bits of the address
-          LD    HL,(SDADDR+1)   ; Logical drive number
+          ; LD    HL,(SDADDR+1)   ; Logical drive number
+          ;
+          ; ; Boot record needs to include a device number (one more byte!)
+          ; LD    A,(SDDRV)       ; Which SDCard
+          ; LD    D,A             ; must be passed as B to SDMPRAW
+          ; LD    A,0             ; Drive A to be mapped (0)
+          ; CALL  SDMPRAW         ; Map the drive.
 
-          ; Boot record needs to include a device number (one more byte!)
-          LD    A,(SDDRV)       ; Which SDCard
-          LD    D,A             ; must be passed as B to SDMPRAW
-          LD    A,0             ; Drive A to be mapped (0)
-          CALL  SDMPRAW         ; Map the drive.
+          ; Relative so MAP the logical drive number into virtual drive zero
+          ;  (the A drive). Get the most significant 16 bits of the address.
+          LD    HL,(SDADDR+1)   ; Logical disk number * 64
+          LD    A,(SDDRV)       ; Get the physical SDCard number...
+          LD    E,A             ; ... into E
+          LD    D,0             ; Want to map drive A
+          LD    B,1             ; Use raw mapping optimisation
+          LD    C,A_DSKMP       ; Map disk
+          RST   30h             ; Map the drive
+
+
+
 
 _absadd:  ; Need to work out how many whole blocks we need to load
           POP   DE              ; Get the length back from the stack
@@ -2294,7 +2307,7 @@ _nxt_wd:  ; Add in the next 16 bits
 
 _wrdev:  PUSH   HL
          PUSH   AF
-         LD     A,':'
+         LD     A,'/'
          RST    08h
          LD     HL,_SDEV
          CALL   PRINT
@@ -2307,25 +2320,37 @@ _wrdev:  PUSH   HL
 
 ; ------- MAPDSK
 ; Display current mapped drives
-MAPDSK:  LD    BC,1000h
+MAPDSK:  LD    HL,SCRATCH
+         LD    BC,100h | A_QDSKMP    ; B must be zero
+         RST   30h            ; Get the current drive map
+         LD    BC,1000h
          LD    A,'A'
+         LD    HL,SCRATCH     ; Where the data went
 _dmapn:  PUSH  AF
          RST   08h
          LD    A,':'
          RST   08h
          LD    A,' '
          RST   08h
-         LD    A,C            ; drive for which we want the map
-         INC   C              ; for next time
-         CALL  SDTXLTD        ; HL: disk number (0-1023), A: SDCard number
+
+         LD    A,(HL)         ; Device
+         INC   HL
          PUSH  AF
-         CALL  WRITE_D        ; Write the virtual disk number (HL)
+         LD    E,(HL)
+         INC   HL
+         LD    D,(HL)
+         INC   HL
+         EX    DE,HL
+         CALL  WRITE_D
+         EX    DE,HL
          POP   AF
          CALL  _wrdev         ; Write SDCard name (from A)
          CALL  NL
          POP   AF
          INC   A
+
          DJNZ  _dmapn
+
          JR    main
 
 ; ----- SMAP
@@ -2333,7 +2358,6 @@ _dmapn:  PUSH  AF
 ; SM L PPPP - Map Physical drive (decimal 0-511) to logical drive letter L
 SMAP:     JR    Z,MAPDSK
           CALL  BUFCHUP
-          CALL  TOUPPER
           CP    'A'
           JR    C,_baddrv
           CP    'A'+16
@@ -2348,10 +2372,13 @@ _gotdrv:  PUSH   AF          ; Push DRIVE letter
           CALL   GET_DEC
           JR     Z,E_ERROR
 
-          ; Number from 0-1024
+          ; Number from 1-1023 (Don't allow 0 as a target)
           LD     A,$FC
           AND    H
           JR     NZ,E_NOSD
+          LD     A,H
+          OR     L
+          JR     Z,E_NOSD
 
           ; Optional SDCard
           CALL   BUFCHR
@@ -2369,8 +2396,8 @@ _not1:    CP     '1'
 
 
           ; A has the SDCard (ASCII) number, which needs to be in E for the API call
-_gotsd:   LD     E,A        ; SDCard (into D) as a letter '0' or '1'
-          POP    AF         ; Drive letter
+_gotsd:   LD     E,A        ; SDCard (into E) as a letter '0' or '1'
+          POP    AF         ; Drive letter...
           PUSH   AF
           PUSH   HL         ; disk number
           PUSH   AF
@@ -2399,6 +2426,7 @@ _gotsd:   LD     E,A        ; SDCard (into D) as a letter '0' or '1'
           ; Tell the API the mapping we want.
           SUB    'A'
           LD     D,A             ; Drive slot
+          LD     B,0             ; Standard mapping
           LD     C,A_DSKMP       ; Map drive
 
           ; D:  Drive slot (0-15)
@@ -2926,8 +2954,9 @@ WBOOT:      CALL  BTPREP
             LD   DE,(SDMP_L)
             LD   HL,(SDMP_L+2)
             JR   NZ,_sdabs
-            CALL SDMPADD
-            LD   (IX+10),A      ; Store drive number
+            LD   C,S_DSKTL
+            RST  30H
+            LD   (IX+10),B      ; Store drive number
             LD   A,$80          ; It's a logical address so translate to segment
 _sdabs:     LD   (IX+11),E      ; SDCard address
             LD   (IX+12),D
@@ -2998,7 +3027,7 @@ _wrbos:     CALL  _calc_cs
             CALL  SETDMA
             LD    HL,0
             LD    DE,0
-            LD    C,A_DSKWW
+            LD    C,A_DSKWW    ; Write raw
             RST   30h
 
             JR    _dumpbs
@@ -3087,82 +3116,82 @@ _TODEL:      DEFB "Delete image: ", NULL
 _WSDPG:      DEFB "SDCard sector count: ",NULL
 
 ; Alternate command table format: LETTER:ADDRESS
-BDG_TABLE:      DB       'B'+80h
+BDG_TABLE:      DC       'B'
                 DW        BP
-                DB       'N'+80h
+                DC       'N'
                 DW        NSTEP
-                DB       'R'+80h
+                DC       'R'
                 DW        SET_RGS
-                DB       'S'+80h
+                DC       'S'
                 DW        SSTEP
-                DB       'G'+80h
+                DC       'G'
                 DW        GO
 
-CMD_TABLE:      DB       'BOS','?'+80h
+CMD_TABLE:      DC       'BOS?'
                 DW        SDDIR
-                DB       'BOS','-'+80h
+                DC       'BOS-'
                 DW        SDLOAD
-                DB       'BO','S'+80h
+                DC       'BOS'
                 DW        SDRUN
-                DB       'BO','-'+80h
+                DC       'BO-'
                 DW        BOOTIX
-                DB       'B','O'+80h
+                DC       'BO'
                 DW        BOOT
-                DB       'C'+80h
+                DC       'C'
                 DW        CONFIG
-                DB       'D','M'+80h
+                DC       'DM'
                 DW        DUMPM
-                DB       'D','I'+80h
+                DC       'DI'
                 DW        DUMPI
-                DB       'D','N'+80h
+                DC       'DN'
                 DW        DNVRAM
-                DB       'D','T'+80h
+                DC       'DT'
                 DW        DTIME
-                DB       'D'+80h
+                DC       'D'
                 DW        DUMP
-                DB       'F'+80h
+                DC       'F'
                 DW        FILL
-                DB       'H'+80h
+                DC       'H'
                 DW        CLS
-                DB       'I'+80h
+                DC       'I'
                 DW        INPUT
-                DB       'L','F'+80h
+                DC       'LF'
                 DW        LDF
-                DB       'L','H'+80h
+                DC       'LH'
                 DW        LDH
-                DB       'L'+80h
+                DC       'L'
                 DW        LDT
-                DB       'M','S'+80h
+                DC       'MS'
                 DW        SDMOD
-                DB       'M'+80h
+                DC       'M'
                 DW        MODIFY
-                DB       'N'+80h
+                DC       'N'
                 DW        NSTEP
-                DB       'O'+80h
+                DC       'O'
                 DW        OUTPUT
-                DB       'P'+80h
+                DC       'P'
                 DW        PAGE              ; Display/change application page assignment
-                DB       'Q'+80h
+                DC       'Q'
                 DW        DECCHR
-                DB       'S','D'+80h
+                DC       'SD'
                 DW        SDUMP             ; Display SDCard sector contents
-                DB       'S','M'+80h
+                DC       'SM'
                 DW        SMAP              ; Map a logical to physical SD card.
-                DB       'S','W'+80h
+                DC       'SW'
                 DW        SWRITE            ; Write to an SDCard sesctor
-                DB       'S'+80h
+                DC       'S'
                 DW        MAPDSK            ; Map a logical to physical SD card.
-                DB       'T'+80h
+                DC       'T'
                 DW        EXDBG
-                DB       '.'+80h
+                DC       '.'
                 DW        SHWHIST
-                DB       'G'+80h
+                DC       'G'
                 DW        RUN
-                DB       'W','B'+80h
+                DC       'WB'
                 DW       WBOOT
-                DB       'W','I'+80h
+                DC       'WI'
                 DW       IMG
-                DB       '?'+80h
+                DC       '?'
                 DW        HELP
                 DB        0
 

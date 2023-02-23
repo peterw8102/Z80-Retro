@@ -45,7 +45,7 @@ import defs.asm
           public RESINP
 
           ; Utilities
-          public DEC2BIN
+          extrn DEC2BIN,HEX2BIN
 
           CSEG
 
@@ -69,7 +69,7 @@ GET_HEX:  PUSH  BC
           CALL  SKIPSPC
 next_hc:  OR    A             ; End of input?
           JR    Z, _fin
-cont_hc:  CALL  HEX_TO_BIN
+cont_hc:  CALL  HEX2BIN
           CALL  C,UNGET
           JR    C,_fin
           ADD   HL, HL
@@ -140,7 +140,7 @@ INHEX:    XOR   A
           LD    D,A
           LD    E,A
           CALL  BUFCHR  ; A -> character
-          CALL  HEX_TO_BIN
+          CALL  HEX2BIN
           JR    C,errhexx ; Must be at least ONE hex digit!
 
           ; Multiple HL by 16
@@ -152,7 +152,7 @@ nxtchr:   CALL _shft32
 
           CALL  BUFCHR  ; A -> character
           JR    Z, eonum
-          CALL  HEX_TO_BIN
+          CALL  HEX2BIN
           JR    NC, nxtchr
 
           ; Read a character that's NOT a hex char (or end of line) - unget it
@@ -172,15 +172,22 @@ INHEX_4:  CALL  INHEX_2
           RET
 
 
-; -------- INHEX_2 - Return 2 hex digit value in A. Set C flag on error
+; -------- INHEX_2 - Parse the next TWO characters as an 8bit hex
+; number. If the characters are valid hex digits then the converted
+; value is returned in the accumulator. If either character is invalid
+; then the C flag will be set on exit (clear for a good number)
+; INPUTS:  Next two characters from INPTR.
+; OUTPUTS: A  - converted hex number if valid (otherwise undefined)
+;          C  - Set for an error, clear if number parsesd OK
+; Registers NOT preserved: A
 INHEX_2:  PUSH  HL
           LD    L,0     ; Value being built
           CALL  BUFCHR  ; A -> character
-          CALL  HEX_TO_BIN
+          CALL  HEX2BIN
           JR    C,errhex2
           LD    L,A     ; First byte
           CALL  BUFCHR  ; A -> character
-          CALL  HEX_TO_BIN
+          CALL  HEX2BIN
           LD    H,A     ; Tmp store
           LD    A,L     ; Current val
           JR    C,onedig
@@ -196,42 +203,6 @@ errhex2:  POP   HL
           SCF
           RET
 
-; -------- DEC2BIN
-; Convert the (ASCII) character in A to a binary number. A contains ASCII '0' to '9' inclusive
-; Carry flag set if A contains an invalid character (out of range). Result in A.
-DEC2BIN:    SUB   '0'         ; Minimum value
-            JR    C,inv
-            CP    10
-            JR    NC,inv
-            OR    A           ; Clear carry
-            RET
-
-; -------- HEX_TO_BIN
-; Char in A - 0-15. 255 if not valid char
-HEX_TO_BIN: CALL  TOUPPER     ; Only deal with upper case letters!
-            CP    '0'
-            JR    C, inv      ; Less than zero so invalid
-            CP    'F'+1
-            JR    NC, chklwr  ; > 'F' so ignore
-            CP    '9'+1
-            JR    NC, letter_hc
-            SUB   '0'
-            AND   0fh
-            RET
-letter_hc:  CP    'A'
-            JR    C, inv
-            SUB   'A'-10
-_usech:     OR    A
-            RET
-inv:        SCF
-            RET
-
-chklwr:     CP    'f'+1        ; Check if it's lower a-f
-            JR    NC, inv
-            CP    'a'
-            JR    C,inv        ; Less than 'a' so invalid
-            SUB   'a'-10
-            JR    _usech
 
 
 ; --------------------- SETHIST

@@ -37,6 +37,7 @@ A_DVINV      EQU    25    ; Device inventory
 A_DTIME      EQU    28    ; Return current date time (via a buffer)
 
 ; ZLoader private calls
+S_DSKTL      EQU    $81    ; Translate a logical (drive and offset) into a physical address
 S_DSKDM      EQU    $86    ; Set DMA address to ZLoader buffer (no params)
 
 ; --------------- Define types for A_DVINV --------------

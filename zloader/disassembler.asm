@@ -1,9 +1,8 @@
 ; import config.asm
 import defs.asm
+import zlib.asm
 
 
-          extrn  WRITE_8,HEX_FROM_A
-          extrn  SCRATCH
           public DISASS,SETOFF
 
           CSEG
@@ -1054,7 +1053,7 @@ PRTBUF_X: CALL PRTBUF
           JR   PRTCHR
 
 PRTHEX:   PUSH  HL
-          CALL  HEX_FROM_A        ; A contains the 8 bit value to print to the buffer
+          CALL  BIN2HEX           ; A contains the 8 bit value to print to the buffer
           LD    A,H               ; Result in HL
           CALL  PRTCHR
           LD    A,L

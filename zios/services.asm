@@ -7,7 +7,7 @@ import pcb_def.asm
           extrn  PAGE_MP
           extrn  P_ADJ,P_MAPX
           extrn  PRTERR
-          extrn  SDMPADD,SDMPDSK
+          extrn  SDMPADD,SDMPDSK,SDMPRAW
           extrn  HASPIO,HASVDU,SW_CFG
           extrn  ADD8T16
           extrn  DEVMAP
@@ -49,7 +49,9 @@ AP_DISP:: LD     A,C
           RET                   ; Target is now on the stack so just have to return
 
           ; System requests (internal calls from ZLoader context)
-_dosys:   CP     86h
+_dosys:   CP     81h
+          JR     Z,LD_CPST
+          CP     86h
           JR     Z,LD_EDMA
 
           ; Unknown function
@@ -122,15 +124,26 @@ CHK_CHR:  RST    18h
 ; E  - the physical device. 0: SDCard 1, 1: SDCard 2
 ; HL - the target slot on the SD card to be mapped (0-1023)
 ; D  - the logical disk to map to this physical block. 0-15
+; B  -  0: Use standard addressing
+;      !0: The value in HL is an the logical drive * 64 (For internal use).
+; The second case should be avoided by applications and is an optimisation
+; for use by ZLoader.
+;
 ; Translate into a page and offset and store in local memory
 LD_STDSK: LD     A,D           ; Check drive number in range
           CP     16
           RET    NC
           LD     D,E           ; Which SDCard
-          JP     SDMPDSK
+          LD     E,A           ; Tmp store of the drive number
+          LD     A,B
+          OR     A
+          LD     A,E           ; Get the drive number back
+          JP     Z,SDMPDSK
+          JP     SDMPRAW
 
 ; --------- LD_QSDMP (CMD 6)
 ; Return current drive map.
+; B  - Must be zero for applications and non-zero if memory man has already been configured
 ; HL - Points to memory to receive the current map. Must provide sufficient
 ;      memory to receive the map table.
 ; Format for the output table is 3 bytes per entry.
@@ -145,23 +158,30 @@ LD_QSDMP: PUSH     BC
           PUSH     HL
 
           ; Make application space HL pointer usable here.
+          LD      A,B
+          OR      A
+          JR      NZ,.nomap
           CALL    P_MAPX
 
           ; Clear the output address space.
+.nomap:   LD       D,H         ; Save HL (target address) in DE
+          LD       E,L
           LD       B,64
           XOR      A
 _clr:     LD       (HL),A
           INC      HL
           DJNZ     _clr
-          POP      HL          ; Rewind to start of output area.
-          PUSH     HL
 
           LD       BC,1000h    ; B: counter, C: drive number
 
-_nxdrv:   EX       DE,HL       ; Save target address for output into DE
-          ; Map drive referenced in disk 0.
+          PUSH     AF
+          CALL     NL
+          POP      AF
+
+_nxdrv:   ; Map logical drive referenced in register C.
           LD       A,C
           CALL     SDTXLTD     ; HL contains the selected drive, A the physical disk (sd0/1).
+
           EX       DE,HL       ; Make target address more usable
           LD       (HL),A      ; Store the device ID
           INC      HL
@@ -169,8 +189,13 @@ _nxdrv:   EX       DE,HL       ; Save target address for output into DE
           INC      HL
           LD       (HL),D
           INC      HL
+          EX       DE,HL       ; Make target address more usable
           INC      C           ; Next drive.
           DJNZ     _nxdrv
+
+          PUSH     AF
+          CALL     NL
+          POP      AF
 
           POP      HL
           POP      DE
@@ -287,6 +312,20 @@ LD_CPST:: CALL   P_MAPX     ; Get the buffer address mapped into our memory
           JP     SD_STAT
 
 
+; --------- LD_TXLATE (CMD 22)
+; Translate a logical (Drive+offset) into an absolute sector address
+; on an indentified SDCard.
+; INPUTS:  HLDE  - The logical address
+; OUTPUTS: HLDE  - The translated absolute address
+;          B     - The physical SDCard hosting this drive
+;
+; This is primarily a utility function that's unlikely to be useful to
+; applications.
+LD_TXLATE:: CALL   SDMPADD    ; Get the buffer address mapped into our memory
+            LD     B,A        ; Could return in A, but use B.
+            RET
+
+
 
 ; --------- LD_SDWR (CMD 10)
 ; SDCard Write Block.
@@ -349,13 +388,13 @@ _novdu:   CALL   SW_CFG
 ;          comprises a set of records, each 16 bytes in size with a maximum of
 ;          16 entries.
 ; OUTPUTS:
-;     A:   Contains the number of entries in the output table (max 16)
+;     C:   Contains the number of entries in the output table (max 16)
 ;
 ; The output table comprises UP TO 16 entries, each 16 bytes in size. Each entry
 ; is a record with the following structure:
 ;    Byte:bit   Description
+;       0       System ID number to identify this device
 ;     0-7       Name of the device (eg sd0)
-;       8       System ID number to identify this device
 ;       9       Device type. Defined types:
 ;                  1: Block storage device (disk)
 ;                  2: Console input device
@@ -363,16 +402,16 @@ _novdu:   CALL   SW_CFG
 ;      10       Flags (TBD - currently zero)
 ;   11-15       Device specific information (currently unused)
 ;
-; This will become much more dynamic in future. Devices should register.
-;
-SD_DINV:  PUSH   BC
-          PUSH   DE
+; Currently this table is fixed but will become more dynamic with future code
+; releases.
+SD_DINV:  PUSH   DE
           PUSH   HL
           CALL   P_MAPX     ; Get the target address mapped into memory (into HL)
           LD     DE,DEVMAP  ; System device map
 
           ; Only copy entries that are not empty
           LD     B,16       ; Maximum number of devices supported
+          LD     C,0
           EX     DE,HL
 _nxtdev:  LD     A,(HL)
           OR     A          ; If first byte is zero then there's no device
@@ -385,21 +424,21 @@ _nxtdev:  LD     A,(HL)
           LD     BC,16
           LDIR
           POP    BC
+          INC    C
 _mvon:    DJNZ   _nxtdev
+
+          ; If we get here then we've looked at all 16 device slots and
+          ; found no 0xFF end of table marker.
+
+          ; Put an end of table marker
+_enddv:   POP    HL
+          POP    DE
+LD_NOP:   RET
 
           ; Device slot empty. Skip this in HL
 _skpdev:  LD     A,16
           CALL   ADD8T16
           JR     _mvon
-
-          ; Put an end of table marker
-_enddv:   XOR    A
-          LD     (DE),A
-
-          POP    HL
-          POP    DE
-          POP    BC
-LD_NOP:   RET
 
 
 ; ----- LD_DTIME
@@ -516,7 +555,7 @@ JTAB:     DW     LD_MON       ; CMD 0  - Jump back to ZLoader
           DW     LD_CPPRG     ; CMD 19 - Purge CP/M buffers
           DW     LD_CPFLS     ; CMD 20 - Purge and flush CP/M buffers
           DW     LD_CPST      ; CMD 21 - CP/M storage transaction stats
-          DW     LD_NOP       ; CMD 22 - NOP
+          DW     LD_TXLATE    ; CMD 22 - Translate a logical (drive and offset) into a physical address
           DW     LD_NOP       ; CMD 23 - NOP
           DW     SD_INV       ; CMD 24 - Hardware inventory
           DW     SD_DINV      ; CMD 25 - Inventory of logical devices

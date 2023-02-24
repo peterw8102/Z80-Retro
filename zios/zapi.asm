@@ -40,12 +40,24 @@ A_DTIME      EQU    28    ; Return current date time (via a buffer)
 S_DSKTL      EQU    $81    ; Translate a logical (drive and offset) into a physical address
 S_DSKDM      EQU    $86    ; Set DMA address to ZLoader buffer (no params)
 
+; --------------- Define offsets into the device table records --------------
+DV_ID        EQU    0
+DV_TYPE      EQU    1
+DV_FLAGS     EQU    2
+DV_NAME      EQU    8
+
+; Following offsets are for the DM_MBLK device types
+DV_MAXDR     EQU    3    ; Maximum number for a logical volume
+DV_SZ        EQU    5    ; Size, in MB, of each logical device
+
 ; --------------- Define types for A_DVINV --------------
 ; Device inventory device types.
-DM_CIN:    EQU   1
-DM_COUT:   EQU   2
-DM_BLK:    EQU   3
-DM_MBLK:   EQU   4
+DM_CIN:    EQU   1       ; Console input
+DM_COUT:   EQU   2       ; Console output
+DM_BLK:    EQU   3       ; Block device (floppy/HDD etc)
+DM_MBLK:   EQU   4       ; Multi-drive storage device (SDCard or possibly big HDD)
+
+
 
 ; --------------- Z_BUFSZ --------------
 ; Some operations require ZIOS to copy data into the application's

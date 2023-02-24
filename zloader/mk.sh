@@ -15,6 +15,10 @@ if [ -z "$RELEASE" ]; then
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./dump.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./load.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./datetime.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cfg.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./page.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./exec.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./regs.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./sdutils.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./sdimg.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./sdboot.asm
@@ -29,6 +33,10 @@ else
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./dump.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./load.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./datetime.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cfg.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./page.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./exec.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./regs.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./sdutils.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./sdimg.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./sdboot.asm
@@ -44,6 +52,9 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/dump.rel \
         ./zout/load.rel \
         ./zout/datetime.rel \
+        ./zout/cfg.rel \
+        ./zout/page.rel \
+        ./zout/exec.rel \
         ./zout/regs.rel \
         ./zout/sdutils.rel \
         ./zout/sdboot.rel \

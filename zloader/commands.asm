@@ -2,10 +2,11 @@ import defs.asm
 import config.asm
 import zios.asm
 import zlib.asm
+import zload.asm
 
 
           ; Imports from 'zloader'
-          extrn  main,BADPS,OPMODE,SCRATCH,SDPAGE
+          extrn  main,BADPS,OPMODE,SDPAGE
 
           ; Exports
           public FILL,INPUT,OUTPUT,MODIFY,SDMOD,HELP

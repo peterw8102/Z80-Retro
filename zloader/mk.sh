@@ -12,12 +12,28 @@ if [ -z "$RELEASE" ]; then
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./loader.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./commands.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./disassembler.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./dump.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./load.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./datetime.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./sdutils.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./sdimg.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./sdboot.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./sdcmds.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdtab.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./more.asm
 else
   echo "Building RELEASE version"
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./loader.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./commands.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./disassembler.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./dump.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./load.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./datetime.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./sdutils.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./sdimg.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./sdboot.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./sdcmds.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdtab.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./more.asm
 fi
 
@@ -25,8 +41,17 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/loader.rel \
         ./zout/commands.rel \
         ./zout/disassembler.rel \
+        ./zout/dump.rel \
+        ./zout/load.rel \
+        ./zout/datetime.rel \
+        ./zout/regs.rel \
+        ./zout/sdutils.rel \
+        ./zout/sdboot.rel \
+        ./zout/sdcmds.rel \
+        ./zout/sdimg.rel \
+        ./zout/cmdtab.rel \
         ./zout/more.rel \
-        -P C300 -D C000 \
+        -P C400 -D C000 \
         ../zlib/zout/libsio.rel \
         ../zios/zout/pcb.rel \
         ../zios/zout/nvram.rel \

@@ -30,7 +30,15 @@ MORE:    LD     E,(HL)    ; Display the prompt
          INC    HL
          LD     D,(HL)
          INC    HL
-         PUSH   HL
+
+         ; Can be null in which case use the default
+         LD     A,D
+         OR     E
+         JR     NZ,_havestr
+
+         LD     DE,_more1
+
+_havestr:PUSH   HL
          EX     DE,HL
 
          CALL   PRINT
@@ -77,3 +85,4 @@ _spc:    LD     E,(HL)
 _clrln   DEFB   13,ESC,'[2K',NULL
 _prompt  DEFB "> ",0
 _cmd     DEFB " ",0
+_more1   DEFB  "--- more ---",0

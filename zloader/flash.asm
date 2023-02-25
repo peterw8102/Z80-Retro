@@ -21,7 +21,7 @@ import config.asm
           ; And the RTC/i2c library
           extrn  RTC_INI, RTC_MRD, RTC_MWR
 
-          extrn  PGMAPX,main,BADPS,NL,OPMODE,PGMAPX
+          extrn  PGMAPX,main,E_BADPS,NL,OPMODE,PGMAPX
 
           public FLASH_OP
 

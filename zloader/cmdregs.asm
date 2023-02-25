@@ -1,3 +1,27 @@
+; **********************************************
+; Implements the following status commands:
+;
+;    R         ; Redraw the register display
+;    R reg=val ; Set the register 'reg' to 'val
+;
+; 'reg' can be any 8 or 16 bit register including
+; the alternate registers. Valid named:
+;
+; A,B,C,D,E,H,L
+; A',B',C',D',E',H',L'
+; BC,DE,HL
+; BC',DE',HL'
+; IX,IY
+; PC SP
+;
+; Examples:
+;     R PC=1234     ; Change the programme counter
+;     R HL'=3456    ; Load HL' register pair
+;     R A=22        ; Load A with value
+; **********************************************
+; Copyright Peter Wilson 2022
+; https://github.com/peterw8102/Z80-Retro
+; **********************************************
 import defs.asm
 import config.asm
 import zapi.asm
@@ -8,93 +32,127 @@ import zios.asm
 import zload.asm
 
   extrn  main
-  extrn  E_UNKWN
+  extrn  E_UNKWN,E_ERROR
 
   public SET_RGS,DO_RGS,SHOW_RGS
+
+RNAME  EQU   SCRATCH
+
+; Return NC if the character is allowed in a name. All letters and apostrophe
+_isnchr:  CP    27h     ; single quote (apostrophe) is OK
+          RET   Z
+          CP    'A'
+          RET   C       ; Lower than an 'A'
+          CP    'Z'+1
+          CCF
+          RET
+
+; Get register name into the RNAME buffer (null perminated. Any length but
+; may only contain valid characters.
+_getname: PUSH  BC
+          LD    C,0       ; Number of characters
+          LD    HL,RNAME
+_nchr:    CALL  BUFCHUP
+          CALL  _isnchr
+          JR    C,_badchr
+          LD    (HL),A
+          INC   HL
+          INC   C
+          JR    _nchr
+_badchr:  LD    (HL),0     ; Null terminator
+          LD    C,A
+          OR    A          ; Return with Z set if no valid characters
+          CALL  UNGET
+          POP   BC
+          RET
+
 
 ; ------------------- SET_RGS
 ; CMD: Set register value. R reg=val
 ; reg is A,B,C,D,E,H,L,BC,DE,HL,IX,IY
 ; val is an 8 or 16 bit hex value
-SET_RGS:  CALL  BUFCHUP    ; Get the name of the register, one or two characters
-          JR    Z,SHOW_RGS ; nothing to use
-          LD    D,A        ; First character (required)
-          LD    E,0
-          CALL  BUFCHUP    ; either a space or '=' otherwise use it
+SET_RGS:  CALL  _getname
+          JR    Z,E_UNKWN
+
+          ; Next character should be '='
+          CALL  SKIPSPC
           CP    '='
-          JR    Z,_getval
-          CP    ' '
-          JR    Z,_8bit
-          LD    E,A
-_8bit:    CALL  SKIPSPC    ; Waste characters until '=' or end of line
-          JR    Z,E_UNKWN  ; End of line
-          CP    '='
-          JR    NZ,_8bit
-          ; Now get the hex value to write. Don't care about size at this point
-_getval:  CALL  GET_HEX    ; Value in HL
-          JR    Z,E_UNKWN  ; no value entered
-          ;     DE: One or two character register name
-          ;     HL: Value to store in register
+          JR    NZ,E_ERROR
+
+          ; Then the walue
+          CALL  WASTESPC
+          CALL  GET_HEX
+          JR    Z,E_ERROR
+
+          ; Got everything. Find the target.
           CALL  _reg_addr
-          JR    C,E_UNKWN  ; Unknown register name
-                           ; DE  now contains the address of the register to write. A:0 8 bit, A!=0 16 bit
-          EX    DE,HL      ; 8 bit is common between the two options
+          JR    C,E_UNKWN
+
+          ; DE is target address, A is set/clear depending on the
+          ; size of the target (8/16 bit).
+          ; Write first byte of value to memory
+          EX    DE,HL
           LD    (HL),E
-          JR    NZ,_rend   ; Z will be set for an 8 bit register
-          INC   HL         ; It's 16 bits so write the second byte
+          OR    A            ; 16 bit operation?
+          JR    Z,_only8
+          INC   HL
           LD    (HL),D
-_rend:    JR    SHOW_RGS
+_only8:   JR    SHOW_RGS
 
 ; -------------- reg_addr
-; INPUT:  DE: One or two byte name of the register (ASCII)
+; INPUT:  RNAME  contains a null terminated reg name from the user
 ; SAVED:  HL
-; OUTPUT: DE: The address of the register
-;         C:  Set on unknown register name
-;
-_reg_addr:PUSH  HL       ;DE contains the name of the register
-          LD    A,E
-          OR    A        ; If zero then 8 bit
-          JR    Z,_lu8
-          ; 16 bit look up
-          LD    HL,R_ADDR_16
-_nxt16:   LD    A,(HL)
-          OR    A
-          JR    Z,_nfnd  ; End of table - no match
-          INC   HL
-          CP    D
-          JR    NZ,_miss16
-          LD    A,(HL)
-          CP    E
-          JR    NZ,_miss16
-          ; Found - the address is in the next two bytes
-          XOR   A
-_resreg:  INC   HL
-          LD    E,(HL)
-          INC   HL
-          LD    D,(HL)
-          POP   HL
-          RET
-_miss16:  INC   HL
-          INC   HL
-          INC   HL
-          JR    _nxt16
-_lu8:     LD    HL,R_ADDR_8
-_nxt8:    LD    A,(HL)
-          OR    A
-          JR    Z,_nfnd
-          CP    D
-          JR    NZ,_miss8
-          OR    A        ; Clear C flag
-          ; Found
-          JR    _resreg
-_miss8:   INC   HL
-          INC   HL
-          INC   HL
-          JR    _nxt8
-_nfnd:    ; Bad register name, set the carry flag and return
-          POP  HL
-          SCF
-          RET
+; OUTPUT: DE     The address of the register
+;         A      0 if it's 8bit or 1 if 16 bit
+;         C:     Set on unknown register name
+_reg_addr:  PUSH HL
+            LD   HL,R_ADDR
+_nxtreg:    LD   DE,RNAME
+_nxtchr:    LD   A,(DE)
+            OR   A
+            JR   Z,_miss
+            LD   C,A      ; Char from user entered name
+            LD   A,(HL)   ; From the test table
+            LD   B,A
+            AND  $7f      ; Ignore MSB
+            CP   C
+            JR   NZ,_miss
+            INC  HL
+            INC  DE
+            RLC  B        ; Was the MSB set?
+            JR   NC,_nxtchr
+
+            ; For a complete match (DE) must now be zero
+            LD   A,(DE)
+            OR   A
+            JR   NZ,_miss
+
+            ; Found a match. Next byte is flags then the one after is the address
+            LD   A,(HL)   ; Flag
+            INC  HL
+            LD   E,(HL)   ; Address
+            INC  HL
+            LD   D,(HL)
+            ; EX   DE,HL
+            OR   A         ; Clear carry flag because we matched
+            POP  HL
+            RET
+
+_miss:      LD   A,$80     ; Look for character with MSB set
+            AND  (HL)
+            INC  HL
+            JR   Z,_miss
+            INC  HL        ; End of token. Step over flags and address
+            INC  HL
+            INC  HL
+            LD   A,(HL)
+            OR   A         ; If zero then end of table
+            JR   NZ,_nxtreg
+
+            ; No match. Return with carry set
+            SCF
+            POP  HL
+            RET
 
 
 SHOW_RGS: CALL  DO_RGS
@@ -205,38 +263,38 @@ _nextstk: PUSH  HL             ; HL is now the physical address, DE application 
           CALL  PRINT
           RET
 
+REGDEF MACRO name,flg,addr
+    DC     name
+    DEFB   flg
+    DEFW   addr
+    ENDM
 
 
-R_ADDR_8:  DEFB    'A'
-           DEFW    R_AF+1
-           DEFB    'B'
-           DEFW    R_BC+1
-           DEFB    'C'
-           DEFW    R_BC
-           DEFB    'D'
-           DEFW    R_DE+1
-           DEFB    'E'
-           DEFW    R_DE
-           DEFB    'H'
-           DEFW    R_HL+1
-           DEFB    'L'
-           DEFW    R_HL
-           DEFB     0
-R_ADDR_16: DEFB    "BC"
-           DEFW    R_BC
-           DEFB    "DE"
-           DEFW    R_DE
-           DEFB    "HL"
-           DEFW    R_HL
-           DEFB    "IX"
-           DEFW    R_IX
-           DEFB    "IY"
-           DEFW    R_IY
-           DEFB    "PC"
-           DEFW    R_PC
-           DEFB    "SP"
-           DEFW    R_SP
-           DEFW    0
+R_ADDR:   REGDEF "BC'",  1,   R_BC_P   ; Has to be arranged as longest name first
+          REGDEF "DE'",  1,   R_DE_P
+          REGDEF "HL'",  1,   R_HL_P
+          REGDEF "BC",   1,   R_BC
+          REGDEF "DE",   1,   R_DE
+          REGDEF "HL",   1,   R_HL
+          REGDEF "IX",   1,   R_IX
+          REGDEF "IY",   1,   R_IY
+          REGDEF "PC",   1,   R_PC
+          REGDEF "SP",   1,   R_SP
+          REGDEF "A'",   0,   R_AF_P+1
+          REGDEF "A",    0,   R_AF+1
+          REGDEF "B'",   0,   R_BC_P+1
+          REGDEF "B",    0,   R_BC+1
+          REGDEF "C'",   0,   R_BC_P
+          REGDEF "C",    0,   R_BC
+          REGDEF "D'",   0,   R_DE_P+1
+          REGDEF "D",    0,   R_DE+1
+          REGDEF "E'",   0,   R_DE_P
+          REGDEF "E",    0,   R_DE
+          REGDEF "H'",   0,   R_HL_P+1
+          REGDEF "H",    0,   R_HL+1
+          REGDEF "L'",   0,   R_HL_P
+          REGDEF "L",    0,   R_HL
+          DEFW    0
 
 ; Names for Z80 flag register
 FLAGS_DESC:  DEFB "SZ5H3VNC",NULL

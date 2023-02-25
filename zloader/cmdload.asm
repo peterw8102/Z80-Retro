@@ -1,3 +1,16 @@
+; **********************************************
+; Implements the following status commands:
+;
+;    L          ; Parse Intel hex from terminal
+;    LH         ; Load intel hex file from RaspPi
+;    LF         ; Load binary file from RaspPi
+;    BO         ; Boot default image from RaspPi
+;    BO-        ; Load default image from RaspPi
+;
+; **********************************************
+; Copyright Peter Wilson 2022
+; https://github.com/peterw8102/Z80-Retro
+; **********************************************
 import defs.asm
 import config.asm
 import zapi.asm
@@ -8,11 +21,10 @@ import zios.asm
 import zload.asm
 
   extrn main
-  extrn PRTERR
-  extrn BADPS
+  extrn E_PRTERR
   extrn AUTO_RUN
-  extrn E_NOTF
-  extrn E_ERROR
+
+  extrn E_BADPS,E_NOTF,E_ERROR
 
   public LDF,LDH,LDT,LOADF,BOOT,BOOTIX
 
@@ -34,12 +46,12 @@ _impeof:  XOR   A
 
 SHOWBCNT:  PUSH  HL
            PUSH  AF
-           LD    HL,_nxtblk$
+           LD    HL,(REPTYPE)
            CALL  PRINT
            LD    HL,(LOAD_CNT)
            INC   HL
            LD    (LOAD_CNT),HL
-           CALL  WRITE_16
+           CALL  WRITE_D
            POP   AF
            POP   HL
            RET
@@ -83,14 +95,22 @@ next_b:   CALL  INHEX_2            ; Get a hex byte
           XOR   A
           RET
 
-; When loading a binary file, the user can optionally enter a hex load address. The default address is 100h
+; When loading a binary file, the user can optionally enter a hex
+; load address. The default address is 100h
 cmd_bin:  LD    A,1
           LD    (LOAD_MODE),A     ; Binary mode
           CALL  WASTESPC
           JR    Z,cmd_load
+          CP    '@'
+          JR    NZ,cmd_load
+          CALL  SKIPSPC
           CALL  INHEX_4
-          JR    C,BADPS
+          JR    C,E_BADPS
           LD    (PROGADD),HL
+          CALL  SKIPSPC
+          JR    Z,E_BADPS
+          CP    ','
+          JR    NZ,E_BADPS
           JR    cmd_load
 
 
@@ -102,9 +122,13 @@ PREPLD:   LD    HL,100h           ; Default load address for binary data
           RET
 
 LDF:      CALL  PREPLD
+          LD    HL,_nxtblk$
+          LD    (REPTYPE),HL
           JR    cmd_bin
 
 LDH:      CALL  PREPLD
+          LD    HL,_record$
+          LD    (REPTYPE),HL
           JR    cmd_load
 
 ; ---------------- LOAD
@@ -127,12 +151,9 @@ nextline: CALL  GET_LINE
 
 
 ; Use the CMD_B loader to read blocks of data. Rest of line is the name of the file
-cmd_load: LD    HL,_FNAME
-          CALL  PRINT
-          CALL  GET_LINE
-          CALL  NL
+cmd_load: CALL  WASTESPC
+          LD    HL,(INPTR)
           LD    BC,0
-          LD    HL,INBUF
           ; Count number of characters until end of line OR space
 _cnxt:    LD    A,(HL)
           OR    A
@@ -154,7 +175,8 @@ LOADF:    LD    A,$10         ; Open file command
           ; A contains the status. Zero means the file exists, !0 it doesn't
           JR    NZ,E_NOTF
 
-_blkdn:   ; File is OPEN. LOAD_MODE tells us whether to process input blocks as ASCII hex or not.
+_blkdn:   ; File is OPEN. LOAD_MODE tells us whether to process input blocks as
+          ; ASCII hex or not.
           LD    A,(LOAD_MODE)
           OR    A
           JR    Z,_hexld
@@ -191,21 +213,29 @@ _nxtblk:  LD    A,$11      ; Read block command
           LD    D,A
 
           ; *************** The following looks WRONG. Should be using the page map *************
-          LD    A,(PROGPG)
-          INC   A          ; Map the next page into block 1 space
+          PUSH  HL
+          PUSH  AF
+          LD    HL,(PROGADD)
+          ; Move to the next 16K address
+          LD    A,40h
+          ADD   H
+          LD    H,A
+          ; Remap this address to get the page (don't care about the address)
+          CALL  P_MAP
           LD    (PROGPG),A
           BANK  1
+          POP   AF
+          POP   HL
           ; *************** ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ************************
           JR    _nxtblk
 
 _fin:     INC   A
-          JR    Z,E_ERROR
-          CALL  NL
-          JR    main
+          JR    M_COMP
+          ; JR    main
 
 ; ------------------- _hex_load
-; File is open. Read blocks into our own space and use to fill the input line buffer and call
-; the HEX load for each line.
+; File is open. Read blocks into our own space and use to fill the input line buffer
+; and call the HEX load for each line.
 _hexld:   LD    DE,INBUF
           LD    (INPTR),DE
           XOR   A
@@ -221,7 +251,7 @@ _hexldn:  LD    A,(FIN_CODE)
           LD    B,80h        ; Size of block (bytes)
           LD    HL,FILE_BUF
           LD    DE,(INPTR)
-_nexchr:  LD    A,(HL)
+_nexchr:  LD    A,(HL)       ; Copy to INPTR (INBUF)
           LD    (DE),A
           INC   HL
           CP    0Dh
@@ -232,9 +262,11 @@ _nexchr:  LD    A,(HL)
           ; Have a full line in the buffer so process now
           PUSH  HL
           PUSH  BC
+          CALL  SHOWBCNT
           XOR   A
           DEC   DE
           LD    (DE),A
+
           LD    HL,INBUF
           LD    (INPTR),HL
           CALL  _procln
@@ -253,9 +285,18 @@ _eofhxok: LD    A,(AUTO_RUN)
           LD    HL,0        ; Run from address 0000h
           JR    NZ,PR_RUN
 
+M_COMP:   LD    HL,_COMPLETE
+          JR    E_PRTERR
+
+; ----- BOOT
+; Load default image from the Raspberry Pi (Hex format) but
+; DO NOT RUN THE IMAGE
 BOOT:     LD    A,1
           LD    (AUTO_RUN),A       ; Set auto-run mode
 
+; ----- BOOTIX
+; Load default image from Raspberry Pi and if AUTO_RUN is sset
+; then execute that image.
 BOOTIX:   XOR   A
           LD    (LOAD_MODE),A      ; Force Intel Hex format load
           LD    HL,_BOOTHEX        ; From the default file
@@ -265,9 +306,7 @@ BOOTIX:   XOR   A
 
 
 E_REC:    LD    HL,_REC_ERR
-          JR    PRTERR
-M_COMP:   LD    HL,_COMPLETE
-          JR    PRTERR
+          JR    E_PRTERR
 
 
 
@@ -275,8 +314,9 @@ M_COMP:   LD    HL,_COMPLETE
 _WAITING     DEFB "Waiting...",NULL
 _FNAME       DEFB "File? ",0
 _nxtblk$     DEFB CR,"Block: ",0
+_record$     DEFB CR,"Record: ",0
 _REC_ERR     DEFB CR,LF,"Bad rec",NULL
-_COMPLETE    DEFB CR,LF,"Done",0
+_COMPLETE    DEFB CR,LF,"Complete",0
 _BOOTHEX     DEFB "boot.ihx",0
 
 
@@ -290,3 +330,4 @@ PROGADD    DEFS    2
 PROGPG     DEFS    1
 
 FIN_CODE:  DEFB    0
+REPTYPE:   DEFW    0

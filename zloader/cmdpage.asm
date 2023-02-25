@@ -1,3 +1,13 @@
+; **********************************************
+; Implements the following status commands:
+;
+;    P       ; Display current application pages
+;    P b=p   ; Map page 'p' into bank 'b'
+; There are 4 banks so 'b' can be 0-3
+; **********************************************
+; Copyright Peter Wilson 2022
+; https://github.com/peterw8102/Z80-Retro
+; **********************************************
 import defs.asm
 import config.asm
 import zapi.asm
@@ -8,27 +18,13 @@ import zios.asm
 import zload.asm
 
 
-  ; Disassemmber
-  extrn  DISASS, SETOFF
-
-  ; From dump
-  extrn  DECINST
-
-  ; From regs
-  extrn  DO_RGS
-
-  ; From core
-  extrn  BADPS,PRTERR
-
-
-  extrn  main,MORE,E_ERROR
+  extrn  main,E_BADPS
 
   public PAGE
 
 ; ------------ PAGE
 ; Page operations. Syntax:
-;   PM - Display or change page map
-;   PC - Copy one pge to another
+;   P - Display or change page map
 PAGE:     ; Display current application pages or change a page number
           ; Changing is in the form blknum=pagenum. Eg 3=21
           CALL  SKIPSPC
@@ -36,7 +32,7 @@ PAGE:     ; Display current application pages or change a page number
           SUB   '0'
           JR    C,_shpg
           CP    4
-          JR    NC,E_ERROR
+          JR    NC,E_BADPS
           ; Calculate PAGE_MP position
           LD    HL,PAGE_MP
           ADD   L

@@ -1,3 +1,10 @@
+; **********************************************
+; Implements: 'C' command
+; Syntax: C [id=value]
+; **********************************************
+; Copyright Peter Wilson 2022
+; https://github.com/peterw8102/Z80-Retro
+; **********************************************
 import defs.asm
 import config.asm
 import zapi.asm
@@ -8,18 +15,11 @@ import zios.asm
 import zload.asm
 
 
-  ; Disassemmber
-  ; extrn  DISASS, SETOFF
-  ;
-  ; ; From dump
-  ; extrn  DECINST
-  ;
-  ; ; From regs
-  ; extrn  DO_RGS
   extrn  COLSTR
+  extrn  S_YES,S_NO
   ;
   ; ; From core
-  extrn  BADPS,PRTERR
+  extrn  E_BADPS
   extrn  main
 
   public CONFIG,CFG_TAB
@@ -34,7 +34,7 @@ CONFIG:   CALL   WASTESPC
 
           ; Expect a hex(ish) number for the parameter ID
           CALL   GET_HEX
-          JR     Z,BADPS
+          JR     Z,E_BADPS
           LD     A,L
           LD     HL,CFG_TAB
           JR     C,_cfshw
@@ -45,14 +45,14 @@ CONFIG:   CALL   WASTESPC
           LD     B,A             ; B = config param ID
 _cfgsn:   LD     A,(HL)          ; Bit mask
           OR     A
-          JR     Z,BADPS         ; If zero then reached end of table
+          JR     Z,E_BADPS         ; If zero then reached end of table
 _cfcnxt:  INC    HL
           INC    HL
           CALL   _skpstr
           DJNZ   _cfgsn
 _cfset:   LD     A,(HL)
           OR     A
-          JR     Z,BADPS
+          JR     Z,E_BADPS
           LD     C,A             ; Save mask for later
 
           INC    HL
@@ -75,7 +75,7 @@ _cfset:   LD     A,(HL)
           ; Get the new setting from the user
           CALL   SKIPSPC
           CP     '='
-          JR     NZ,BADPS
+          JR     NZ,E_BADPS
           CALL   SKIPSPC
 
           CP     'N'
@@ -138,9 +138,9 @@ _cfnc:    LD     A,(HL)
 _say:     PUSH  AF
           PUSH  HL
           JR    NZ,_sayyes
-          LD    HL,_no
+          LD    HL,S_NO
           JR    _saynow
-_sayyes:  LD    HL,_yes
+_sayyes:  LD    HL,S_YES
 _saynow:  EX    (SP),HL
           CALL  PRINT
           LD    HL,COLSTR     ; Tab alignment
@@ -160,9 +160,6 @@ _cfnch:   INC    HL
           INC    HL          ; Step past null
           RET
 
-
-_yes:        DEFB "YES", NULL
-_no:         DEFB "NO", NULL
 
 ; ---------- CFG_TAB
 ; Set of boolean flags that can be configured in NVRAM. Format is:

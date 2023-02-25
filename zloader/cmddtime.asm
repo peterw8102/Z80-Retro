@@ -1,3 +1,17 @@
+; **********************************************
+; Implements: 'DT' command
+; Syntax: DT [datetime]
+; Displays or changes the date time
+;
+; 'datetime' is one of the two following forms:
+;   YYMMDD
+;   YYMMDD:HHMMSS
+;   :HHMMSS
+;
+; **********************************************
+; Copyright Peter Wilson 2022
+; https://github.com/peterw8102/Z80-Retro
+; **********************************************
 import defs.asm
 import config.asm
 import zapi.asm
@@ -7,15 +21,14 @@ import zlib.asm
 import zios.asm
 import zload.asm
 
-  extrn main
+  extrn main,E_PRTERR
 
   public DTIME,SHDTIME
 
 
 ; ------------------- DTIME
 ; Display and eventually set date time
-DTIME:    CALL     BUFCHR        ; Step past the 'T'
-          CALL     RTC_INI       ; Initialise RTC
+DTIME:    CALL     RTC_INI       ; Initialise RTC
           LD       HL,_TIME      ; and
           CALL     RTC_GET       ; get the current time
           CALL     WASTESPC
@@ -30,18 +43,21 @@ DTIME:    CALL     BUFCHR        ; Step past the 'T'
           ;
           ; Read current time first
           CP       ':'
-          JR       Z,_stime
+          JR       Z,_settime
+
+          LD       HL,_m1
+          CALL     PRINT
 
           CALL     _GDECNUM     ; Expect a 2 digit year.
-          JR       C,shtime
+          JR       C,errtime
           LD       (_TIME+6),A
 
           CALL     _GDECNUM     ; 2 digit month
-          JR       C,shtime
+          JR       C,errtime
           LD       (_TIME+5),A
 
           CALL     _GDECNUM     ; 2 digit date
-          JR       C,shtime
+          JR       C,errtime
           LD       (_TIME+4),A
 
 _stime:   CALL     BUFCHR
@@ -50,11 +66,11 @@ _stime:   CALL     BUFCHR
           JR       NZ,shtime
 
           CALL     _GDECNUM     ; Expect a 2 hours
-          JR       C,shtime
+          JR       C,errtime
           LD       (_TIME+2),A
 
           CALL     _GDECNUM     ; Expect a 2 mins
-          JR       C,shtime
+          JR       C,errtime
           LD       (_TIME+1),A
 
           CALL     _GDECNUM     ; Expect a 2 secs
@@ -67,7 +83,16 @@ _sdtim:   LD       HL,_TIME
 shtime:   CALL     SHDTIME
           JR       main
 
+errtime:  CALL     SHDTIME
+          LD       HL,_baddt
+          JR       E_PRTERR
 
+_settime: LD       HL,_m2
+          CALL     PRINT
+          JR       _stime
+
+_m1       DEFB     'Setting date and time',10,13,0
+_m2       DEFB     'Setting time',10,13,0
 
 ; ------------------- _GDECNUM
 ; Read two decimal digits into the A register. The high nibble contains the first digit,
@@ -191,3 +216,6 @@ _TIME:    DEFB 00h             ; Secs + enable clock
 
 _FMT:     DEFB "2019-01-01 00:00.00",NULL
 _DIGITS:  DEFB "0123456789"
+
+_baddt:   DEFB "Invalid date time format. Either YYMMDD, YYMMDD:HHMM[SS] or :HHMM[SS]",10,13
+          DEFB "(seconds optional)",0

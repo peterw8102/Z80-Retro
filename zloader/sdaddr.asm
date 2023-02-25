@@ -1,3 +1,14 @@
+; **********************************************
+; SDCard address parsing code shared by
+; a number of SDCard management functions.
+;
+; SADDR parses input text to determine
+; a valid SDCard address. See function header
+; for acceptable formats.
+; **********************************************
+; Copyright Peter Wilson 2022
+; https://github.com/peterw8102/Z80-Retro
+; **********************************************
 import defs.asm
 import config.asm
 import zapi.asm
@@ -8,7 +19,7 @@ import zios.asm
 import zload.asm
 
   extrn  SETDMA
-  extrn  BADPS
+  extrn  E_BADPS
 
   public SADDR,SDMP_MD,SDMP_L
 
@@ -60,13 +71,13 @@ _ginp:   CALL  INHEX
 
          ; relative to a specific drive (or default)
          CALL  BUFCHUP
-         JR    Z,BADPS    ; Missing drive letter
+         JR    Z,E_BADPS    ; Missing drive letter
 
          ; This needs to be a logical drive number (0-15)
          SUB   'A'
-         JR    C,BADPS
+         JR    C,E_BADPS
          CP    16
-         JR    NC,BADPS
+         JR    NC,E_BADPS
 
 _defdrv: ; Get the drive offset which is 13 bits in DE
          LD    H,A       ; Save drive letter

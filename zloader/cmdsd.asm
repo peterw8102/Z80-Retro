@@ -1,3 +1,19 @@
+; **********************************************
+; Implements the following status commands:
+;    SD addr          ; Dump data from SDCard
+;
+; Where 'addr' can be one of the standard forms:
+;   NNNNNNNN - 32 bit sector address into the whole SDCard
+;   NNNNNNN: - 32 bit sector offset into the currently selected default drive (last mapped or listed)
+;   NNNNNN:L - 32 bit offset into the specified logical drive (L becomes the default)
+;
+; Examples:
+;     SD 100     ; Dump the 100h sector. Each sector is 512 bytes. Absolute sector address
+;     SD 100:b   ; Dump the content of the 100th sector in logical drive B
+; **********************************************
+; Copyright Peter Wilson 2022
+; https://github.com/peterw8102/Z80-Retro
+; **********************************************
 import defs.asm
 import config.asm
 import zapi.asm
@@ -15,8 +31,6 @@ import zload.asm
   extrn  DMP16
   extrn  SDPAGE
   extrn  E_NOSD
-
-
 
 ; -------- SDUMP
 ; Dump the contents of a 512 byte SD card sector. By default this is an absolute sector
@@ -80,7 +94,6 @@ _sdnx3:  DJNZ  _sdnxt
 
          LD    HL,_MORESD
          JR    MORE
-         JR    main
 
 _MORESD   DEFW  0
           DEFW  .sdmore2

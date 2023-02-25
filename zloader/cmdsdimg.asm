@@ -1,3 +1,17 @@
+; **********************************************
+; Implements SDCard boot logic:
+;   wi [params]       ; Write image data to an SDCard
+;
+; Parameters are:
+;   wi dest start_addr end_addr
+;
+; 'dest' is an SDCard address, Either absolute or
+; more likely relative to a mapped virtual drive
+; such as 0:b (first sector on mapped drive B)
+; **********************************************
+; Copyright Peter Wilson 2022
+; https://github.com/peterw8102/Z80-Retro
+; **********************************************
 import defs.asm
 import config.asm
 import zapi.asm
@@ -10,7 +24,7 @@ import zload.asm
   public IMG
 
   extrn  main,MORE
-  extrn  BADPS
+  extrn  E_BADPS
   extrn  SADDR,SDMP_L,SDMP_MD
 
 
@@ -23,14 +37,14 @@ import zload.asm
 ;   WB - Write a boot image
 ;
 IMG:        CALL  SADDR      ; Sets up the target write address
-            JR    C,BADPS
+            JR    C,E_BADPS
             CALL  WASTESPC
-            CALL  GET_HEX   ; Start address in application RAM
-            JR    Z,BADPS
+            CALL  GET_HEX    ; Start address in application RAM
+            JR    Z,E_BADPS
             EX    DE,HL
             CALL  WASTESPC
             CALL  GET_HEX    ; End address => HL
-            JR    Z,BADPS
+            JR    Z,E_BADPS
 
             ; DE: Start address
             ; HL: End address

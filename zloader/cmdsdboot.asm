@@ -1,3 +1,13 @@
+; **********************************************
+; Implements SDCard boot logic:
+;   bos?              ; List bootable images
+;   bos-[n]           ; Load but don't run image 'n'
+;   bos [n]           ; Load and run image 'n'
+;   wb [params]       ; Write an entry to the boot menu
+; **********************************************
+; Copyright Peter Wilson 2022
+; https://github.com/peterw8102/Z80-Retro
+; **********************************************
 import defs.asm
 import config.asm
 import zapi.asm
@@ -9,24 +19,17 @@ import zload.asm
 
   public SDLOAD,SDRUN
   public BTPREP,SBCALCS
-  public SDDIR,SETDMA,FNDIMG,WBOOT
+  public SDDIR,SETDMA,WBOOT
 
-  extrn  main,MORE
-  extrn  DISASS,SETOFF,COLSTR
+  extrn  main
   extrn  SDPAGE,SADDR,SDMP_MD,SDMP_L
-  extrn  AUTO_RUN,E_ERROR,E_NOTF,BADPS
-  extrn  E_NEMPT
+  extrn  AUTO_RUN
+  extrn  E_NEMPT,E_NOTF,E_BADPS,E_ERROR
 
-FULBLKS    EQU     SCRATCH
-LASTB      EQU     SCRATCH+1
-SDDRV      EQU     SCRATCH+3
-SDADDR     EQU     SCRATCH+4
-EXECADD    EQU     SCRATCH+8
-SLDMODE    EQU     SCRATCH+10
-
-
-
-
+LASTB      EQU     SCRATCH
+SDDRV      EQU     SCRATCH+2
+SDADDR     EQU     SCRATCH+3
+EXECADD    EQU     SCRATCH+7
 
 ; ------- SDDIR
 ; List the set of bootable images
@@ -165,7 +168,9 @@ _FREES:   DS    2
 
 ; ---- SDLDDEF
 ; Load SDCard boot image with tag ID 1.
-SDLDDEF:  LD    C,1
+SDLDDEF:  CALL  BTPREP
+          JR    NZ,main        ; Invalid checksum in boot memory so no boot available
+          LD    C,1
           JR    _bsload
 
 
@@ -187,10 +192,10 @@ SETDMA:   PUSH  HL
 ; Load data from SDCard into memory. Handles both absolute and drive relative addresses.
 ; INPUTS   (SDDRV):   Drive (0 or 1 at the moment)
 ;          (SDADDR):  Start sector on the SDCard
-;          HL:        Address in RAM into which to store data
+;          HL:        Address in RAM application space RAM
+;                     into which to the loaded store data
 ;          DE:        Number of bytes to load
-SDBREAD:  ; Number of whole 512 byte blocks
-          LD    A,D
+SDBREAD:  LD    A,D
           OR    A
           RRA
           LD    B,A    ; b = number of full blocks to load
@@ -297,10 +302,10 @@ _sdcont:  CALL  BTPREP
           JR    Z,_bsload      ; Boot OS with ID 01
 
 _sdauto:  CALL  GET_DEC        ; Get the decimal type number to boot
-          JR    C,BADPS
+          JR    C,E_BADPS
           LD    A,H
           OR    A
-          JR    NZ,BADPS
+          JR    NZ,E_BADPS
           LD    C,L            ; 'A' contains the image ID to boot
 
 _bsload:  LD    HL,_BSD
@@ -415,18 +420,6 @@ _absadd:  ; Need to work out how many whole blocks we need to load
           JR    NZ,PR_RUN
           JR    main
 
-; ---- BTPREP
-; Prepare the way for managing the ZLoader boot menu. Load the first 512 bytes from the SDCard
-; and set the DMA buffer.
-BTPREP:   ; Always need to load the first 512 byte block that includes the boot information
-          CALL  SETDMA
-          LD    HL,0          ; Sector 0
-          LD    DE,0
-          LD    B,0           ; SDCard 0
-          LD    C,A_DSKRW     ; Raw read
-          RST   30h
-          ; DROP THROUGH TO CALCULATE THE Checksum
-
 ; ---- WBOOT
 ; Write a boot image to the boot manager. There are two options:
 ;   WB id DELETE     - Remove boot information with specified ID
@@ -453,7 +446,7 @@ WBOOT:      CALL  BTPREP
             JR    NZ,E_ERROR
 
             CALL  GET_DEC         ; MUST be an image ID, returned in HL
-            JR    C,BADPS
+            JR    C,E_BADPS
 
             LD    IX,PBUF
             LD    C,L             ; 'C' contains the ID of the image we want
@@ -483,7 +476,7 @@ WBOOT:      CALL  BTPREP
             ; 1: SDAddr
             CALL WASTESPC
             CALL SADDR
-            JR   C,BADPS
+            JR   C,E_BADPS
 
             ; The read command is either relative (for a mapped drive reference) or
             ; raw for an absolute sector address.
@@ -507,28 +500,28 @@ _sdabs:     LD   (IX+11),E      ; SDCard address
             ; 2: Load address
             CALL WASTESPC
             CALL INHEX_4
-            JR   C,BADPS
+            JR   C,E_BADPS
             LD   (IX+15),L
             LD   (IX+16),H
 
             ; 3: Length
             CALL WASTESPC
             CALL INHEX_4
-            JR   C,BADPS
+            JR   C,E_BADPS
             LD   (IX+17),L
             LD   (IX+18),H
 
             ; 4: Execute address
             CALL WASTESPC
             CALL INHEX_4
-            JR   C,BADPS
+            JR   C,E_BADPS
             LD   (IX+19),L
             LD   (IX+20),H
 
             ; 5: Flag
             CALL WASTESPC
             CALL INHEX_2
-            JR   C,BADPS
+            JR   C,E_BADPS
 
             AND  $7F           ; Clear bit 7 for our flag
             OR   A,(IX+21)     ; Mix in the virtual disk flag
@@ -597,6 +590,18 @@ _nc1:       LD    A,(HL)
             XOR   A
             LD    (HL),A
             JR    _wrbos
+
+; ---- BTPREP
+; Prepare the way for managing the ZLoader boot menu. Load the first 512 bytes from the SDCard
+; and set the DMA buffer.
+BTPREP:   ; Always need to load the first 512 byte block that includes the boot information
+          CALL  SETDMA
+          LD    HL,0          ; Sector 0
+          LD    DE,0
+          LD    B,0           ; SDCard 0
+          LD    C,A_DSKRW     ; Raw read
+          RST   30h
+          ; DROP THROUGH TO CALCULATE THE Checksum
 
 ; Calculate checksum. Calculated over 15 slots using a simple shift algorithm Result 16 bits.
 ; Compare calculated value with existing value and set Z if they are the same.

@@ -10,57 +10,83 @@ popd
 if [ -z "$RELEASE" ]; then
   echo "Building DEVELOPMENT version"
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./loader.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./commands.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./disassembler.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./dump.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./load.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./datetime.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cfg.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./page.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./exec.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./regs.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./sdutils.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./sdimg.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./sdboot.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./sdcmds.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./charset.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./breakpoint.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./sdaddr.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmddump.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdload.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmddtime.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdcfg.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdpage.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdexec.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdhist.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdregs.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdsdimg.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdsdboot.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdsd.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdtab.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdsdmap.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdsdwrite.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdhw.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdfill.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdio.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdmodify.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdhelp.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./more.asm
 else
   echo "Building RELEASE version"
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./loader.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./commands.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./disassembler.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./dump.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./load.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./datetime.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cfg.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./page.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./exec.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./regs.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./sdutils.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./sdimg.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./sdboot.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./sdcmds.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./charset.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./breakpoint.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./sdaddr.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmddump.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdload.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmddtime.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdcfg.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdpage.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdexec.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdhist.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdregs.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdsdimg.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdsdboot.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdsd.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdtab.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdsdmap.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdsdwrite.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdhw.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdio.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdmodify.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdhelp.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./more.asm
 fi
 
 ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/loader.rel \
-        ./zout/commands.rel \
         ./zout/disassembler.rel \
-        ./zout/dump.rel \
-        ./zout/load.rel \
-        ./zout/datetime.rel \
-        ./zout/cfg.rel \
-        ./zout/page.rel \
-        ./zout/exec.rel \
-        ./zout/regs.rel \
-        ./zout/sdutils.rel \
-        ./zout/sdboot.rel \
-        ./zout/sdcmds.rel \
-        ./zout/sdimg.rel \
+        ./zout/breakpoint.rel \
+        ./zout/charset.rel \
+        ./zout/sdaddr.rel \
+        ./zout/cmddump.rel \
+        ./zout/cmdload.rel \
+        ./zout/cmddtime.rel \
+        ./zout/cmdcfg.rel \
+        ./zout/cmdpage.rel \
+        ./zout/cmdexec.rel \
+        ./zout/cmdhist.rel \
+        ./zout/cmdregs.rel \
+        ./zout/cmdsdimg.rel \
+        ./zout/cmdsdboot.rel \
+        ./zout/cmdsd.rel \
         ./zout/cmdtab.rel \
+        ./zout/cmdsdmap.rel \
+        ./zout/cmdsdwrite.rel \
+        ./zout/cmdhw.rel \
+        ./zout/cmdfill.rel \
+        ./zout/cmdio.rel \
+        ./zout/cmdmodify.rel \
+        ./zout/cmdhelp.rel \
         ./zout/more.rel \
         -P C400 -D C000 \
         ../zlib/zout/libsio.rel \

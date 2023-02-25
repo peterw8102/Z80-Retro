@@ -10,7 +10,7 @@ import defs.asm
           extrn  BIN2HEX
 
           ; Output functions
-          public PRINT,PRINT_LN,NL,WRITE_8,WRITE_16, WRITE_D
+          public PRINT,PRINT_LN,PRINT_80,NL,WRITE_8,WRITE_16,WRITE_D
 
           CSEG
 
@@ -91,4 +91,20 @@ NL:       LD       A,CR
           RST      08H
           LD       A,LF
           RST      08H
+          RET
+
+; -------------------- PRINT_80
+; Print a string terminated by a character with the most significant bit set. The bit is
+; cleared before printing. Returns the character after the end of the string.
+; INPUT  HL: Start of string
+; OUTPUT HL: Points to byte afer the end of the string
+PRINT_80: LD       A,(HL)
+          BIT      7,A
+          JR       NZ,_eos
+          RST      08h
+          INC      HL
+          JR       PRINT_80
+_eos:     RES      7,A
+          RST      08h
+          INC      HL
           RET

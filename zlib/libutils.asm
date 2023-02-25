@@ -78,7 +78,7 @@ TOUPPER:  CP    'a'                ; Lower case -> upper case
 ;         A  -If Carry clear then a binary number between 0-9
 ; All registers EXCEPT A preserved
 DEC2BIN:    SUB   '0'         ; Minimum value
-            JR    C,inv
+            RET   C
             CP    10
             JR    NC,inv
             OR    A           ; Clear carry

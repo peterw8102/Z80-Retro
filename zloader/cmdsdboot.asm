@@ -17,25 +17,29 @@ import zlib.asm
 import zios.asm
 import zload.asm
 
-  public SDLOAD,SDRUN
-  public BTPREP,SBCALCS
-  public SDDIR,SETDMA,WBOOT
+  public SDLOAD,SDRUN,SDLDDEF
+  public SBCALCS
+  public SDDIR,WBOOT
 
   extrn  main
-  extrn  SDPAGE,SADDR,SDMP_MD,SDMP_L
+  extrn  SDPAGE,SADDR,SDMP_MD,SDMP_L,SETDMA,SDBREAD
   extrn  AUTO_RUN
-  extrn  E_NEMPT,E_NOTF,E_BADPS,E_ERROR
+  extrn  E_NEMPT,E_NOTF,E_BADPS,E_ERROR,E_PRTERR
 
-LASTB      EQU     SCRATCH
-SDDRV      EQU     SCRATCH+2
-SDADDR     EQU     SCRATCH+3
-EXECADD    EQU     SCRATCH+7
+  extrn  DMP16
+
+ENTRIES    EQU     16
+ENTSIZE    EQU     23
+TABSIZE    EQU     ENTRIES * ENTSIZE
+ENDMOFF    EQU     TABSIZE
+CSUMOFF    EQU     TABSIZE + 1
+NUMWDS     EQU     (ENDMOFF >> 1)
 
 ; ------- SDDIR
 ; List the set of bootable images
 ;
 ; Record format
-; All records are 32 bytes and the 512 byte first block contains 15 records
+; All records are ENTSIZE bytes and there are ENTRIES in the first SDCard sector;
 ;  0 - 00 (1): TYPE              : 0: unused, 1: used
 ;  1 - 01 (1): ID                : Numeric ID for this image. Must be unique and non-zero.
 ;  2 - 02 (8): NAME              : Printable
@@ -43,14 +47,17 @@ EXECADD    EQU     SCRATCH+7
 ; 11 - 0B (4): SD_ADDR           : Byte offset into SD Card (SD card address)
 ; 15 - 0F (2): LOAD_ADD          : Address in application space to load this image
 ; 17 - 11 (2): LENGTH            : Number of bytes to load
-; 19 - 13 (2): EXEC_ADDR         : Once loaded, execure from this address
+; 19 - 13 (2): EXEC_ADDR         : Once loaded, exectre from this address
 ; 21 - 15 (1): FLAGS             : Bit 0. If bit 0 set then load libraries, otherwise DON'T
 SDDIR:    CALL  BTPREP
+          LD    HL,_BADCS
+          JR    NZ,E_PRTERR    ; Invalid checksum in boot memory so no boot available
+
 _dumpbs:  ; List all known boot sectors
           LD    HL,_SDINFO
           CALL  PRINT_LN
           LD    HL,SDPAGE
-          LD    B,15
+          LD    B,ENTRIES
 _nxsec:   PUSH  BC
           PUSH  HL
           LD    A,(HL)      ; Record type.
@@ -115,7 +122,7 @@ _nxsd:    WRITE_CHR ' '
 
           CALL  NL
 _sksec:   POP   HL
-          LD    A,32
+          LD    A,ENTSIZE
           CALL  ADD8T16
           POP   BC
           DJNZ  _nxsec
@@ -126,16 +133,18 @@ _sksec:   POP   HL
 
 ; ---- FNDIMG
 ; Find an image with the ID stored in the C register.
-;   B  is not preserved
-;   HL returns the address of the start of the description block
-;   Z  set if the image IS FOUND
 ;
 ; If the image is NOT found then HL returns the address of the
 ; first free slot.
 ;
+; INPUT:   C  - ID of imaged wanted
+; OUTPUT: HL  - Address of boot structure entry (if found)
+;             - If not found address of first free slot or zero if table full
+;          Z  - Set if found (NZ if not found)
+;
 FNDIMG:   LD    HL,SDPAGE
           LD    DE,0
-          LD    B,16
+          LD    B,ENTRIES+1    ; (Should this be just ENTRIES?)
 
           ; Check this block - should countain 01 if it's usable
 _again:   LD    A,(HL)
@@ -146,7 +155,7 @@ _again:   LD    A,(HL)
           LD    A,D
           OR    A
           JR    NZ,_nxtbl
-          LD    E,L
+          LD    E,L            ; Save as free slot
           LD    D,H
           JR    _nxtbl
 
@@ -155,126 +164,23 @@ _usdbs:   INC   HL             ; Usable block - is this the OS we want
           DEC   HL
           CP    C              ; The one we want?
           RET   Z              ; Yes. HL points to start of block descriptor
-_nxtbl:   LD    A,32
+
+_nxtbl:   LD    A,ENTSIZE      ; Step on to next slot
           CALL  ADD8T16
           DJNZ  _again
-          LD    L,E
+          LD    L,E            ; Not found if we reach here. Return first free slot in HL
           LD    H,D
           XOR   A              ; HL to available slot
           INC   A
           RET                  ; Return NZ for Not Found
 
-_FREES:   DS    2
-
 ; ---- SDLDDEF
 ; Load SDCard boot image with tag ID 1.
 SDLDDEF:  CALL  BTPREP
-          JR    NZ,main        ; Invalid checksum in boot memory so no boot available
+          LD    HL,_BADCS
+          JR    NZ,E_PRTERR    ; Invalid checksum in boot memory so no boot available
           LD    C,1
           JR    _bsload
-
-
-
-
-; ------- SETDMA
-; Tell ZIOS to DMA SDCard data into our own memory (SDPAGE buffer).
-SETDMA:   PUSH  HL
-          PUSH  BC
-          LD    HL,SDPAGE     ; The address (offset into page)
-          LD    B,MN_PG       ; The page
-          LD    C,S_DSKDM
-          RST   30h
-          POP   BC
-          POP   HL
-          RET
-
-; ------- SDBREAD
-; Load data from SDCard into memory. Handles both absolute and drive relative addresses.
-; INPUTS   (SDDRV):   Drive (0 or 1 at the moment)
-;          (SDADDR):  Start sector on the SDCard
-;          HL:        Address in RAM application space RAM
-;                     into which to the loaded store data
-;          DE:        Number of bytes to load
-SDBREAD:  LD    A,D
-          OR    A
-          RRA
-          LD    B,A    ; b = number of full blocks to load
-
-          ; Need a partial block at the end?
-          LD     A,D
-          AND    1
-          LD     D,A
-          LD     (LASTB),DE
-
-          ; Start loading blocks.
-_bxtbl:   PUSH   BC
-          PUSH   HL
-
-          ; Tell API where to put data
-          LD     C,A_DSKDM
-          RST    30h
-
-          ; Load the SDCard sector address
-          LD     DE,(SDADDR)
-          LD     HL,(SDADDR+2)
-          LD     A,(SDDRV)
-          LD     B,A
-
-          LD     A,(DDMP_MDE)
-          LD     C,A
-          RST    30h                    ; Load the next page in to RAM
-
-          ; Increase SD address and memory address by 512
-          POP    HL
-          INC    H                      ; Add 512
-          INC    H
-          PUSH   HL
-
-          ; Move to next sector
-          LD     HL,(SDADDR)
-          INC    HL
-          LD     (SDADDR),HL
-          LD     A,L
-          OR     H
-          JR     NZ,_nxt1
-
-          ; Overflow on the low 16 bit address. Inc high 16 bits.
-          LD     HL,(SDADDR+2)
-          INC    HL
-          LD     (SDADDR+2),HL
-
-          ; Any more full blocks to load?
-_nxt1:    POP    HL
-          POP    BC
-          DJNZ   _bxtbl
-
-          ; Full blocks loaded and addresses set up for any partial last block
-          LD     DE,(LASTB)
-          LD     A,E
-          OR     D
-          RET    Z
-
-          ; DE contains number of bytes from last partial block. HL
-          ; is the target address. Standard buffer and use from there.
-          PUSH   HL
-          CALL   SETDMA
-          LD     DE,(SDADDR)
-          LD     HL,(SDADDR+2)
-          LD     A,(SDDRV)
-          LD     B,A
-          LD     A,(DDMP_MDE)
-          LD     C,A
-          RST    30h                  ; Load the next page in to RAM
-
-          ; Copy to destination
-          POP    HL                   ; Current load address. Need to know translate into a valid page address
-          CALL   P_MAP                ; HL contains the target address
-
-          LD     DE,SDPAGE            ; The partial block
-          LD     BC,(LASTB)           ; Number of bytes
-          EX     DE,HL
-          LDIR                        ; Copy
-          RET
 
 
 ; ------- SDLOAD
@@ -360,34 +266,24 @@ _na:      DJNZ  _nchr
 
           LD    E,(HL)
           INC   HL
-          LD    D,(HL)        ; DE is the length
+          LD    D,(HL)           ; DE is the length
           INC   HL
-          PUSH  DE            ; Store length on the stack
+          PUSH  DE               ; Store length on the stack
 
-          LD    E,(HL)        ; Store the exec address
+          LD    E,(HL)           ; Store the exec address
           INC   HL
           LD    D,(HL)
           LD    (EXECADD),DE
           INC   HL
-          LD    A,(NVRAM)     ; Default flag byte
-          AND   ~CF_DEBUG     ; Clear the lower bits and MSB
-          OR    A,(HL)        ; Add in our own flags (OS, break handler, debugger)
-          LD    (P_FLAGS),A   ; Store in the PCB
+          LD    A,(NVRAM)        ; Default flag byte
+          AND   ~CF_DEBUG        ; Clear the lower bits and MSB
+          OR    A,(HL)           ; Add in our own flags (OS, break handler, debugger)
+          LD    (P_FLAGS),A      ; Store in the PCB
 
           ; Stored address is always absolute but if it was specified as relative when
           ; the boot record was created then map the address into logical disk drive A
           RRA
           JR    NC,_absadd
-
-          ; Relative so MAP the logical drive number into virtual drive zero (the A drive). Get
-          ; the most significant 16 bits of the address
-          ; LD    HL,(SDADDR+1)   ; Logical drive number
-          ;
-          ; ; Boot record needs to include a device number (one more byte!)
-          ; LD    A,(SDDRV)       ; Which SDCard
-          ; LD    D,A             ; must be passed as B to SDMPRAW
-          ; LD    A,0             ; Drive A to be mapped (0)
-          ; CALL  SDMPRAW         ; Map the drive.
 
           ; Relative so MAP the logical drive number into virtual drive zero
           ;  (the A drive). Get the most significant 16 bits of the address.
@@ -399,17 +295,12 @@ _na:      DJNZ  _nchr
           LD    C,A_DSKMP       ; Map disk
           RST   30h             ; Map the drive
 
-
-
-
 _absadd:  ; Need to work out how many whole blocks we need to load
           POP   DE              ; Get the length back from the stack
           LD    HL,(LOADADD)    ; And where to start loading.
 
           ; Always going to be reading raw for this function
           LD     A,A_DSKRW
-          LD     (DDMP_MDE),A
-
           CALL   SDBREAD
 
           ; Load complete, auto-execute?
@@ -441,9 +332,18 @@ IMGPOS      EQU   SCRATCH+34
 
 ; WB 7 00006000 D600 2800 ECCD 01 CP/M
 ; WB 9 0:C D600 2800 ECCD 1 CPM TEST
+; WB 1 0:m DB00 2300 F10C 1 ZIOS
+; wb 1 0:b db00 2300 f10c 01 cpm
             ; Prepare/check the boot records
 WBOOT:      CALL  BTPREP
-            JR    NZ,E_ERROR
+            JR    NZ,BADCSWR      ; Invalid checksum in boot memory so no boot available
+
+            LD    HL,PBUF
+            LD    BC,32
+_xxx:       LD    (HL),0
+            INC   HL
+            DJNZ  _xxx
+
 
             CALL  GET_DEC         ; MUST be an image ID, returned in HL
             JR    C,E_BADPS
@@ -478,6 +378,8 @@ WBOOT:      CALL  BTPREP
             CALL SADDR
             JR   C,E_BADPS
 
+
+
             ; The read command is either relative (for a mapped drive reference) or
             ; raw for an absolute sector address.
             LD   A,(SDMP_MD)
@@ -486,9 +388,26 @@ WBOOT:      CALL  BTPREP
             LD   (IX+10),A      ; Clear drive number (abs can only reference SDCard 1)
             LD   DE,(SDMP_L)
             LD   HL,(SDMP_L+2)
+
+
             JR   NZ,_sdabs
-            LD   C,S_DSKTL
+            LD   C,A_DSKTL
             RST  30H
+
+            PUSH DE
+            PUSH HL
+            PUSH AF
+            CALL NL
+            CALL WRITE_16
+            EX   DE,HL
+            CALL WRITE_16
+            CALL NL
+            POP  AF
+            POP  HL
+            POP  DE
+
+
+
             LD   (IX+10),B      ; Store drive number
             LD   A,$80          ; It's a logical address so translate to segment
 _sdabs:     LD   (IX+11),E      ; SDCard address
@@ -496,6 +415,7 @@ _sdabs:     LD   (IX+11),E      ; SDCard address
             LD   (IX+13),L
             LD   (IX+14),H
             LD   (IX+21),A      ; Flags
+
 
             ; 2: Load address
             CALL WASTESPC
@@ -546,17 +466,18 @@ _clr1:      LD   (HL),A
 _ename:     ; Write into the available slot.
             LD    HL,PBUF
             LD    DE,(IMGPOS)
-            LD    BC,32
+            LD    BC,ENTSIZE
             LDIR
 
-_wrbos:     CALL  SBCALCS
+
+SAVEBT:     CALL  SBCALCS
 
             ; Write checksum into page buffer
             LD    A,$FF
-            LD    (SDPAGE+480),A
-            LD    (SDPAGE+481),HL
+            LD    (SDPAGE+ENDMOFF),A     ; End marker
+            LD    (SDPAGE+CSUMOFF),HL    ; Checksum
 
-            ; Patched, calculate checksum and write back to the SDCard
+            ; Patched checksum, back to the SDCard
             CALL  SETDMA
             LD    HL,0
             LD    DE,0
@@ -589,7 +510,40 @@ _nc1:       LD    A,(HL)
             POP   HL
             XOR   A
             LD    (HL),A
-            JR    _wrbos
+            JR    SAVEBT
+
+
+; ----- BADCSWR
+; Checksum is invalid on an attempt to write to the SDCard boot sector. Ask
+; the user whether they want to initialise the data. If so then allow them
+; to continue with the write operation.
+BADCSWR:  LD      HL,_BADCS
+          CALL    PRINT_LN
+          LD      HL,_QINIT
+          CALL    PRINT
+          RST     10h           ; Get next character from keyboard. Must be uppercasse Y
+          CP      'Y'
+          LD      HL,_NC
+          JR      NZ,E_PRTERR
+          CALL    NL
+
+          ; Initialise boot sector - fill SDPage with zeroes and an end of table marker
+          LD      A,$FF
+          LD      HL,SDPAGE
+          LD      (HL),A
+          INC     HL
+          INC     A          ; A now zero
+          LD      (HL),A     ; Clear first byte after marker
+          LD      D,H
+          LD      E,L
+          INC     DE
+          LD      BC,TABSIZE
+          LDIR
+          ; And save sector back to SDCard
+          JR    SAVEBT
+
+
+
 
 ; ---- BTPREP
 ; Prepare the way for managing the ZLoader boot menu. Load the first 512 bytes from the SDCard
@@ -603,11 +557,16 @@ BTPREP:   ; Always need to load the first 512 byte block that includes the boot 
           RST   30h
           ; DROP THROUGH TO CALCULATE THE Checksum
 
-; Calculate checksum. Calculated over 15 slots using a simple shift algorithm Result 16 bits.
-; Compare calculated value with existing value and set Z if they are the same.
+; ----- SBCALCS
+; Calculate checksum. Uses a simple shift and add algorithm.
+; Result 16 bits. Compare calculated value with existing value and set Z if
+; they are the same.
+; INPUT:  SDPAGE contains the boot block (SDCard 1, sector 0)
+; OUTPUT: HL     contains the calculated checksum for the boot menu data
+;         Z      Z is true if the caluclate CS matches the stored CS, NZ otherwise
 SBCALCS:  LD    HL,0         ; the calculated partial CS
           LD    DE,SDPAGE    ; Byte we're working on
-          LD    B,240        ; Number of 16 bit words to calculate sum over
+          LD    B,NUMWDS     ; Number of 16 bit words to calculate sum over
 
 _nxt_wd:  ; Add in the next 16 bits
           LD    A,(DE)
@@ -631,17 +590,16 @@ _nxt_wd:  ; Add in the next 16 bits
           CP    H
           RET
 
-
-
 _SDINFO:     DEFB "ID NAME     DV SDADDR   LOAD  LEN EXEC FL",NULL
 _BSD         DEFB "Image: ", 0
 _SDEV:       DEFB "sd",NULL
 _DEL:        DEFB "DELETE", NULL
 _TODEL:      DEFB "Delete image: ", NULL
-
+_BADCS:      DEFB "Invalid checksum in boot menu", NULL
+_QINIT:      DEFB "Initialise boot sector? (Y/N)", NULL
+_NC:         DEFB 10,13,"Boot data unchanged",NULL
 
         DSEG
 
 
-DDMP_MDE:  DEFS    $FF
-LOADADD:   DEFS    2              ; For the load command, where to start loading binary data
+LOADADD:   DEFW    0              ; For the load command, where to start loading binary data

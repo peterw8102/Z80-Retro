@@ -223,7 +223,7 @@ P_MAP::   PUSH  DE
           POP   DE
           RET
 
-; ---- PGMAPX
+; ---- P_MAPX
 ; Same as PGMAP but also places the *next* application space page into bank 2. Use this if
 ; operations could cross a 16K page boundary.
 ; INPUT:   HL - address in application space

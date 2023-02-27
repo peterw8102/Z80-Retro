@@ -43,7 +43,7 @@ FSH_PG_0    EQU   00h
 
 ; The first MMU page into which to load code using the various load commands. Leave this
 ; value unchanged.
-LD_PAGE     EQU   RAM_PG_0 + 1 + IS_DEVEL + IS_DEVEL
+LD_PAGE     EQU   RAM_PG_0 + 2
 
 ; Decide whether to install the character set (depends whether the graphic card is installed). If
 ; there's no graphic card then CSET can be set to 0 to disable however there are no problems leaving
@@ -58,7 +58,7 @@ endif
 ; MN_PG is the memory page number from which this loader is running. NORMALLY this will be the page number
 ; of the first RAM page (20h if RAM is high). In debug this needs to be 1 because the real monitor loads
 ; into the first page.
-MN_PG       EQU   RAM_PG_0 + IS_DEVEL
+MN_PG       EQU   RAM_PG_0
 
 ; The extended page for the loader is stored in the next RAM page after MN_PG.
 MN2_PG      EQU   MN_PG+1

@@ -15,6 +15,7 @@ if [ -z "$RELEASE" ]; then
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./breakpoint.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./sdaddr.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./sdutils.asm
+  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdflsh.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmddump.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdload.asm
   zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmddtime.asm
@@ -43,6 +44,7 @@ else
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./breakpoint.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./sdaddr.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./sdutils.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdflsh.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmddump.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdload.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmddtime.asm
@@ -71,6 +73,7 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/charset.rel \
         ./zout/sdaddr.rel \
         ./zout/sdutils.rel \
+        ./zout/cmdflsh.rel \
         ./zout/cmddump.rel \
         ./zout/cmdload.rel \
         ./zout/cmddtime.rel \
@@ -107,6 +110,7 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ../zlib/zout/libi2c.rel \
         ../zlib/zout/librtc.rel \
         ../zlib/zout/libmisc.rel \
+        ../zlib/zout/libflash.rel \
         ../zios/zout/services.rel \
         ../zios/zout/devmap.rel \
         ../zios/zout/sdblk.rel \

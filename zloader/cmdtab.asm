@@ -6,6 +6,9 @@ import zlib.asm
    extrn SDMOD,MODIFY,NSTEP,OUTPUT,PAGE,DECCHR,SDUMP,SMAP,SWRITE
    extrn MAPDSK,EXDBG,SHWHIST,RUN,WBOOT,IMG,HELP
 
+   extrn FLSH_ID,FLSH_M,FLSH_PRG,FLSH_CLR
+
+
    public BDG_TABLE,CMD_TABLE,FNDCMD,SETMODE
 
 
@@ -123,7 +126,12 @@ CMD_TABLE:   CMDDEF 'BOS?',SDDIR
              CMDDEF 'DH',  DHW
              CMDDEF 'DT',  DTIME
              CMDDEF 'D',   DUMP
+
+             CMDDEF 'FI',  FLSH_ID
+             CMDDEF 'FP',  FLSH_PRG
+
              CMDDEF 'F',   FILL
+
              CMDDEF 'H',   CLS
              CMDDEF 'I',   INPUT
              CMDDEF 'LF',  LDF

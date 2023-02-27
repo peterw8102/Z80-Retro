@@ -17,3 +17,6 @@ import defs.asm
 
   ; Utilities
   extrn  STRCMP,ADD8T16,TOUPPER,DEC2BIN,HEX2BIN,BIN2HEX
+
+  ; Flash writing functions
+  extrn  FL_ID,FL_CSECT,FL_CPAGE,FL_WSECT,FL_WPAGE

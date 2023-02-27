@@ -50,6 +50,9 @@ PIOB_C          .EQU      $C3
 ; Video card VSYNC port (bit 7 HIGH during vsync)
 VGA_HSYN        .EQU      $E0
 
+; LED Port
+LEDS      EQU 65h
+
 ; I2C HARDWARE
 I2CPORT   EQU 64h
 I2CPORT_H EQU 65h

@@ -55,7 +55,6 @@ endif
 ; OP Code to use in RST vectors
 VEC_CODE  EQU   $C3
 
-
           ASEG
           ORG    0
           DI
@@ -76,6 +75,13 @@ VEC_CODE  EQU   $C3
 
           ORG    $18
           JR     CKINCHAR
+
+          ORG    $3C
+if !IS_DEVEL
+          DEFB   'ZIOS'
+else
+          DEFB   'DEVL'
+endif
 
 END_RES   EQU     $
 
@@ -114,10 +120,29 @@ START:     ; 0. Make sure we're in paged memory mode
            ; page register then switch to paged mode.
 
            ; ------ REMOVE THIS SETUP BEFORE BURNING TO FLASH ------
+
+
+
 if IS_DEVEL
-            BANK   3,MN2_PG       ; Map second supervisor page into bank 3
-            JR    RUN_CLI      ; THIS LINE SHOULD BE IN FOR DEVELOPMENT BUT OUT BEFORE PROGRAMMING TO FLASH
-endif
+            ; Want to overwrite the live version with this version
+            ; Have to do the copy in two sections (for this release)
+            ; 1. Move RAM page 21 to page 20 (current installed monitor)
+            BANK  1,20h
+            LD    HL,0         ; Copy RAM page 22 to RAM page 20
+            LD    DE,$4000
+            LD    BC,$4000
+            LDIR
+            ; 2. Map this into bank zero to free page 21
+            BANK  0,20h        ; Replaces ourselves
+
+            ; 3. Copy page 22 into the now vacated page 21
+            BANK  2,23h
+            BANK  3,21h
+            LD    HL,$8000     ; Copy RAM page 22 to RAM page 21
+            LD    DE,$C000
+            LD    BC,$4000
+            LDIR
+else
             ; Copy the first 32KB of Flash to the first 32K of RAM.
             BANK  0,FSH_PG_0   ; Flash page 1 -> bank 1
             BANK  1,FSH_PG_0+1 ; Flash page 1 -> bank 1
@@ -129,6 +154,7 @@ endif
             LD    DE,$8000
             LD    BC,$8000
             LDIR
+endif
 
 RUN_CLI:    ; We're running in supervisor mode
             BANK  0,MN_PG      ; RAM page 0 into bank 2
@@ -258,7 +284,7 @@ DECCHR:     RST      10h
 ; --------------------- STRINGS
 ; _INTRO:   DEFB "Z80 ZIOS 1.18.10",NULL
 _INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50r"
-_TITLE:   DEFB "Z80 ZIOS 2.1.1",NULL
+_TITLE:   DEFB "Z80 ZIOS 2.1.2",NULL
 _CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r",NULL
 
 ; Set scroll area for debug

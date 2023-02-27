@@ -30,6 +30,7 @@ A_CPMWR      EQU    18    ; Write 128 byte block (optimised for CP/M)
 A_CPPRG      EQU    19    ; Purge write data to device
 A_CPFLS      EQU    20    ; Purge write data to device and clear RAM cache
 A_CPSTS      EQU    21    ; Return and optionally clear CP/M request stats
+A_DSKTL      EQU    22    ; Translate a logical (drive and offset) into a physical address
 
 A_HWINV      EQU    24    ; Hardware inventory
 A_DVINV      EQU    25    ; Device inventory
@@ -37,7 +38,6 @@ A_DVINV      EQU    25    ; Device inventory
 A_DTIME      EQU    28    ; Return current date time (via a buffer)
 
 ; ZLoader private calls
-S_DSKTL      EQU    $81    ; Translate a logical (drive and offset) into a physical address
 S_DSKDM      EQU    $86    ; Set DMA address to ZLoader buffer (no params)
 
 ; --------------- Define offsets into the device table records --------------

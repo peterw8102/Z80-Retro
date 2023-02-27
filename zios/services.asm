@@ -49,9 +49,7 @@ AP_DISP:: LD     A,C
           RET                   ; Target is now on the stack so just have to return
 
           ; System requests (internal calls from ZLoader context)
-_dosys:   CP     81h
-          JR     Z,LD_CPST
-          CP     86h
+_dosys:   CP     86h
           JR     Z,LD_EDMA
 
           ; Unknown function

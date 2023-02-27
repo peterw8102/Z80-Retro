@@ -45,6 +45,8 @@ _impeof:  XOR   A
           RET
 
 SHOWBCNT:  PUSH  HL
+           PUSH  DE
+           PUSH  BC
            PUSH  AF
            LD    HL,(REPTYPE)
            CALL  PRINT
@@ -53,6 +55,8 @@ SHOWBCNT:  PUSH  HL
            LD    (LOAD_CNT),HL
            CALL  WRITE_D
            POP   AF
+           POP   BC
+           POP   DE
            POP   HL
            RET
 
@@ -297,7 +301,9 @@ BOOT:     LD    A,1
 ; ----- BOOTIX
 ; Load default image from Raspberry Pi and if AUTO_RUN is sset
 ; then execute that image.
-BOOTIX:   XOR   A
+BOOTIX:   LD    HL,_record$
+          LD    (REPTYPE),HL
+          XOR   A
           LD    (LOAD_MODE),A      ; Force Intel Hex format load
           LD    HL,_BOOTHEX        ; From the default file
           LD    BC,8

@@ -25,6 +25,9 @@ import zload.asm
           ; From hw
           extrn  SH_HW
 
+          ; From SDCard
+          extrn  SDLDDEF
+
           ; From CMDTAB
           extrn FNDCMD,SETMODE
 
@@ -35,9 +38,6 @@ endif
 
           ; Exported
           public main
-
-
-          public SDPAGE
           public END_RES
 
           public START
@@ -256,8 +256,9 @@ DECCHR:     RST      10h
 
 
 ; --------------------- STRINGS
-_INTRO:   DEFB "Z80 ZIOS 1.18.10",NULL
-; _INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50rZ80 ZIOS 1.18.8",NULL
+; _INTRO:   DEFB "Z80 ZIOS 1.18.10",NULL
+_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50r"
+_TITLE:   DEFB "Z80 ZIOS 2.1.1",NULL
 _CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r",NULL
 
 ; Set scroll area for debug
@@ -288,10 +289,6 @@ HW_SWTCH:  DEFS    1              ; Status of the 3 hardware config bits on boot
 
 FIN_CODE:  DEFB    0
 AUTO_RUN:  DEFB    0
-
-
-SDPAGE     DEFS    512
-
 
 DUMP_CHRS  EQU   SCRATCH
 

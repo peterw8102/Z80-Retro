@@ -290,7 +290,7 @@ DECCHR:     RST      10h
 ; --------------------- STRINGS
 ; _INTRO:   DEFB "Z80 ZIOS 1.18.10",NULL
 _INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50r"
-_TITLE:   DEFB "Z80 ZIOS 2.0.2",NULL
+_TITLE:   DEFB "Z80 ZIOS 2.0.1",NULL
 _CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r",NULL
 
 ; Set scroll area for debug

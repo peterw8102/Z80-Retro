@@ -1,3 +1,14 @@
+; **********************************************
+; Main entry point/startup code for ZLoader:
+; 1. copies self from flash to RAM and executes
+; 2. Enables memory paging
+; 3. Initialises ZIOS and relevant subsystems
+; 4. Runs the command line
+; 5. Dispatches user commands
+; **********************************************
+; Copyright Peter Wilson 2022
+; https://github.com/peterw8102/Z80-Retro
+; **********************************************
 import defs.asm
 import config.asm
 import zapi.asm
@@ -7,14 +18,8 @@ import zlib.asm
 import zios.asm
 import zload.asm
 
-          ; External commands for the command table.
-          extrn  CLRSCR
-
           ; Load commands
           extrn  BOOT
-
-          ; Command table
-          extrn  BDG_TABLE,CMD_TABLE
 
           ; Z80 register management
           extrn  SHOW_RGS
@@ -41,7 +46,7 @@ endif
           public END_RES
 
           public START
-          public COLSTR
+
           public AUTO_RUN
 
           ; Error messages
@@ -50,7 +55,8 @@ endif
           ; Command handlers
           public CLS,DECCHR,EXDBG
 
-          public S_YES,S_NO,S_NOTF,S_NOTEMP
+          ; Common strings
+          public S_YES,S_NO,S_NOTF,S_NOTEMP,S_COLSTR
 
 ; OP Code to use in RST vectors
 VEC_CODE  EQU   $C3
@@ -284,7 +290,7 @@ DECCHR:     RST      10h
 ; --------------------- STRINGS
 ; _INTRO:   DEFB "Z80 ZIOS 1.18.10",NULL
 _INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50r"
-_TITLE:   DEFB "Z80 ZIOS 2.1.2",NULL
+_TITLE:   DEFB "Z80 ZIOS 2.0.1",NULL
 _CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r",NULL
 
 ; Set scroll area for debug
@@ -294,15 +300,13 @@ _PROMPT:  DEFB "> ",0
 _UNKWN:   DEFB "unknown",0
 _IOERR:   DEFB "Param error",0
 
-; VT100 sequences
-CURS_UP:   DEFB ESC,"[A",NULL
-COLSTR:    DEFB CR,ESC,'[25C',NULL
-
 _ERROR       DEFB "Error",0
 _NODRV       DEFB "No OS", NULL
 _PRMBC       DEFB "BP:   @", NULL
 _NOSDADD     DEFB "Bad SDcard address", NULL
 
+; Common (shared) strings
+S_COLSTR:    DEFB CR,ESC,'[25C',NULL
 S_YES:       DEFB "YES", NULL
 S_NO:        DEFB "NO", NULL
 S_NOTF:      DEFB "Not found", NULL

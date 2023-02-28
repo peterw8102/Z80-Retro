@@ -6,6 +6,8 @@ pushd ../zios
 ./mk.sh
 popd
 
+rm zout/*
+
 # Assemble the library modules to be relocatable.
 if [ -z "$RELEASE" ]; then
   echo "Building DEVELOPMENT version"
@@ -60,6 +62,7 @@ else
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdsdmap.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdsdwrite.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdhw.asm
+  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdfill.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdio.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdmodify.asm
   zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdhelp.asm
@@ -95,8 +98,8 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/cmdhelp.rel \
         ./zout/more.rel \
         -P C400 -D C000 \
-        ../zlib/zout/libsio.rel \
         ../zios/zout/pcb.rel \
+        ../zlib/zout/libsio.rel \
         ../zios/zout/nvram.rel \
         ../zios/zout/init.rel \
         ../zios/zout/mempage.rel \

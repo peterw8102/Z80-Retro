@@ -2,6 +2,7 @@
 ;
           extrn PROC
           extrn PAGE_MP
+          extrn P_FLAGS
 
           ; Register stored
           extrn R_PC
@@ -25,3 +26,7 @@
           extrn ENDPCB
 
           extrn SZ_PCB
+
+; SDCard DMA addresses
+          extrn DMA_PAGE    ; Page the application wants us to write SDcard data to
+          extrn DMA_ADDR    ; Offset into the page of the DMA buyffer

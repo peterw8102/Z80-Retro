@@ -9,6 +9,9 @@ import defs.asm
 ;
 ; Input functions:
 ; GET_LINE: Read in a complete line, including history butter
+; SET_LINE: Set the input line buffer to contain this string (HL)
+; EDT_LINE: Edit the content of the input bufffer. Usually set by
+;           first calling SET_LINE
 ; SETHIST:  Switch on or off cursor controls/history in GET_LINE
 ; GETHIST:  Return a specific line from the history buffer
 ;
@@ -32,7 +35,7 @@ import defs.asm
           extrn  ADD8T16,TOUPPER
 
           ; Input functions
-          public GET_LINE
+          public GET_LINE,SET_LINE,EDT_LINE
           public SKIPSPC,WASTESPC,BUFCHR,BUFCHUP
           public SETHIST,GETHIST
           public INHEX,INHEX_2,INHEX_4,GET_HEX,GET_DEC
@@ -42,7 +45,7 @@ import defs.asm
           public RESINP
 
           ; Utilities
-          public DEC2BIN
+          extrn DEC2BIN,HEX2BIN
 
           CSEG
 
@@ -66,7 +69,7 @@ GET_HEX:  PUSH  BC
           CALL  SKIPSPC
 next_hc:  OR    A             ; End of input?
           JR    Z, _fin
-cont_hc:  CALL  HEX_TO_BIN
+cont_hc:  CALL  HEX2BIN
           CALL  C,UNGET
           JR    C,_fin
           ADD   HL, HL
@@ -137,7 +140,7 @@ INHEX:    XOR   A
           LD    D,A
           LD    E,A
           CALL  BUFCHR  ; A -> character
-          CALL  HEX_TO_BIN
+          CALL  HEX2BIN
           JR    C,errhexx ; Must be at least ONE hex digit!
 
           ; Multiple HL by 16
@@ -149,7 +152,7 @@ nxtchr:   CALL _shft32
 
           CALL  BUFCHR  ; A -> character
           JR    Z, eonum
-          CALL  HEX_TO_BIN
+          CALL  HEX2BIN
           JR    NC, nxtchr
 
           ; Read a character that's NOT a hex char (or end of line) - unget it
@@ -169,15 +172,22 @@ INHEX_4:  CALL  INHEX_2
           RET
 
 
-; -------- INHEX_2 - Return 2 hex digit value in A. Set C flag on error
+; -------- INHEX_2 - Parse the next TWO characters as an 8bit hex
+; number. If the characters are valid hex digits then the converted
+; value is returned in the accumulator. If either character is invalid
+; then the C flag will be set on exit (clear for a good number)
+; INPUTS:  Next two characters from INPTR.
+; OUTPUTS: A  - converted hex number if valid (otherwise undefined)
+;          C  - Set for an error, clear if number parsesd OK
+; Registers NOT preserved: A
 INHEX_2:  PUSH  HL
           LD    L,0     ; Value being built
           CALL  BUFCHR  ; A -> character
-          CALL  HEX_TO_BIN
+          CALL  HEX2BIN
           JR    C,errhex2
           LD    L,A     ; First byte
           CALL  BUFCHR  ; A -> character
-          CALL  HEX_TO_BIN
+          CALL  HEX2BIN
           LD    H,A     ; Tmp store
           LD    A,L     ; Current val
           JR    C,onedig
@@ -193,42 +203,6 @@ errhex2:  POP   HL
           SCF
           RET
 
-; -------- DEC2BIN
-; Convert the (ASCII) character in A to a binary number. A contains ASCII '0' to '9' inclusive
-; Carry flag set if A contains an invalid character (out of range). Result in A.
-DEC2BIN:    SUB   '0'         ; Minimum value
-            JR    C,inv
-            CP    10
-            JR    NC,inv
-            OR    A           ; Clear carry
-            RET
-
-; -------- HEX_TO_BIN
-; Char in A - 0-15. 255 if not valid char
-HEX_TO_BIN: CALL  TOUPPER     ; Only deal with upper case letters!
-            CP    '0'
-            JR    C, inv      ; Less than zero so invalid
-            CP    'F'+1
-            JR    NC, chklwr  ; > 'F' so ignore
-            CP    '9'+1
-            JR    NC, letter_hc
-            SUB   '0'
-            AND   0fh
-            RET
-letter_hc:  CP    'A'
-            JR    C, inv
-            SUB   'A'-10
-_usech:     OR    A
-            RET
-inv:        SCF
-            RET
-
-chklwr:     CP    'f'+1        ; Check if it's lower a-f
-            JR    NC, inv
-            CP    'a'
-            JR    C,inv        ; Less than 'a' so invalid
-            SUB   'a'-10
-            JR    _usech
 
 
 ; --------------------- SETHIST
@@ -238,6 +212,33 @@ chklwr:     CP    'f'+1        ; Check if it's lower a-f
 SETHIST:  LD      (MLINE),A
           RET
 
+; --------------------- SET_LINE
+; Write a null terminated string into the input buffer and treat it as though
+; it was typed by the user.
+; INPUT:  HL  - Pointer to the null terminated string
+SET_LINE: PUSH    AF
+          PUSH    BC
+          PUSH    DE
+          PUSH    HL
+          CALL    RESBUF      ; Clear buffer
+          LD      DE,INBUF
+          LD      B,LINELEN   ; Maximum line length allowed
+.nextch:  LD      A,(HL)
+          LD      (DE),A
+          OR      A
+          JR      Z,.setpos
+          INC     DE
+          INC     HL
+          DJNZ    .nextch
+
+          ; Store current position
+.setpos:  LD      HL,INBUF
+          LD      (INPTR),HL
+          POP     HL
+          POP     DE
+          POP     BC
+          POP     AF
+          RET
 ; --------------------- GET_LINE
 ; Block until the user types RETURN. The entered line is in the input buffer (INBUF). The
 ; line can be processed either using GETCHR/SKIPSPC/WASTESPC etc or the client code can
@@ -249,18 +250,14 @@ SETHIST:  LD      (MLINE),A
 ; will be cleared.
 GET_LINE: PUSH    HL
           PUSH    BC
-          CALL    INITMLN       ; Reset the history pointer
-          CALL    RESINP
-          LD      B,LINELEN
-          XOR     A
+          CALL    INITMLN        ; Reset the history pointer
+          CALL    RESBUF
           LD      HL,INBUF
-_znxt:    LD      (HL),A
-          INC     HL
-          DJNZ    _znxt
-          LD       HL, INBUF     ; Reset the character pointer to start of line
-          LD      (CURSOR), HL   ; Where we're currently entering content.
-          LD       BC, 0         ; B: Cursor pos, C: last character
 
+          ; Entry point to continue editing the current line. At this point:
+          ;    'HL' must point to the current position in the input buffer!
+          ;    'B'  must be the current offset into the line.
+          ;    'C'  is used to contain the last entered chartacter.
 getc:     RST      10H
           LD       C,A           ; Save last character
           CP       ESC           ; Check for significant control characters
@@ -286,7 +283,6 @@ _ext:     LD      A,LINELEN
 
           ; Move cursor forward
           INC     HL
-          LD      (CURSOR),HL
           INC     B             ; Cursor offset
           LD      A,C
           RST     08H           ; Echo character
@@ -297,6 +293,8 @@ eol:      LD      A,(MLINE)
           JR      Z,nosave      ; History buffer disabled
           LD      A,(INBUF)
           CP      ':'           ; Skip lines starting with ':'
+          JR      Z,nosave
+          CP      '.'           ; Skip lines starting with '.'
           JR      Z,nosave
           OR      A             ; Is the line empty?
           CALL    NZ,ADD_HIST   ; Add current line to history buffer if line is not empty
@@ -338,6 +336,29 @@ _esc:     LD      A,(MLINE)     ; MLINE is true if history buffer (up/down arrow
           ; Delete the current character
           CALL    DELETE
           JR      getc         ; Not a recognised escape sequence.
+
+; --------- EDT_LINE
+; As GET_LINE but use the current content of the INBUF. Cursor positioning
+; for this along with getting the correct line display is left to the client code.
+;
+; Generally clients will call SET_LINE to fill the input buffer with the line
+; to be edited then call EDT_LINE for the interractive part.
+EDT_LINE: PUSH    HL
+          PUSH    BC
+          CALL    INITMLN     ; Initialise the multiline history buffer
+          LD      HL,INBUF
+          LD      B,0         ; Column
+.nxt      LD      A,(HL)
+          OR      A
+          JR      Z,.atend
+          RST     08h         ; Print it
+          INC     HL          ; Not end of line so move forward
+          INC     B
+          JR      .nxt
+
+          ; HL points to the null terminator, B is the number of
+.atend:   LD      C,0
+          JR      getc
 
 ; -------------------------
 ; CURSOR CONTROL FUNCTIONS
@@ -388,37 +409,38 @@ _hprev:   CALL    DECB      ; Keep going back until OD or FF
           JR      _hprev    ; Step back
 
 _hfnd:    CALL    INCB      ; Step in front of the line marker
-          XOR     A
           INC     A         ; NZ for found
           RET
 
 
 ; -- _pline
-; Discard the current line and move to the previous one
-_pline:   PUSH    HL
+; Discard the current line and move to the previous one from the history buffer
+_pline:   EX      DE,HL
           LD      HL,(HPOS) ; Move backwards in this history buffer until the previous-but-one OD/FF
           CALL    DECB      ; Points to the previous OD
 _pl1:     CALL    DECB      ; Keep going back until OD or FF
           CP      0Dh
           JR      Z,_pl1_st
-          INC     A
-          JR      NZ,_pl1
+          INC     A         ; Either an FF or part way through a command
+          JR      NZ,_pl1   ; Wasn't an FF so go back further
 
-          ; Found an FFh which means there's we've got back to the head of the
-          ; history queue. Step forward 1 character. If that's FF then the queue
-          ; is empty
+          ; Found an FFh which means we've got back to the head of the
+          ; history queue. Step forward 1 character. If that's FF then
+          ; the queue is empty
           CALL    INCB
-          LD      A,(HL)
           INC     A
           JR      NZ,_more
-_nmore:   POP     HL
+_nmore:   EX      DE,HL     ; No more history entries. Leave everything unchanged
           JR      getc
 
-_nline:   PUSH    HL
+; -- _nline
+; Discard the current line and move to the next one from the history buffer
+_nline:   EX      DE,HL
           LD      HL,(HPOS)
           LD      A,(HL)
           INC     A
           JR      Z,_nmore
+
           ; Step forward to the end of this line (OD)
 _nl1:     CALL    INCB
           CP      0Dh
@@ -428,10 +450,9 @@ _pl1_st:  CALL    INCB
           INC     A
           JR      Z,_nmoren    ; End of history
 _more:    LD      (HPOS),HL
-          POP     HL
           JR      _RESLN
 
-_nmoren:  LD      A,ESC    ; restore cursor
+_nmoren:  LD      A,ESC    ; restore cursor to start of line
           RST     08H
           LD      A,'8'
           RST     08H
@@ -441,34 +462,39 @@ _nmoren:  LD      A,ESC    ; restore cursor
           RST     08H
           LD      A,'K'
           RST     08H
-          LD      HL,INBUF ; Reset to start of line
-          LD      (HL),0   ; Terminator
+          CALL    RESBUF
+          LD      HL,INBUF ; HL points to start of line
+          LD      BC,0
           JR      getc
 
 ; ------ _RESLN
 ; Copy the current history line to the input buffer and update display.
 _RESLN:   PUSH    DE
 
+          CALL    RESBUF    ; Clear buffer
+
           ; Restore cursor
           LD      A,ESC
           RST     08H
           LD      A,'8'
           RST     08H
-          LD      HL,(HPOS)
+
+          LD      HL,(HPOS)  ; History buffer line
           LD      DE,INBUF
           LD      B,0
 _nch3:    LD      A,(HL)
           CP      0Dh
           JR      Z,_eohl
           LD      (DE),A
-          RST     08H
-          INC     B        ; Character count
+          RST     08H        ; Print it
           INC     DE
+          INC     B          ; Cursor position (num chars)
           CALL    INCB
           JR      _nch3
-_eohl:    EX      DE,HL
-          LD      (HL),0
+
+_eohl:    EX      DE,HL      ; Current position in buffer must be in HL before jumping to getc
           POP     DE
+
           ; Clear to end of line
           LD      A,ESC
           RST     08H
@@ -476,8 +502,25 @@ _eohl:    EX      DE,HL
           RST     08H
           LD      A,'K'
           RST     08H
+
+          ; Jump back into the get-line loop
           JR      getc
 
+; ----- RESBUF -----
+; Clear the buffer, reset the CURSOR and INPTR
+RESBUF:   PUSH    HL
+          LD      HL,INPTR
+          LD      B,LINELEN
+          XOR     A
+.clrnxt:  LD      (HL),A
+          INC     HL
+          DJNZ    .clrnxt
+          LD      HL,INBUF
+
+          LD      (INPTR),HL
+          LD      BC,0
+          POP     HL
+          RET
 
 ; ----- deol
 ; Delete to end of line (Ctrl-K)
@@ -508,6 +551,7 @@ bspc:     XOR      A
 INITMLN:  PUSH     HL
           LD       HL,(LPOS)
           LD       (HPOS),HL
+
           ; Store the cursor position
           LD       A,ESC
           RST      08H
@@ -518,6 +562,7 @@ INITMLN:  PUSH     HL
           LD       A,(INIT)
           OR       A
           RET      NZ
+
           ; Initialise the history buffer
           PUSH     BC
           PUSH     DE
@@ -574,26 +619,27 @@ _dupret:  POP     DE
 
 ; ----- GETHIST
 ; Return the 'n'th history row.
-; A: requested history index
+; INPUTS: B  - requested history index
 ;    index 0 is the most recent history item
-; Return: HL: Points to the start of the line, teminated with an OD
-;             Return Z:  No history item
+; OUTPUT: HL - Points to the start of the line, teminated with an O
+;              Return Z:  No history item
 ;                    NZ: Returned item pointed to by HL
 GETHIST:  PUSH     BC
           PUSH     DE
-          LD       B,A
-          INC      B           ; Index counter
+          LD       DE,INBUF
+          INC      B           ; Index counter. want one more than requested.
           LD       HL,(LPOS)
 _gh1:     CALL     DECB        ; Points to the previous OD (or FF)
-          INC      A
+          INC      A           ; If DECB returns 0xFF then no more lines
           JR       Z,_gh0      ; Wasn't an 0D so no line
           CALL     _hprev      ; Step back - found if NZ
-          ; JR       Z,_gh0
+          JR       Z,_gh0
           ; HL points to start of line - need to look back further?
           DJNZ     _gh1
 
-          ; Got the line wanted, copy to the line buffer
           LD       DE,INBUF
+
+          ; Got the line wanted, copy to the line buffer
 _gh3:     LD       A,(HL)
           CP       $0D
           JR       Z,_gh2
@@ -602,7 +648,7 @@ _gh3:     LD       A,(HL)
           CALL     INCB
           JR       _gh3
 
-_gh2:     LD       HL,INBUF
+_gh2:     LD       HL,INBUF     ; The return value so the caller can find the string
           XOR      A
           LD       (DE),A
           INC      A
@@ -708,7 +754,7 @@ INCB:     INC      HL
 ; Increment HL and keep it in the bounds of the history buffer
 DECB:     DEC      HL
           ; Keep in the 1K history buffer
-_scope:   LD       A,3
+_scope:   LD       A,(HIGH MLSZ)-1
           AND      H
           OR       HIGH MLBUF
           LD       H,A
@@ -747,7 +793,7 @@ BUFCHUP:  CALL      BUFCHR
 ; ------ UNGET
 ; Wind back ONE character unless at start of buffer. This function is NOT currently exported.
 ; All registers are preserved.
-UNGET:    PUSH     AF
+UNGET::   PUSH     AF
           PUSH     HL
           PUSH     DE
           LD       HL, INBUF    ; Start of buffer
@@ -815,7 +861,6 @@ _ENDPRG:
             dseg
 LINELEN:    EQU   128
 INPTR:      DEFW  INBUF    ; Position in current line (READ)
-CURSOR:     DEFW  INBUF    ; Position in current line (INPUT)
 INBUF:      DS    LINELEN
 INIT:       DEFB  0        ; Initialised to 'false'. Set true once hist bug initialised.
 MLINE:      DEFB  1        ; If true then implement a line buffer/line editor

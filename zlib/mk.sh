@@ -1,5 +1,7 @@
 #/bin/sh
 
+rm zout/*
+
 # Utilities
 zmac -j -J --rel7 --oo obj,lst ./libutils.asm
 
@@ -28,6 +30,9 @@ zmac -j -J --rel7 --oo obj,lst ./librtc.asm
 
 # SDCard library
 zmac -j -J --rel7 --oo obj,lst ./libsdc.asm
+
+# Flash
+zmac -j -J --rel7 --oo obj,lst ./libflash.asm
 
 # Miscelaneous hardware
 zmac -j -J --rel7 --oo obj,lst ./libmisc.asm

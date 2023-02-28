@@ -1,15 +1,11 @@
 ; import config.asm
-import ../zlib/defs.asm
+import defs.asm
+import zlib.asm
 
 
-          extrn  WRITE_8,HEX_FROM_A
-          extrn  SCRATCH
           public DISASS,SETOFF
 
-          ASEG
-          ORG     $4000
-          PHASE   $C000
-
+          CSEG
 
 
 ; Experimental simple Z80 disassembler which *might* replace the sime line dump DI operation
@@ -1057,7 +1053,7 @@ PRTBUF_X: CALL PRTBUF
           JR   PRTCHR
 
 PRTHEX:   PUSH  HL
-          CALL  HEX_FROM_A        ; A contains the 8 bit value to print to the buffer
+          CALL  BIN2HEX           ; A contains the 8 bit value to print to the buffer
           LD    A,H               ; Result in HL
           CALL  PRTCHR
           LD    A,L

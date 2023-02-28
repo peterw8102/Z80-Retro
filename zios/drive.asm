@@ -1,15 +1,9 @@
 ; Set of utilities used to manage virtual SDCard drive mappings.
-
-
-    ; Utilities
-    extrn  ADD8T16
-
-    import pcb_def.asm
-    ; DEBUG
-    ; extrn  WRITE_8,WRITE_16,NL
+import zlib.asm
+import pcb_def.asm
 
     ; Function exports
-    public SDTXLT,SDTXLTD,SDMPADD,SDMPDSK,SDPREP,SDMPRAW ;,SDDRV
+    public SDTXLT,SDTXLTD,SDMPADD,SDMPDSK,SDPREP,SDMPRAW
 
 CSEG
 
@@ -40,6 +34,10 @@ CSEG
 ;
 ; DRVMAP contains the values to replace 'v' in the resultant address.
 ;
+; INPUTS:   HLDE   - Logical SDCard address
+; OUTPUTS   A      - Physical SDCard (0 or 1)
+;           HLDE   - Physical address in the specified SDCard
+;
 SDMPADD:  LD     A,H        ; The upper 8 bits contain logical drive, needs to be mapped
                             ; to the fully qualified upper 10 bits of the sector number.
           CALL   SDTXLT     ; Upper 16 bit address of SDCard now in HL
@@ -62,7 +60,7 @@ SDMPADD:  LD     A,H        ; The upper 8 bits contain logical drive, needs to b
 ; OUTPUTS: HL - The upper 16 bit of the current drive mapping.
 ;           A - Physical device (SDCard 0 or 1)
 ;
-; Other registers save.
+; Other registers saved.
 SDTXLT:   CALL   _toslot
           PUSH   DE         ; Stack <= LSWord
           LD     A,(HL)     ; Return the physical SDCard number
@@ -131,8 +129,8 @@ _invsd:   POP    BC
 ; INPUTS:   A - the drive slot (letter) to be mapped
 ;           D - the physical DEVICE (0 or 1) - which SDCard
 ;          HL - the virtual disk to map to this drive
-SDMPRAW:  PUSH   BC
-          PUSH   DE
+SDMPRAW:  PUSH   DE
+          PUSH   BC
           LD     B,D           ; Save the SDCard number
           EX     DE,HL         ; Save HL into DE (disk to be mapped to drive)
           CALL   _toslot       ; HL points to the slot to contain the mapping
@@ -141,6 +139,7 @@ SDMPRAW:  PUSH   BC
           LD     A,$FE
           AND    B
           JR     NZ,_invsd2
+
           LD     (HL),B
           INC    HL
 
@@ -151,8 +150,9 @@ SDMPRAW:  PUSH   BC
           LD     (HL),A        ; Store in the address map
           INC    HL
           LD     (HL),D
-_invsd2:  POP    DE
-          POP    BC
+
+_invsd2:  POP    BC
+          POP    DE
           RET
 
 

@@ -1,5 +1,6 @@
           public PROC
           public PAGE_MP
+          public P_FLAGS
 
           ; Register stored
           public R_PC,R_SP,R_AF,R_AF_P
@@ -15,6 +16,10 @@
           public DRVMAP
           public ENDPCB
 
+          public DMA_PAGE    ; Page the application wants us to write SDcard data to
+          public DMA_ADDR    ; Offset into the page of the DMA buyffer
+
+
           public SZ_PCB
 
 
@@ -27,6 +32,14 @@
 ; however there needs to be a way to switch focus between processes.
 PROC:      EQU     $
 PAGE_MP:   DEFS    4              ; Used to restore/track active pages
+P_FLAGS:   DEFS    1              ; Flags to be used when starting this process (default taken from NVRAM)
+
+; ---------- DMA_??? ----------
+; Each process needs its own DMA target address for SDCard data. Make this part
+; of the PCB data.
+DMA_PAGE   DEFS    1              ; Page the application wants us to write SDcard data to
+DMA_ADDR   DEFS    2              ; Offset into the page of the DMA buyffer
+
 
 ; Suspenended execution registers. NOTE - application page 0
 ; has the applications AF and PC.

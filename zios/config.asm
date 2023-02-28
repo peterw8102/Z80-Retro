@@ -4,11 +4,21 @@
 YES      .EQU      1
 NO       .EQU      0
 
-; Where to initialise the supervisors stack If the stack is already configured set
-; this to zero. The entire monitor runs in the bottom 16K and so runs in a single
-; memory page. The stack goes below the 512byte reserved area and the libsio history
-; buffer.
-SP_STK:      .EQU     4000h - 1024
+; ZIOS reserves the first 16 bytes of NVRAM in the RTC and are
+; protected by a checksum. The first byte contains the default
+; application run flags .
+CF_LOADOS   EQU   00000001b
+CF_BREAK    EQU   00000010b
+CF_DEBUG    EQU   00000100b
+
+; Default flag byte if NVRAM invalid
+CFG_DEF     EQU   CF_DEBUG|CF_LOADOS|CF_BREAK
+
+; Bits of the flag byte that are used for process execution.
+CFG_EXEC    EQU   CF_DEBUG|CF_LOADOS|CF_BREAK
+
+; Where to initialise the supervisors stack.
+SP_STK:      .EQU     $FE00
 
 ; Breakpoints in code are handled by replacing the opcode at the break location with a RST instruction. The
 ; default is RST 20h. You can change this if your system is using RST 20 for something else.
@@ -33,7 +43,7 @@ FSH_PG_0    EQU   00h
 
 ; The first MMU page into which to load code using the various load commands. Leave this
 ; value unchanged.
-LD_PAGE     EQU   RAM_PG_0 + 1 + IS_DEVEL + IS_DEVEL
+LD_PAGE     EQU   RAM_PG_0 + 2
 
 ; Decide whether to install the character set (depends whether the graphic card is installed). If
 ; there's no graphic card then CSET can be set to 0 to disable however there are no problems leaving
@@ -48,7 +58,7 @@ endif
 ; MN_PG is the memory page number from which this loader is running. NORMALLY this will be the page number
 ; of the first RAM page (20h if RAM is high). In debug this needs to be 1 because the real monitor loads
 ; into the first page.
-MN_PG       EQU   RAM_PG_0 + IS_DEVEL
+MN_PG       EQU   RAM_PG_0
 
 ; The extended page for the loader is stored in the next RAM page after MN_PG.
 MN2_PG      EQU   MN_PG+1
@@ -69,3 +79,15 @@ SIO_ATX      EQU   SIO_IB+8
 SIO_AST      EQU   SIO_IB+10
 SIO_ARX      EQU   SIO_IB+12
 SIO_ASP      EQU   SIO_IB+14
+
+
+; ------------- KNOWN ADDRESSES -------------
+; A loader application (LOADER) should install several entry points
+; at a number of well known locations in the loader code page 0:
+;    Address 04:  ZIOS will jump here to warm start the monitor CLI
+;            0B:  ZIOS jumps here when a breakpoint (RST 28h) occurs
+; Declare a warm start address for whatever loaded ZIOS. Jump to this to get
+; back to the monitor level CLI.
+WARMSTRT     EQU   04h
+HNDL_BP      EQU   0bh
+HNDL_BRK     EQU   13h

@@ -63,3 +63,14 @@ typings/
 # Z80 assembler output files and sample code
 zout/
 samples/
+*.bin
+*.ihx
+*.o
+*.lis
+*.err
+*.lst
+*.obj
+*.hex
+*.rel
+!images/*.hex
+

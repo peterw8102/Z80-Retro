@@ -26,7 +26,7 @@
 ;==================================================================================
 ; import config.asm
 import defs.asm
-                extrn  WRITE_16
+
                 public INITSIO, TXA, RXA, CKINCHAR, _ENDLIBS, BRK_HK, SERINT
 
 ; Full input buffering with incoming data hardware handshaking
@@ -43,8 +43,6 @@ import defs.asm
 SER_BUFSIZE     .EQU     $F0
 SER_FULLSIZE    .EQU     SER_BUFSIZE / 2
 SER_EMPTYSIZE   .EQU     10H
-
-BRK_HK:         .EQU     $16
 
                 CSEG
 
@@ -103,12 +101,11 @@ rts0:           POP      AF
 
                 ; There is a break handler. Hack the stack so we return to the
                 ; handler
-brk:            LD       A,(BRK_HK+1) ; Break handler can't be in the first 256 bytes of memory
-                OR       A
+brk:            LD       HL,(BRK_HK)
+                LD       A,L            ; Null break handler?
+                OR       H
                 LD       A,3
                 JR       Z,proc
-
-                LD       HL,(BRK_HK)
 
                 ; The break handler will have a stack that looks like:
                 ;    Ret address from SERINT
@@ -214,5 +211,6 @@ serRdPtr        .DS      2
 serBufUsed      .DS      1
 
 useisr          .DS      1
+BRK_HK          .DW      0
 
 ;.END

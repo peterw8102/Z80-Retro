@@ -230,11 +230,21 @@ _rnxt:    DJNZ  _nextreq
           LD    HL,HOME
           CALL  PRINT
           LD    HL,(R_SP)
-          LD    DE,15
-          ADD   HL,DE
           LD    E,L            ; HL is the application address
           LD    D,H            ; Save application address in DE
           CALL  P_MAPX         ; HL is now the physical address, DE application address
+
+          ; Adjust BOTH application and mapped addresses
+          PUSH  DE
+          LD    DE,15
+          ADD   HL,DE
+          POP   DE
+          PUSH  HL
+          LD    HL,15
+          ADD   HL,DE
+          LD    E,L
+          LD    D,E
+          POP   HL
           LD    B,8
 _nextstk: PUSH  HL             ; HL is now the physical address, DE application address
           LD    HL,STK_NXT

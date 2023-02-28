@@ -88,7 +88,11 @@ _cfset:   LD     A,(HL)
           OR     B                 ; Set the bit
           LD     B,A
 _cfsv:    LD     A,B
-          LD     (HL),B
+          LD     (HL),A
+
+          ; Also change the shadow in the current PCB
+          AND    A,CFG_DEF
+          LD     (P_FLAGS),A
 
           ; Print description
           AND    C                 ; test the flag just configured

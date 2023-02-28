@@ -54,7 +54,7 @@ args.shift();
 //
 // There may be an additional parameter which is a filename. If there's
 // no file name then take input from stdin.
-var fname;
+var fname = [];
 
 var report   = false;
 var fix      = false;
@@ -112,12 +112,9 @@ while (err==null && args.length>0) {
       err = "Invalid parameter: "+arg+'\n';
     }
   }
-  else if (fname!=null) {
+  else  {
     // Can't specify more than one file name
-    err = "More than one file name specified: "+arg+'\n';
-  }
-  else {
-    fname = arg;
+    fname.push(arg);
   }
 }
 
@@ -161,7 +158,8 @@ async function processLine(line, linenum) {
   }
   let newcs = partialcs+(addr>>8)+(addr&0xff);
 
-  newcs = (-newcs & 0xff);
+
+  newcs = ((-newcs) & 0xff);
 
   // Is the checksum correct?
   if (cs!=newcs && report) {
@@ -190,7 +188,7 @@ async function processLine(line, linenum) {
       // Relocoate
       addr = newaddr;
       // And recalculate the checksum
-      cs = -((partialcs+(addr>>8)+(addr&0xff)) & 0xff);
+      cs = (-((partialcs+(addr>>8)+(addr&0xff))) & 0xff);
     }
     break;
   default:
@@ -200,6 +198,7 @@ async function processLine(line, linenum) {
   }
   if (send) {
     // Write out the (potentially) corrected/modified line.
+    log("USING CHECKSUM: ",cs)
     writeout((':'+toHex2(len)+toHex4(addr)+toHex2(type)+parts[4]+toHex2(cs)).toUpperCase()+'\r\n');
   }
 }
@@ -216,9 +215,6 @@ async function processStream(str) {
     await processLine(line, lnum++);
   }
   stats.processed = lnum;
-
-  // And send a final end of file marker.
-  writeout(':00000001FF\r\n');
 }
 /** If `fname` is not null then open the file and return the handle. If it is]
  *  null then return stdin.
@@ -232,17 +228,22 @@ function openStream(file) {
   }
 }
 
-
+async function processFiles(files) {
+  while (files.length>0) {
+    fln = files.shift();
+    str = openStream(fln);
+    await processStream(str);
+  }
+  // And send a final end of file marker.
+  writeout(':00000001FF\r\n');
+}
 
 if (err!=null) {
   process.stderr.write(err);
   process.reallyExit(-1);
 }
 
-const str = openStream(fname);
-
-
-processStream(str).then(() => {
+processFiles(fname).then(() => {
   log("Records processed: "+stats.processed);
   log("Data records:      "+stats.data);
   log("Other records:     "+stats.other);

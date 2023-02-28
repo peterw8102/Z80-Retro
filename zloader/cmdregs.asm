@@ -235,15 +235,15 @@ _rnxt:    DJNZ  _nextreq
           CALL  P_MAPX         ; HL is now the physical address, DE application address
 
           ; Adjust BOTH application and mapped addresses
-          PUSH  DE
+          PUSH  DE             ; Adjust mapped address
           LD    DE,15
           ADD   HL,DE
           POP   DE
-          PUSH  HL
+          PUSH  HL             ; Adjust application space address
           LD    HL,15
           ADD   HL,DE
           LD    E,L
-          LD    D,E
+          LD    D,H
           POP   HL
           LD    B,8
 _nextstk: PUSH  HL             ; HL is now the physical address, DE application address

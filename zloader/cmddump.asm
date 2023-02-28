@@ -30,7 +30,7 @@ import zload.asm
   public DNVRAM,DECINST,DMP16,DUMPM,DUMPI,DUMP
 
   extrn  main,MORE
-  extrn  DISASS,SETOFF,COLSTR
+  extrn  DISASS,SETOFF,S_COLSTR
 
 DUMP_CHRS  EQU   SCRATCH
 
@@ -214,7 +214,7 @@ _nextb:   LD    A,(HL)     ; Write out 'B' HEX bytes for this instruction
           DJNZ  _nextb
 
           ; Output disassembler description
-          LD    HL,COLSTR
+          LD    HL,S_COLSTR
           CALL  PRINT
           LD    H,D
           LD    L,E

@@ -1,6 +1,7 @@
 ; **********************************************
 ; Implements: 'C' command
 ; Syntax: C [id=value]
+; Displays config settings.
 ; **********************************************
 ; Copyright Peter Wilson 2022
 ; https://github.com/peterw8102/Z80-Retro
@@ -15,7 +16,7 @@ import zios.asm
 import zload.asm
 
 
-  extrn  COLSTR
+  extrn  S_COLSTR
   extrn  S_YES,S_NO
   ;
   ; ; From core
@@ -143,7 +144,7 @@ _say:     PUSH  AF
 _sayyes:  LD    HL,S_YES
 _saynow:  EX    (SP),HL
           CALL  PRINT
-          LD    HL,COLSTR     ; Tab alignment
+          LD    HL,S_COLSTR     ; Tab alignment
           CALL  PRINT
           POP   HL
           CALL  PRINT         ; The yes/no string
@@ -171,5 +172,9 @@ CFG_TAB:        DEFB      00000001b                ; Bit 0
                 DEFB      00000010b                ; Bit 1
                 DEFB      0
                 DEFB      "Break handler: ",0
+
+                DEFB      00000100b                ; Bit 2
+                DEFB      0
+                DEFB      "Debugger: ",0
 
                 DEFB      0         ; Terminator

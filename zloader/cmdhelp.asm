@@ -12,7 +12,7 @@ import zload.asm
 
 
           ; Imports from 'zloader'
-          extrn  main,E_BADPS,SDPAGE,COLSTR
+          extrn  main,E_BADPS,SDPAGE,S_COLSTR
           extrn  SETMODE
 
           ; Exports
@@ -39,7 +39,7 @@ _nline:   LD    A,(HL)
           CALL  PRINT_80         ; Returns HL after end of first string
           PUSH  HL
           EX    DE,HL
-          LD    HL,COLSTR
+          LD    HL,S_COLSTR
           CALL  PRINT
           EX    DE,HL
           CALL  PRINT_80

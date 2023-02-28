@@ -20,7 +20,7 @@ import zlib.asm
 import zios.asm
 import zload.asm
 
-  extrn  COLSTR
+  extrn  S_COLSTR
   extrn  SHDTIME
   extrn  S_YES,S_NO
   extrn  main
@@ -65,7 +65,7 @@ SH_PIO:     LD       HL,_PDIS
 ; Display the current value of the configuration DIP switch.
 SH_SW:      LD       HL,_CFGSW
             CALL     PRINT
-            LD       HL,COLSTR
+            LD       HL,S_COLSTR
             CALL     PRINT
             LD       A,D
             CALL     WRITE_8
@@ -101,7 +101,7 @@ _disres:    PUSH     AF
             OR       L
             JR       Z,_nomsg
             CALL     PRINT
-_nomsg:     LD       HL,COLSTR
+_nomsg:     LD       HL,S_COLSTR
             CALL     PRINT
             POP      AF
             LD       HL,S_YES

@@ -1,3 +1,14 @@
+; **********************************************
+; Simple initialisation code that installs a
+; default character set if the video card is
+; attached to the system.
+;
+; This code is only included if CSET is set to
+; a non-zero value in zios/config.asm
+; **********************************************
+; Copyright Peter Wilson 2022
+; https://github.com/peterw8102/Z80-Retro
+; **********************************************
 import defs.asm
 import config.asm
 import zapi.asm

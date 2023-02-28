@@ -37,6 +37,8 @@ NVRD:     LD     A,H
 ; ------ NVLD ------
 ; Load and verify the first 16 reserved bytes of NVRAM. This should be called as part
 ; of ZIOS cold start initialisation and after each reset.
+; OUTPUT:  HL  - Return a pointer to the NVRAM structure
+;
 NVLD:     LD     HL,NVRAM
           LD     BC,1000h    ; Read 16 bytes from offset 0
           CALL   RTC_MRD
@@ -44,6 +46,7 @@ NVLD:     LD     HL,NVRAM
           ; Check chksum
           CALL   NVCHK
           CALL   NZ,NVINI
+          LD     HL,NVRAM
           RET
 
 ; ------- NVINI

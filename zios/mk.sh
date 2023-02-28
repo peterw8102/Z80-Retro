@@ -1,5 +1,7 @@
 #/bin/sh
 
+rm zout/*
+
 # Assemble the library modules to be relocatable.
 if [ -z "$RELEASE" ]; then
   echo "Building DEVELOPMENT version"

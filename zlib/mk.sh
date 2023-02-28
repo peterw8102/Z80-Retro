@@ -1,5 +1,7 @@
 #/bin/sh
 
+rm zout/*
+
 # Utilities
 zmac -j -J --rel7 --oo obj,lst ./libutils.asm
 

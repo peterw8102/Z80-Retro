@@ -1,6 +1,7 @@
 import defs.asm
 import config.asm
 import zlib.asm
+import pcb_def.asm
 
   extrn   P_MIN,PR_INIT
   extrn   AP_DISP
@@ -34,6 +35,11 @@ ZIOS_INI::  LD    A,MN2_PG+1
 
             ; and read the NV RAM
             CALL   NVLD
+
+            ; Copy execution flag default to the PCB
+            LD     A,(HL)
+            AND    CFG_DEF
+            LD     (P_FLAGS),A
 
             ; Initialise the interrupt vector table. Table will be right at the end of the
             ; memory map which will be in our second RAM page and will be copied for

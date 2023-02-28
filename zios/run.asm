@@ -29,9 +29,6 @@ INSTDRV:: ; Check configuration to see whether we're meant to be installing driv
           BANK   2,(PAGE_MP+3)        ; Application page 3 => bank 2
 
           LD     A,(P_FLAGS)
-if IS_DEVEL
-          LD     A,7 ; ALWAYS load drivers and break mode if this is a development build
-endif
           RRCA
           JR     C,.dodrv
 

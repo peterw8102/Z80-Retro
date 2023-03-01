@@ -1,6 +1,6 @@
 # ZLib
 
-A set of library routines to drive the various hardware elements of the board. These are 'included' in the zloader monitor programme and can be used for other applications are required. This library also illustrates how to access the hardware. The code is [in the zlib directory in the Git repository](https://github.com/peterw8102/Z80-Retro/tree/master/zlib).
+A set of library routines to drive the various hardware elements of the board. These are 'included' in the zloader monitor programme and can be used for other applications are required. This library also illustrates how to access the hardware.
 
 + **defs.asm** - common hardware definitions and some macros
 + **zlib.asm** - an include file containing `extrn` declarations for the exported ZLib interface. This can be included in assembler files that want to use ZLib APIs.

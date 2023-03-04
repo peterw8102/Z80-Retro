@@ -18,4 +18,12 @@ cd ..
 echo Syncronise files with Raspberry Pi
 echo ----------------------------------
 
-rsync -avz zloader/loader.hex pi@pi2:/home/pi/src
+if [ -z "$RELEASE" ]; then
+  echo "Copying DEVELOPMENT version to Raspberry Pi"
+  rsync -avz zloader/loader.hex pi@pi2:/home/pi/src
+else
+  echo "Packaging RELEASE build into 'images/loader.hex'"
+  # node ./tools/hextform --fix zloader/loader.hex > images/loader.tmp
+  node ./tools/hextform --fix zloader/loader.hex images/charset.hex > images/loader.hex
+  rsync -avz zloader/loader.hex pi@pi2:/home/pi/src
+fi

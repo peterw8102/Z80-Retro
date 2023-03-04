@@ -24,6 +24,6 @@ if [ -z "$RELEASE" ]; then
 else
   echo "Packaging RELEASE build into 'images/loader.hex'"
   # node ./tools/hextform --fix zloader/loader.hex > images/loader.tmp
-  node ./tools/hextform --fix zloader/loader.hex images/charset.hex > images/loader.hex
+  node ./tools/hextform --fix zloader/loader.hex images/charset.hex > images/zloader.hex
   rsync -avz zloader/loader.hex pi@pi2:/home/pi/src
 fi

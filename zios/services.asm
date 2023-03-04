@@ -180,25 +180,21 @@ _nxdrv:   ; Map logical drive referenced in register C.
           LD       A,C
           CALL     SDTXLTD     ; HL contains the selected drive, A the physical disk (sd0/1).
 
-          EX       DE,HL       ; Make target address more usable
+          EX       DE,HL
           LD       (HL),A      ; Store the device ID
           INC      HL
           LD       (HL),E
           INC      HL
           LD       (HL),D
           INC      HL
-          EX       DE,HL       ; Make target address more usable
+          EX       DE,HL
           INC      C           ; Next drive.
           DJNZ     _nxdrv
-
-          PUSH     AF
-          CALL     NL
-          POP      AF
 
           POP      HL
           POP      DE
           POP      BC
-          RET                  ; TBD
+          RET
 
 ; --------- LD_STDMA (CMD 12)
 ; Record the address (in application space) of the SD Card DMA buffer

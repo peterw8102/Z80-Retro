@@ -14,6 +14,11 @@ const path = require('path');
  * file and you have a package that can be easily imported into
  * a CP/M computer with the download.com executable installed.
  *
+ * If a file with a '.hex' extension is seen this is taken as an
+ * Intel hex form of a CP/M .com file. The output is renamed
+ * to the .com version and the hex data extracted and assumed to
+ * to load from 100h
+ *
  * Output format is:
  * -----------------------
  * A:DOWNLOAD fname
@@ -64,6 +69,64 @@ function sendPrefix(fname) {
 // Number of bytes to output on a single line, which is followed by a line break
 const sliceSize=45;
 
+const splitLine = new RegExp(
+  '^:'+
+  '([a-fA-F0-9][a-fA-F0-9])'+                        // Length
+  '([a-fA-F0-9][a-fA-F0-9][a-fA-F0-9][a-fA-F0-9])'+  // Address
+  '([a-fA-F0-9][a-fA-F0-9])'+                        // Type
+  '((?:[a-fA-F0-9][a-fA-F0-9])*)'+                   // Data
+  '([a-fA-F0-9][a-fA-F0-9])$', 'i');                 // Checksum
+
+
+function processLine(parts) {
+}
+/** Convert a single Intel hex file to CP/M hex. In this case:
+ *   file: The binary contents of the file
+ *   flen: The length of of the file.
+ * @param {Binary} file - the binary contents of the file to process
+ * @pram  {Number} flen - number of characters in the hex data (file length)
+ */
+function convertHexFile(file) {
+  // Split the file into lines
+  const lines = file.toString().split(/[\n\s]/g);
+  log("LINES: ", lines);
+  log("LINE[0]: ", lines[0]);
+
+  let checksum  = 0;
+  let flen      = 0;
+
+  // Step through each line decoding the hex data.
+  while (lines.length>0) {
+    const line = lines.shift();
+    const parts = splitLine.exec(line);
+    if (parts==null)
+      continue;
+
+    // const [,len,addr,type,data,cs] = parts;
+    const len  = parseInt(parts[1],16);
+    const type = parseInt(parts[3],16);
+    const cs   = parseInt(parts[5],16);
+    const addr = parseInt(parts[2],16);
+    let   data = parts[4];
+
+    if (type!=0)
+      continue;
+
+    // Processing a data record. Need to write out the data and calculate
+    // the checksum.
+    writeout(data+'\n');
+
+    while (data.length>0) {
+      const byte = parseInt(data.slice(0,2),16);
+      flen++;
+      checksum += byte;
+      data = data.slice(2);
+    }
+  }
+  writeout('>'+(toHex2(flen & 0xff)+toHex2(checksum & 0xff)).toUpperCase()+'\n');
+
+  // process.reallyExit();
+}
 /** Convert a single file to hex. In this case:
  *   file: The binary contents of the file
  *   flen: The length of of the file.
@@ -127,16 +190,27 @@ function convertFile(file, flen) {
 function processFile(fpath) {
 
   // Strip the path elements to leave just the file name
-  const fname = fpath.replace(/^.*\//,'');
-  const fl = fs.readFileSync(fpath);
+  const fname   = fpath.replace(/^.*\//,'');
+  const fl      = fs.readFileSync(fpath);
+  let   outname = fname;
 
   if (fl!=null && fl.length>0) {
     const flen = fl.length;
     log("PATH TO PROCESS: "+fpath);
     log("ROOT FNAME: "+fname);
     log("FILE LENGTH: ", flen);
-    sendPrefix(fname);
-    convertFile(fl, flen);
+
+    // Intel hex file?
+    const isHex = (/\.hex$/).test(fname);
+    if (isHex) {
+      log("Converting Interl HEX file to .com");
+      outname = fname.replace(/\.hex$/i,'.com');
+    }
+    sendPrefix(outname);
+    if (isHex)
+      convertHexFile(fl, flen);
+    else
+      convertFile(fl, flen);
   }
 }
 

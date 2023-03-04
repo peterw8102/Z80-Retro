@@ -276,7 +276,7 @@ _na:      DJNZ  _nchr
           LD    (EXECADD),DE
           INC   HL
           LD    A,(NVRAM)        ; Default flag byte
-          AND   ~CF_DEBUG        ; Clear the lower bits and MSB
+          AND   ~CFG_EXEC        ; Clear the lower bits and MSB
           OR    A,(HL)           ; Add in our own flags (OS, break handler, debugger)
           LD    (P_FLAGS),A      ; Store in the PCB
 

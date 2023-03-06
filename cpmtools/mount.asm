@@ -304,11 +304,25 @@ _enddev: POP   HL
 ;         DJNZ  lp
 ;         JP    REBOOT
 
-SKPSPC: CALL  GETCHR
-        CP    20h
-        JR    Z,SKPSPC
-        RET
+SKPSPC:  CALL  GETCHR
+          CP    20h
+          JR    Z,SKPSPC
+          RET
 
+WASTSPC:  LD    A,(buffCnt)
+          OR    A
+          RET   Z
+          LD    HL,(buffptr)
+          LD    A,(HL)
+          CP    ' '
+          RET   NZ
+          ; Not a space so step on
+          INC   HL
+          LD    (buffptr),HL
+          LD    A,(buffCnt)
+          DEC   A
+          LD    (buffCnt),A
+          JR    SKPSPC
 
 ; Get the next character from the input buffer
 GETCHR: LD    A,(buffCnt)

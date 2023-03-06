@@ -68,8 +68,10 @@ OSSTACK .EQU  7FF8h   ; Place to save old stack before return
 
         ; Get a copy of the command line as a null terminated string
         LD     DE,cmdline
+        LD     (buffPtr),DE
         LD     HL,BUFF+1
         LD     A,(BUFF)      ; Number of bytes
+        LD     (buffCnt),A
         OR     A
         JR     Z,.empty
         LD     B,A
@@ -83,27 +85,25 @@ OSSTACK .EQU  7FF8h   ; Place to save old stack before return
 .empty: XOR    A
         LD     (DE),A
 
+        CALL   WASTSPC
+
         ; Check the command line. If CLEAR is specified then the stats
         ; will be cleared after read.
-        CALL  SKPSPC
-
         LD   DE,m_intro
         LD   C,PSTRING
         CALL BDOS
 
-        ; Clear?
-        LD   HL,(bufptr)
+        LD   DE,clear
+        LD   HL,(buffPtr)
         LD   DE,clear
         CALL STRCMP
-
+        LD   A,0
         JR   NZ,.noclr
 
-        PUSH AF
         LD   DE,m_clr
         LD   C,PSTRING
         CALL BDOS
-        POP  AF
-
+        LD   A,1
 
 .noclr: LD   B,A          ; If not zero then clear stats
         LD   HL,statbuf   ; Where we want stats from ZIOS
@@ -118,7 +118,6 @@ OSSTACK .EQU  7FF8h   ; Place to save old stack before return
         LD    HL,(statbuf)
         CALL  PRTDECK
 
-
         LD    DE,m_writes
         LD    C,PSTRING
         CALL  BDOS
@@ -126,6 +125,12 @@ OSSTACK .EQU  7FF8h   ; Place to save old stack before return
         LD    HL,(statbuf+4)
         CALL  PRTDECK
 
+        LD    DE,m_cln
+        LD    C,PSTRING
+        CALL  BDOS
+        LD    DE,(statbuf+14)
+        LD    HL,(statbuf+12)
+        CALL  PRTDECK
 
         LD    DE,m_cache
         LD    C,PSTRING
@@ -136,80 +141,37 @@ OSSTACK .EQU  7FF8h   ; Place to save old stack before return
 
         JP    REBOOT
 
-SKPSPC: CALL  GETCHR
-        RET   Z
-        CP    20h
-        JR    Z,SKPSPC
-        RET
+SKPSPC:  CALL  GETCHR
+          CP    20h
+          JR    Z,SKPSPC
+          RET
+
+WASTSPC:  LD    A,(buffCnt)
+          OR    A
+          RET   Z
+          LD    HL,(buffPtr)
+          LD    A,(HL)
+          CP    ' '
+          RET   NZ
+          ; Not a space so step on
+          INC   HL
+          LD    (buffPtr),HL
+          LD    A,(buffCnt)
+          DEC   A
+          LD    (buffCnt),A
+          JR    WASTSPC
 
 
 ; Get the next character from the input buffer
 GETCHR: PUSH  HL
-        LD    HL,(bufptr)
+        LD    HL,(buffPtr)
         LD    A,(HL)
         OR    A
         JR    Z,.empty        ; End of line
         INC   HL
-        LD    (bufptr),HL\
+        LD    (buffPtr),HL
 .empty: POP   HL
         RET
-
-; -------- GET_DEC - Read a (16 bit) decimal number into HL with C flag on error
-; If there is no valid decimal number then the:
-;    HL returned as zero
-;    C  flag SET
-; otherwise the 16 bit number is returned in HL
-GET_DEC:  PUSH  BC
-          LD    B,A           ; Save A
-          XOR   A
-          LD    H,A           ; Working value in HL, set to zero
-          LD    L,A
-          LD    C,A           ; Count number of characters
-          CALL  SKPSPC
-next_dc:  JR    Z, _fin       ; Same end caseas GET_HEX
-cont_dc:  CALL  DEC2BIN       ; Decimal character?
-          JR    C,_fin
-          PUSH  DE            ; Muliply HL by 10
-          ADD   HL, HL        ; x2
-          LD    E,L
-          LD    D,H
-          ADD   HL, HL        ; x4
-          ADD   HL, HL        ; x8
-          ADD   HL,DE         ; x10
-          POP   DE
-
-          CALL  ADD8T16
-
-          INC   C
-          CALL  GETCHR
-          JR    next_dc
-
-_fin:     LD    A,C
-          OR    A
-          LD    A,B
-          POP   BC
-          RET
-
-; -------- DEC2BIN
-; Convert the (ASCII) character in A to a binary number. A contains ASCII '0' to '9' inclusive
-; Carry flag set if A contains an invalid character (out of range). Result in A.
-DEC2BIN:    SUB   '0'         ; Minimum value
-            JR    C,inv
-            CP    10
-            JR    NC,inv
-            OR    A           ; Clear carry
-            RET
-inv:        SCF
-            RET
-
-; ------ ADD8T16
-; Add A to HL and correctly deal with carry from L to H. HL and A changed. No
-; other registers used or changed.
-ADD8T16:  ADD   L
-          LD    L,A
-          RET   NC
-          INC   H
-          RET
 
 ; Write A to output
 PUTCHR: PUSH  HL
@@ -226,49 +188,13 @@ PUTCHR: PUSH  HL
         RET
 
 ; NL
-NL:     LD    A,10
+NL:     PUSH  AF
+        LD    A,10
         CALL  PUTCHR
         LD    A,13
         CALL  PUTCHR
+        POP   AF
         RET
-
-; ------ WRITE_D
-; Convert a 16 bit number in HL to an ASCII decimal number and print out
-WRITE_D:  PUSH   HL
-          PUSH   DE
-          PUSH   BC
-          CALL   _NUM2D
-          POP    BC
-          POP    DE
-          POP    HL
-          RET
-
-_NUM2D:   LD     D,' '
-          LD     BC,-10000
-          CALL   NUM1
-          LD     BC,-1000
-          CALL   NUM1
-          LD     BC,-100
-          CALL   NUM1
-          LD     C,-10
-          CALL   NUM1
-          LD     C,B
-
-NUM1      LD     A,'0'-1
-NUM2      INC    A
-          ADD    HL,BC
-          JR     C,NUM2
-          SBC    HL,BC
-          CP     A,'0'
-          JR     NZ,_isnotz
-          LD     A,D
-          CALL   PUTCHR
-          RET
-
-_isnotz:  LD     D,'0'
-          CALL   PUTCHR
-          RET
-
 
 
 ; ---- STRCMP
@@ -284,11 +210,10 @@ _isnotz:  LD     D,'0'
 ; A:      Zero if both strings match, Non-zero if the strings do NOT match
 ; Z flag: Matches state of 'A'
 STRCMP:     LD    A,(DE)
-            CALL  TOUPPER
             INC   DE
             OR    A
             RET   Z         ; At the end of DE and no failures
-            LD    B,A
+            LD    B,A       ; Save character
             LD    A,(HL)
             CALL  TOUPPER
             CP    B         ; Match the test string?
@@ -299,7 +224,8 @@ STRCMP:     LD    A,(DE)
             INC   HL
             JR    STRCMP
 
-_sfail:     INC   A
+_sfail:     XOR   A
+            INC   A
             RET
 
 ; ------ TOUPPER
@@ -310,63 +236,6 @@ TOUPPER:  CP    'a'                ; Lower case -> upper case
           RET   NC
           ADD   A,'A'-'a'
           RET
-
-
-; ------ WRITE_16
-; Convert the 16 bit value in HL to 4 ASCII caracters and send to the console.
-; All registers preserved.
-WRITE_16:  PUSH AF
-           LD   A,H
-           CALL WRITE_8
-           LD   A,L
-           CALL WRITE_8
-           POP  AF
-           RET
-
-; ------ WRITE_8
-; Convert the 8 bit number in A into HEX characters in write to the console
-; A: number to write (not preserved)
-WRITE_8:   PUSH HL
-           CALL HEX_FROM_A
-           LD   A,H
-           CALL PUTCHR
-           LD   A,L
-           CALL PUTCHR
-           POP  HL
-           RET
-
-
-; ------------- HEX_FROM_A
-; IN  - A:  Number to convert to HEX
-; OUT - HL: Two character converted value - H MSB
-; HL and A NOT preserved
-HEX_FROM_A: PUSH  DE
-            PUSH  AF
-            LD    HL, _HEX_CHRS
-            PUSH  HL
-            ; LSB first
-            AND   0Fh
-            ADD   A,L
-            LD    L,A
-            JR    NC,_hs1
-            INC   H
-_hs1:       LD    E,(HL)
-            POP   HL
-            ; MSB
-            POP   AF
-            RRA
-            RRA
-            RRA
-            RRA
-            AND   $0F
-            ADD   A,L
-            LD    L,A
-            JR    NC,_hs2
-            INC   H
-_hs2:       LD    D,(HL)
-            EX    DE,HL
-            POP   DE
-            RET
 
 
 ; Combined routine for conversion of different sized binary numbers into
@@ -529,45 +398,33 @@ PRTDECK: PUSH  DE
 
          RET
 
-
-
-
-B2DINV:  DS 8            ; space for 64-bit input value (LSB first)
-B2DBUF:  DS 20           ; space for 20 decimal digits
-B2DEND:  DB '$'          ; space for terminating 0
-
-
-
-
-
-
 REBOOT:      LD    SP,(OSSTACK)
              ; JP    REBOOT
              JP    RESTRT
 
-; DATA AREA
-buffCnt       .DB     00H
-buffPtr       .DW     0000H
 
-DRV_LET       .DB     00H
-DSK_NO        .DW     0000H
-
+B2DINV:  DC 8,0          ; space for 64-bit input value (LSB first)
+B2DBUF:  DC 20,0         ; space for 20 decimal digits
+B2DEND:  DB '$'          ; space for terminating 0
 
 
 clear         .BYTE  "CLEAR",0
-m_intro       .BYTE  "SDCard Stats",10,13,"$"
+m_intro       .BYTE  "SDCard Statistics",10,13,"$"
 m_reads       .BYTE  "Blocks read:    $"
 m_writes      .BYTE  "Blocks written: $"
 m_cache       .BYTE  "Cache hits:     $"
+m_cln         .BYTE  "Clean writes:   $"
 m_clr         .BYTE  "Clearing stats",10,13,"$"
 m_open        .BYTE  " ( $"
 m_close       .BYTE  "K )",10,13,"$"
 
-; Read only data definitions that go in the code section
-_HEX_CHRS: DEFB  "0123456789ABCDEF"
+DRV_LET       .DB     00H
+DSK_NO        .DW     0000H
 
+; DATA AREA
+buffCnt::     .DB     00H
+buffPtr::     .DW     0000H
 
+cmdline::      DS    128            ; Null terminated copy of the command line
 statbuf        DS    Z_BUFSZ        ; This is where the stats will go
-cmdline        DS    128            ; Null terminated copy of the command line
-bufptr         DW    cmdline        ; Pointer to position in cmdline
   .END

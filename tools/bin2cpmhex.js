@@ -39,7 +39,7 @@ const errout = (...args) => process.stderr.write(...args);
 const enableDebug = false;
 function log(...args) {
   if (enableDebug)
-    console.log(...args);
+    console.error(...args);
 }
 const args = ([]).concat(process.argv);
 
@@ -88,9 +88,8 @@ function processLine(parts) {
  */
 function convertHexFile(file) {
   // Split the file into lines
-  const lines = file.toString().split(/[\n\s]/g);
+  const lines = file.toString().split(/[\n\s]+/g);
   log("LINES: ", lines);
-  log("LINE[0]: ", lines[0]);
 
   let checksum  = 0;
   let flen      = 0;
@@ -203,7 +202,7 @@ function processFile(fpath) {
     // Intel hex file?
     const isHex = (/\.hex$/).test(fname);
     if (isHex) {
-      log("Converting Interl HEX file to .com");
+      log("Converting Intel HEX file to .com");
       outname = fname.replace(/\.hex$/i,'.com');
     }
     sendPrefix(outname);

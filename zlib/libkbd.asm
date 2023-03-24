@@ -55,8 +55,6 @@ CLRSCAN:        PUSH     HL
 .clrnxt:        LD       (HL),A
                 INC      HL
                 DJNZ     .clrnxt
-                LD       A,reRep
-                LD       (rpCount),A
                 POP      AF
                 POP      BC
                 POP      HL
@@ -77,7 +75,7 @@ KBDSCAN:        PUSH     AF
                 ; Poll each scan row and return if no keys pressed.
                 LD       A,(kbdBase)      ; Base value
                 LD       B,9              ; Row count
-                LD       C,0              ; Change flag
+                LD       C,0              ; Change flag (any keys up or down)
                 LD       D,0              ; there are rows with keys pressed
 
 _nxts:          PUSH     AF
@@ -98,21 +96,23 @@ _nxts:          PUSH     AF
                 INC      A
                 DJNZ     _nxts            ; Any more rows to check?
 
-                ; No keys have changed state. Reset the repeat counter.
-                LD       A,D
-                OR       A                ; Any keys pressed?
-                JR       NZ,.cdown
+                LD       A,C
+                OR       A                ; If any keys change state then reset
+                JR       Z,.down          ; No keys pressed
 
-                ; No keys pressed, reset timer
+.reset          LD       A,(rpCount)
+                OR       A
+                LD       A,reRep
+                JR       Z,.fast
                 LD       A,firstRpt
-                LD       (rpCount),A
+.fast:          LD       (rpCount),A
+                JR       .cdown
 
-                ; If 'C' is zero then no keys have changed
-.cdown:         LD       A,(rpCount)
+.down:          LD       A,(rpCount)       ; Timeout for keyboard repeat?
                 DEC      A
                 LD       (rpCount),A
                 CALL     Z,CLRSCAN
-                LD       A,C
+.cdown:         LD       A,C
                 OR       A
                 JR       NZ,_saveState
 
@@ -121,6 +121,8 @@ _nxts:          PUSH     AF
                 POP      BC               ; All done, no keys pressed. Return as quickly as possible
                 POP      AF
                 RET
+
+
 
                 ; At this point the kbdState array contains the results of the old and new scan rows and
                 ; we know that there's at least one key that's changed state. Pull out each changed

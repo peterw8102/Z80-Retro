@@ -47,6 +47,10 @@ PIOB_D          .EQU      $C1
 PIOA_C          .EQU      $C2
 PIOB_C          .EQU      $C3
 
+; Keyboard interface
+KBD_IO          .EQU      $C4
+
+
 ; Video card VSYNC port (bit 7 HIGH during vsync)
 VGA_HSYN        .EQU      $E0
 

@@ -8,6 +8,9 @@ zmac -j -J --rel7 --oo obj,lst ./libutils.asm
 # SIO library
 zmac -j -J --rel7 --oo obj,lst ./libsio.asm
 
+# Hardware keyboard library
+zmac --zmac -j -J --rel7 --oo obj,lst ./libkbd.asm
+
 # Command based block protocol to communicate over SIO Port B. I use this with a matching
 # application running on a Raspberry Pi that accepts commands from the Z80 and repplies
 # with requested data.

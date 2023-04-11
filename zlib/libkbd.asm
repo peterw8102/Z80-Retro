@@ -219,7 +219,13 @@ saverow:        PUSH     HL
                 RET
 
 ; ------ RXSCAN
-; Return the next entry from the scan queue
+; Return the next entry from the scan queue.
+;
+; Returns:
+; A: Zero if no scan codes available (reflected in Z flag)
+; D: Meta flags in place for this scan code
+; E: Row number for this scan code
+; C: The scan code (each bit set is a pressed key in that row)
 RXSCAN::        PUSH      HL
 
                 LD        HL,(codeRdPtr)
@@ -242,7 +248,7 @@ RXSCAN::        PUSH      HL
 .nowrap:        LD        (codeRdPtr),HL
 
                 POP       HL
-                LD        A,1
+                LD        A,C           ; C is the last scan code so can't be zero.
                 OR        A
                 RET
 
@@ -296,41 +302,44 @@ no_ctrl:        LD        A,(kbdCaps)
                 JR        Z,decode
                 LD        DE,tab_caps
 
-decode:         LD        (kbdMap),DE   ; Store the selected keyboad map
-
-                INC       HL
-                LD        A,(HL)        ; The row number. Translate into an offset
+decode:         EX        DE,HL         ; DE: Points into code buffer, HL: decode table
+                INC       DE
+                LD        A,(DE)        ; The row number. Translate into an offset
                 ADD       A             ; Multiple by 8
                 ADD       A
                 ADD       A
-                ADD       E             ; Add to start of key table
-                LD        E,A
+                ADD       L             ; Add to start of key table
+                LD        L,A
                 LD        A,0
-                ADC       D
-                LD        D,A           ; Points to the correct ROW. Need to process the bits.
-                INC       HL
-                LD        A,(HL)        ; The keys pressed in this row,
-                INC       HL
+                ADC       H
+                LD        H,A           ; Points to the correct ROW. Need to process the bits.
+                INC       DE
+                LD        A,(DE)        ; The keys pressed in this row,
+                INC       DE            ; Ready for next row
 
                 ; Process each bit in the accunulator
 _nxtbit:        SLA      A
                 JR       NC,_nochr
 
                 ; Key pressed. Add to queue.
-                EX       DE,HL         ; Keymap into HL
                 LD       B,(HL)        ; The keycode (C still contains the meta chars)
-                EX       DE,HL
+                ; PUSH     AF
+                ; LD       A,B
+                ; CALL     WRITE_8
+                ; LD       A,'-'
+                ; RST      08h
+                ; POP      AF
                 CALL     DOKEY         ; Add character in B to the input character queue
 
-_nochr:         INC      DE            ; Ready for the next bit
+_nochr:         INC      HL            ; Ready for the next bit
                 JR       NZ,_nxtbit    ; Check the next bit in this
 
                 ; Finished, store modified codeRdPtr ready for next character
-                LD       A,L
+                LD       A,E
                 CP       low (codeBuf + CODE_BUFSIZE * 3)
                 JR       NZ,.nowrap
-                LD       HL,codeBuf
-.nowrap:        LD       (codeRdPtr),HL
+                LD       DE,codeBuf
+.nowrap:        LD       (codeRdPtr),DE
 
                 ; If the number of characters in the output buffer is zero check for
                 ; more scan codes.
@@ -348,18 +357,82 @@ _empt:          POP       BC
 ; necessary VT100 expansions (TBD)
 ;
 ; INPUT: B - Character to store.
+;        C - Meta key state for this key
 DOKEY:          PUSH     AF
-                LD       A,$F0         ; Don't store any metadata characters
-                AND      B
-                CP       $F0
+
+                LD       A,B
+                CP       LOCK
+                JR       NZ,.nolock
+
+                ; Caps lock - toggle
+                LD       A,(kbdCaps)
+                CPL
+                LD       (kbdCaps),A
+                ; Change caps LED
+                OR       A
+                LD       A,(kbdBase)
+                JR       Z,.capsoff
+
+                ; Caps ON - turn LED on
+                AND      not LED_CAPS
+                LD       (kbdBase),A
+                JR       _nostore
+
+.capsoff:       OR       LED_CAPS
+                LD       (kbdBase),A
+                JR       _nostore
+
+.nolock:        AND      $F0         ; Don't store any metadata characters
+                CP       $F0           ; Meta keys
                 JR       Z,_nostore
 
-                ; Is there room in the buffer?
-                LD       A,(kbdCnt)
+                ; Is there a translation for this character code? Keys
+                ; with the most sig 2 bits set are translated.
+                LD       A,$C0
+                AND      B
+                CP       $C0
+                JR       NZ,.noexpand
+
+                ; Expand into VT100 sequence. Index into VTMAP
+                PUSH     HL
+                LD       A,$3F
+                AND      B            ; Just use lower 6 bits (64 chars)
+                ADD      A            ; x2
+                LD       HL,VTMAP
+                ADD      L
+                LD       L,A
+                LD       A,0
+                ADC      H
+                LD       H,A          ; HL points to the control sequence
+                LD       A,(HL)
+                INC      HL
+                OR       (HL)
+                JR       Z,.noexp2   ; No expansion
+                LD       B,ESC
+                CALL     DOKEY
+                LD       A,(HL)
+                DEC      HL
+                LD       L,(HL)
+                LD       H,A          ; HL now points to the sequence. Replay
+.nxtchr:        LD       A,(HL)
+                AND      $7F
+                LD       B,A
+                CALL     DOKEY        ; Recursive put
+                LD       A,(HL)
+                RLA
+                INC      HL
+                JR       NC,.nxtchr
+                POP      HL
+                POP      AF
+                RET
+
+.noexp2:        POP      HL
+
+                ; Increase character count
+.noexpand:      LD       A,(kbdCnt)     ; Is there room in the buffer?
                 CP       KBD_BUFSIZE
                 JR       Z,_nostore
 
-                ; Increase character count
                 INC      A
                 LD       (kbdCnt),A
 
@@ -447,155 +520,6 @@ KBDCHK:         LD       A,(kbdCnt)
                 RET
 
 
-ifdef FRED
-                ; At this point the kbdState array contains the results of the old and new scan rows and
-                ; we know that there's at least one key that's changed state.
-_prock::        PUSH     DE
-                LD       A,(kbdState+stateRow*2)   ; Get the state of the shift/ctrl etc keys
-                AND      modeBits                  ; The bits that count
-                LD       (kbdMode),A               ; Store for later
-
-                ; If the CAPS key has been pressed then toggle the stored caps status
-                LD       E,A                       ; Current state
-                LD       A,(kbdState+stateRow*2+1) ; Old state
-                XOR      E                         ; Changed bits
-                AND      lockMask                  ; The LOCK bit
-                JR       Z,nocaps                  ; The caps lock hasn't changed
-                BIT      3,E                       ; Caps LOCK pressed?
-                JR       Z,nocaps
-
-                ; Caps LOCK has changed state and is ON
-                LD       A,(kbdCaps)
-                CPL
-                LD       (kbdCaps),A
-
-                ; Decide which translation table to use
-nocaps:         LD       A,E
-                LD       HL,tab_std
-
-                RRA
-                JR       NC,no_shift
-                LD       HL,tab_shft
-                JR       decode
-
-no_shift:       RRA
-                JR       NC,no_ctrl
-                LD       HL,tab_ctrl
-                JR       decode
-
-no_ctrl:        LD       A,(kbdCaps)
-                OR       A
-                JR       Z,decode
-                LD       HL,tab_caps
-
-decode:         LD       (kbdMap),HL   ; Store the selected keyboad map
-
-                ; PUSH     HL
-                ; PUSH     AF
-                ; CALL     WRITE_16
-                ; CALL     NL
-                ; RST      08h
-                ; POP      AF
-                ; POP      HL
-
-                ; Step through each of the rows deciding which keys have been pressed (XOR old and new then AND with new)
-                EX       DE,HL         ; DE is the keyboard map
-                LD       B,9           ; Number of rows
-                LD       HL,kbdState   ; Step back through the table
-_nxtRowChck:    PUSH     BC
-                PUSH     DE            ; Position in map at start of row processing
-                LD       A,(HL)        ; New state
-                LD       C,A           ; Saved
-                INC      HL
-                XOR      (HL)          ; With old state 1 for all bits that have changed
-                AND      C             ; Only interested in keys that are now pressed
-                LD       (HL),C        ; Store new state as old state
-                ; PUSH     AF
-                ; CALL     WRITE_8
-                ; LD       A,'-'
-                ; RST      08H
-                ; POP      AF
-                JR       Z,_noch
-
-                ; At least one key pressed. Each '1' in A represents a key now pressed.
-
-                ; Walk through the bits to work out which key has been pressed.
-                ; LD       A,C           ; New scan value
-_nxtbit:        SLA      A
-                JR       NC,_nochr
-
-                ; Key pressed. Add to queue.
-                EX       DE,HL
-                LD       B,(HL)
-                EX       DE,HL
-                CALL     RXCHR         ; Add character in B to the input character queue
-
-_nochr:         INC      DE            ; Ready for the next bit
-                JR       NZ,_nxtbit    ; Check the next bit in this
-
-                ; All set bits in that row completed.
-_noch:          INC      HL            ; Step to next scan row result.
-                POP      DE
-                LD       A,8
-                ADD      E
-                LD       E,A
-                LD       A,0
-                ADC      D
-                LD       D,A           ; Move char pointer to next row.
-
-                POP      BC
-                DJNZ     _nxtRowChck
-                POP      DE
-                POP      HL
-                POP      BC               ; All done, no keys pressed. Return as quickly as possible
-                POP      AF
-                RET
-
-; ------ RXCHR
-; Add the character in the B register into the input queue along with the
-; keyboard status.
-RXCHR:          PUSH     AF
-                LD       A,$F0         ; Don't store any metadata characters
-                AND      B
-                CP       $F0
-                JR       Z,_nostore
-
-                PUSH     HL
-                LD       HL,(kbdWrPtr)
-                LD       (HL),B
-                INC      HL
-
-                ; CALL     NL
-                ; LD       A,'"'
-                ; RST      08h
-                LD       A,B
-                RST      08h
-                ; LD       A,'"'
-                ; RST      08h
-                ; LD       A,' '
-                ; RST      08h
-                ; LD       A,'['
-                ; RST      08h
-                ; LD       A,B
-                ; CALL     WRITE_8
-                ; LD       A,','
-                ; RST      08h
-                ; LD       A,(kbdMode)
-                ; CALL     WRITE_8
-                ; LD       A,']'
-                ; RST      08h
-                ; CALL     NL
-
-                LD       A,(kbdMode)
-                LD       (HL),A
-                INC      HL
-                LD       (kbdWrPtr),HL
-                POP      HL
-_nostore:       POP      AF
-                RET
-
-endif
-
 
 
 ; Control characters
@@ -642,20 +566,19 @@ DOWN           EQU        $E7
 LEFT           EQU        $E8
 RIGHT          EQU        $E9
 WRDDEL         EQU        $EA
-LOCK           EQU        $EB
 
 ; Keys with upper 4 bits set should NOT be recorded as key presses. These
 ; are the mode keys: CTRL, SHIFT etc
-MNU            EQU        $F8
-FN1            EQU        $F9
-FN2            EQU        $FA
-OPT            EQU        $FB
-
+LOCK           EQU        $F8
+MNU            EQU        $F9
+FN1            EQU        $FA
+FN2            EQU        $FB
+OPT            EQU        $FC
 CTRL           EQU        $FD
 SHIFT          EQU        $FE
 CAPS           EQU        $FF
 
-
+LED_CAPS       EQU        $10
 
 menu2Row       EQU        2         ; The scan row that includes the CTRL, SHIFT, OPT and CAPS keys
 stateRow       EQU        6         ; The scan row that includes the CTRL, SHIFT, OPT and CAPS keys
@@ -694,8 +617,8 @@ tab_ctrl::      DB       '76543210'
                 DB       $12,$11,$10,$0F,$0E,$0D,$0C,$0B
                 DB       $1A,$19,$18,$17,$16,$15,$14,$13
                 DB       FC3,FC2,FC1,FN1,LOCK,OPT,CTRL,SHIFT
-                DB       CR,FN2,DEL,PGDN,TAB,ESC,FC3,FC4
-                DB       EOL,HOME,END,SOL,WRDDEL,HOME,PGUP,SPC
+                DB       CR,FN2,DEL,PGDN,TAB,CSI,FC3,FC4
+                DB       EOL,END,HOME,SOL,WRDDEL,HOME,PGUP,SPC
 
 tab_caps::      DB       '76543210'
                 DB       ';][\=-98'
@@ -708,15 +631,90 @@ tab_caps::      DB       '76543210'
                 DB       RIGHT,DOWN,UP,LEFT,BS,HOME,PGUP,SPC
 
 
-tabs::          DW       tab_std
+txlate::        DW       tab_std
                 DW       tab_shft
                 DW       tab_ctrl
                 DW       tab_caps
 
+; VT100 escape sequence mapping
+V_F1            DC       '[10~'
+V_F2            DC       '[11~'
+V_F3            DC       '[12~'
+V_F4            DC       '[13~'
+V_F5            DC       '[14~'
+
+V_UP            DC       '[A'
+V_DOWN          DC       '[B'
+V_RIGHT         DC       '[C'
+V_LEFT          DC       '[D'
+
+V_HOME          DC       '[7~'
+V_END           DC       '[8~'
+
+V_PGUP          DC       '[5~'
+V_PGDN          DC       '[6~'
+
+
+
+; VT100 map starting with character $C0
+VTMAP:          DW       0               ; $C0
+                DW       V_F1
+                DW       V_F2
+                DW       V_F3
+                DW       V_F4
+                DW       0
+                DW       0
+                DW       0
+                DW       0               ; E8
+                DW       0
+                DW       0
+                DW       0
+                DW       0
+                DW       0
+                DW       0
+                DW       0
+                DW       0               ; $D0
+                DW       0
+                DW       0
+                DW       0
+                DW       0
+                DW       0
+                DW       0
+                DW       0
+                DW       0               ; D8
+                DW       0
+                DW       0
+                DW       0
+                DW       0
+                DW       0
+                DW       0
+                DW       0
+                DW       V_PGUP         ; $E0
+                DW       V_PGDN
+                DW       V_HOME
+                DW       V_END
+                DW       0
+                DW       0
+                DW       V_UP
+                DW       V_DOWN
+                DW       V_LEFT
+                DW       V_RIGHT
+                DW       0
+                DW       0
+                DW       0
+                DW       0
+                DW       0
+                DW       0                ; EF
+
+
+
+
+
+
                 DSEG
 
-firstRpt        EQU       30
-reRep           EQU       2
+firstRpt        EQU       10
+reRep           EQU       1
 
 
 codeWrPtr::     DW       codeBuf
@@ -733,7 +731,6 @@ kbdMode         DB       0    ; Keyboard mode bits (Shift CTRL etc)
 kbdState::      DS      18    ; Keyboard scan data. Each scan line is 16 bits. The first
                               ; byte is the latest state, the second byte is the last state.
                               ; generally we're looking for state changes.
-kbdMap          DW       0    ; Don't forget which keyboard map we're using.
 kbdCnt          DB       0    ; Number of characters in the kbdBuf
 kbdBuf::        DS       KBD_BUFSIZE
 ;.END

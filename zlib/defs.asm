@@ -17,6 +17,7 @@ DEL        .EQU     7fH             ; Delete
 CS         .EQU     0CH             ; Clear screen
 SPC        .EQU     20H
 ESC        .EQU     1BH
+CSI        .EQU     9BH             ; 8 bit ANSI equivalent of ESC [
 
 ; Address of the MMU page control registers
 PG_PORT0    EQU   $60

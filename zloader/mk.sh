@@ -97,13 +97,14 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/cmdmodify.rel \
         ./zout/cmdhelp.rel \
         ./zout/more.rel \
-        -P C400 -D C000 \
+        -P C600 -D C000 \
         ../zios/zout/pcb.rel \
         ../zlib/zout/libsio.rel \
         ../zios/zout/nvram.rel \
         ../zios/zout/init.rel \
         ../zios/zout/mempage.rel \
         ../zios/zout/drive.rel \
+        ../zios/zout/vdu.rel \
         ../zlib/zout/libutils.rel \
         ../zlib/zout/libcmd.rel \
         ../zlib/zout/libconin.rel \
@@ -114,6 +115,8 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ../zlib/zout/librtc.rel \
         ../zlib/zout/libmisc.rel \
         ../zlib/zout/libflash.rel \
+        ../zlib/zout/libkbd.rel \
+        ../zlib/zout/libvdu.rel \
         ../zios/zout/services.rel \
         ../zios/zout/devmap.rel \
         ../zios/zout/sdblk.rel \

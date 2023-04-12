@@ -27,17 +27,18 @@ import zload.asm
 ; second is a summary description.
 HELP:     LD    HL,_ref
           CALL  PRINT_LN
-          LD    HL,_HTEXT
           XOR   A
           CALL  SETMODE
-          LD    B,A
+          LD    B,A              ; Save mode
+          LD    HL,_HTEXT
 _nline:   LD    A,(HL)
-          OR    A
+          OR    A                ; End of table on zero
           JR    Z,main
           AND   B
-          JR    Z,_skp2
+          JR    Z,_skp2          ; Not relevant to the current mode
+          INC   HL
           CALL  PRINT_80         ; Returns HL after end of first string
-          PUSH  HL
+          PUSH  HL               ; First character of second string
           EX    DE,HL
           LD    HL,S_COLSTR
           CALL  PRINT

@@ -14,9 +14,10 @@ import pcb_def.asm
 ; This file prepares the run environment for both these situations.
 
             extrn  ISRCTXT,R_PC_S,AND_RUN,RAWGO
-            extrn  BRK_HK,AP_ST,DO_BP_S,CHR_ISR
+            extrn  BRK_HK,AP_ST,DO_BP_S,CHR_ISR,CTC_ISR
             extrn  P_MAPX,ZS_BRK
             extrn  CNTINUE
+            extrn  NUL_ISR,BANKST
 
             CSEG
 
@@ -64,10 +65,24 @@ INSTDRV:: ; Check configuration to see whether we're meant to be installing driv
           LD     HL,AP_ST
           LD     (4031h), HL
 
+          ; Set all interrupt vectors to a dummy handler
+          LD     DE,NUL_ISR
+          LD     HL,8000h+SIO_IB
+          LD     B,16
+_nxtisr:  LD     (HL),E
+          INC    HL
+          LD     (HL),D
+          INC    HL
+          DJNZ   _nxtisr
+
           ; Patch the application SIO ISR. It's different for application
           ; space because page memory tweaks will be requied.
           LD   HL,CHR_ISR
           LD   (8000h+SIO_ARX),HL
+
+          ; And patch the timer ISR
+          LD   HL,CTC_ISR
+          LD   (8000h+CTC_ICH1),HL
 
           POP    AF
           RRCA               ; Terminal input break handler?

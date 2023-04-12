@@ -5,6 +5,9 @@ import pcb_def.asm
 
   extrn   P_MIN,PR_INIT
   extrn   AP_DISP
+  extrn   NUL_ISR
+  extrn   VDU_INI
+  extrn   CNS_INI
   public  ZIOS_INI
 
 ; init.asm
@@ -47,6 +50,15 @@ ZIOS_INI::  LD    A,MN2_PG+1
             LD     A,VEC_BASE
             LD     I,A
 
+            LD    HL,0xC000+ISR_BASE
+            LD    DE,NUL_ISR
+            LD    B,16
+_nxtisr:    LD    (HL),E
+            INC   HL
+            LD    (HL),D
+            INC   HL
+            DJNZ  _nxtisr
+
             ; Add entry to vector table for supervisor SIO ISR
             LD     HL,_EISR
             LD     (0xC000+SIO_ARX),HL
@@ -62,6 +74,13 @@ ZIOS_INI::  LD    A,MN2_PG+1
             LD     (30h),A
             LD     HL,AP_DISP
             LD     (31h),HL
+
+            ; And initialise the console dispatcher.
+            CALL   CNS_INI
+
+            ; If the keyboard and video card are available then set up CTC for
+            ; keyboard scanning and make a virtual console available.
+            CALL   VDU_INI
 
             ; Return the status of the hardware configuration switch
             CALL   SW_CFG

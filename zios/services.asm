@@ -44,6 +44,8 @@ AP_DISP:: LD     A,C
           INC    HL
           LD     D,(HL)
           EX     DE,HL          ; HL points to the handler
+
+          ; Slightly convoluted JP (HL) because we can't corrupt HL at this point.
           POP    DE
           EX     (SP),HL        ; Restore HL but don't lose our target vector.
           RET                   ; Target is now on the stack so just have to return

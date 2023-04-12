@@ -82,7 +82,8 @@ _sdnxt:  ; Display a row
          EX    DE,HL
          CALL  WRITE_16   ; The offset
          EX    DE,HL
-         ; Display 16 bytes
+
+         ; Display 16 bytes. At the end of this call expect HL to point... (first byte past end?)
          CALL  DMP16
 
          LD    A,16

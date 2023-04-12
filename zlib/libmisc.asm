@@ -48,7 +48,20 @@ HASVDU:     LD       A,$FF
 ; PIO Card Presense
 ; Returns the presense or absense of the PIO Card. Haven't worked out to do that. Currently
 ; this is a NOP until the PIO has been tested.
-; `Z` flag. `Z` is true if there's a video card installed.
+; `Z` flag. `Z` is true if there's a PIO card installed.
 HASPIO:     XOR      A
+            OUT      (KBD_IO),A
+            IN       (KBD_IO)
+
+            ; Should return FF
+            INC      A
+            RET      NZ
+
+            LD       A,$FF
+            OUT      (KBD_IO),A
+            IN       (KBD_IO)
+
+            ; Should return FE
+            INC      A
             INC      A
             RET

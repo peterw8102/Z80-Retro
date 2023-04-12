@@ -14,3 +14,6 @@
 
   ; Break handler context byte
   extrn  ISRCTXT
+
+  ; Console entry points
+  extrn CNS_OUT,CNS_IN,CNS_CHK,CNS_SET

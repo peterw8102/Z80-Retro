@@ -45,7 +45,7 @@ INITCSET:   PUSH     AF
             LD       B,$10     ; Outer loop
 
 _c_cs1:     LD       C,0
-_c_cs2:     LD       (HL),A
+_c_cs2:     LD       (HL),' '
             INC      A
             INC      HL
             DEC      C

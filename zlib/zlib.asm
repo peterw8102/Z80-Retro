@@ -20,3 +20,9 @@ import defs.asm
 
   ; Flash writing functions
   extrn  FL_ID,FL_CSECT,FL_CPAGE,FL_WSECT,FL_WPAGE
+
+  ; Video card
+  extrn  V_INIT,V_CENABLE,V_CTOG,V_PRT
+
+  ; Keyboard
+  extrn  KBDINIT,KBDSCAN,KBDCHAR,KBDCHK

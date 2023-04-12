@@ -192,7 +192,7 @@ endif
 NOSIO:      LD    HL,_INTRO
             CALL  PRINT_LN
             CALL  SH_HW
-; .ever       JR    .ever
+
 if !IS_DEVEL
           ; Check the state of the DIL switches and look for autoboot mode
           LD    A,(HW_SWTCH)    ; State of the hardware config switches
@@ -208,7 +208,6 @@ if !IS_DEVEL
           LD    (AUTO_RUN),A    ; Set auto-run mode
           JR    SDLDDEF         ; Checksum OK so go load default image.
 endif
-
           ; In development mode don't use the DIL switches. This allows us to develop the loader more efficiently.
           JR    main
 

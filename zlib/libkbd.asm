@@ -2,11 +2,26 @@
 ; libkbd
 ; Input driver for the Omega keyboard via the PIO card. The driver is exposed
 ; as a keyboard scan routine which *should* be called frequently to check for
-; pressed keys. The routine converts scanned keys into their ASCII equivalents
-; and, in the case of cursor control/function keys into their VT100/ANSI equivalents.
+; pressed keys.
 ;
-; Decoded keys are placed into an input buffer wgucg simulates the buffer
-; used in SIO driver.
+; Keyboard processing is in two stages:
+; 1. The KBDSCAN routiune should be called 'frequently', generally from a timer
+;    50 times a second seems to be a good rate. This routine checks for pressed
+;    keys and adds the raw scan codes to a queue.
+; 2. KBDCHAR is called to rettieve the next key pressed. This routine takes
+;    data from the raw scan-code queue and translates to ASCII and, for special
+;    keys, into multi-byte ANSI/VT100 sequences.
+;
+; This split allows the ISR to remain as efficient as possible while deferring
+; the somewhat slow translation into the access code.
+;
+; The KBDCHAR and KBDCHK functions are externally identical to the SIO
+; equivalents RXA and CKINCHAR. This allows trivial switching between SIO and
+; an internal keyboard.
+;
+; KBDINIT is the equivalent to INITSIO and must be called before the keyboard
+; will correctly operate.
+;
 ;==================================================================================
 ; import config.asm
 import defs.asm
@@ -22,11 +37,8 @@ CODE_BUFSIZE    .EQU     $80      ; Undecoded characters (row/col codes)
 
                 CSEG
 
-
-
-
 ; ---- KBDINIT
-; Initialise the input buffers
+; Initialise the input buffers and pointers.
 KBDINIT:        PUSH     HL
                 LD       HL,codeBuf
                 LD       (codeWrPtr),HL
@@ -38,32 +50,66 @@ KBDINIT:        PUSH     HL
                 LD       (kbdCnt),A
                 LD       (kbdMode),A
                 LD       (kbdCaps),A
-                LD       A,18h
-                LD       (kbdState),A
+                CALL     CLRSCAN
                 POP      HL
                 RET
 
 
-; ---- CLRSCAN
-; Clear the previous scan codes. This will effectively enable auto-repeat.
-CLRSCAN:        PUSH     HL
-                PUSH     BC
-                PUSH     AF
-                LD       HL,kbdState
-                LD       B,18
-                XOR      A
-.clrnxt:        LD       (HL),A
-                INC      HL
-                DJNZ     .clrnxt
-                POP      AF
-                POP      BC
+
+; ------ KBDCHAR
+; Return next character from input queue. This is a BLOCKING CALL and will not return
+; until a key has been pressed.
+;
+; OUTPUT: A - the next character for the client to process.
+; All registers EXCEPT the accumulator and flags are preserved.
+;
+; Either:
+; + There are characters in the short kbdBuf OR
+; + Prime the kbdBuf from the codeBuf (and decode scan codes to ASCII/VT100)
+; Note that one scan code row can generate multiple keyboard codes.
+KBDCHAR:        LD       A,(kbdCnt)
+                OR       A
+                JR       NZ,.gotchr
+
+.again:         CALL     PRIMEBUF                  ; Nothing in kbdBuf so prime from the codeBuf
+
+.gotchr:        LD       A,(kbdCnt)                ; If there's still nothing then there are no waiting keys.
+                OR       A
+                JR       Z,.again                  ; Nothing so wait (blocking)
+
+                DEC      A                         ; There's at least one character
+                LD       (kbdCnt),A
+
+                PUSH     HL
+                LD       HL,(kbdRdPtr)
+                LD       A,(HL)
+                PUSH     AF                        ; Save the character to be returned
+                INC      HL                        ; Move kbdRdPtr forward but...
+                LD       A,L                       ; ...check for wrap at end of buf
+                CP       low (kbdBuf + KBD_BUFSIZE)
+                JR       NZ,.nowrap                ; kbdBuf is <256 bytes so only need to check low byte of pointer
+                LD       HL,kbdBuf
+.nowrap:        LD       (kbdRdPtr),HL
+                POP      AF                        ; Get the key back
                 POP      HL
                 RET
 
 
+; ---- KBDCHK
+; Return NZ if there is at least ONE character in the input buffer. Z otherwise. Note that this
+; function does NOT return the waiting key.
+;
+; All registers except AF preserved.
+KBDCHK:         LD       A,(kbdCnt)
+                OR       A
+                RET      NZ                        ; There are characters is the kbdBuf
+                CALL     PRIMEBUF                  ; kbdBuf is empty, scheck the scan code queue
+                LD       A,(kbdCnt)
+                OR       A
+                RET
 
 ; ---- KBDSCAN
-; A low level scan reporting all keys pressed. Assumed to be called from an ISR
+; A low level scan reporting all keys pressed. Assumed to be called from a timer ISR
 ; and so optimised to return as soon as ppssible on no key pressess.
 KBDSCAN:        PUSH     AF
                 PUSH     BC
@@ -76,21 +122,19 @@ KBDSCAN:        PUSH     AF
                 LD       A,(kbdBase)      ; Base value
                 LD       B,9              ; Row count
                 LD       C,0              ; Change flag (any keys up or down)
-                LD       D,0              ; there are rows with keys pressed
 
 _nxts:          PUSH     AF
                 OUT      (KBD_IO),A       ; Select keyboard row
                 IN       A,(KBD_IO)       ; Result...
                 CPL                       ; Want a '1' for pressed keys
                 LD       E,A              ; Store scan row for later
-                OR       D                ; Flag for ANY keys pressed
-                LD       D,A
                 LD       (HL),E           ; Store the new value
                 INC      HL
                 LD       A,(HL)           ; Have any bits changed?
                 XOR      E
                 OR       C                ; If bits have changed then A!=0. 'C' is non-zero
-                LD       C,A              ; C will be non-zero at the end of there are any changes
+                LD       C,A              ; C will be non-zero at the end if there are any changes
+                INC      HL
                 INC      HL               ; Ready for next row
                 POP      AF
                 INC      A
@@ -98,9 +142,10 @@ _nxts:          PUSH     AF
 
                 LD       A,C
                 OR       A                ; If any keys change state then reset
-                JR       Z,.down          ; No keys pressed
+                JR       Z,.nochng        ; No keys have changed state
 
-.reset          LD       A,(rpCount)
+                ; At least one key has changed state
+                LD       A,(rpCount)
                 OR       A
                 LD       A,reRep
                 JR       Z,.fast
@@ -108,7 +153,7 @@ _nxts:          PUSH     AF
 .fast:          LD       (rpCount),A
                 JR       .cdown
 
-.down:          LD       A,(rpCount)       ; Timeout for keyboard repeat?
+.nochng:        LD       A,(rpCount)       ; Timeout for keyboard repeat?
                 DEC      A
                 LD       (rpCount),A
                 CALL     Z,CLRSCAN
@@ -122,21 +167,24 @@ _nxts:          PUSH     AF
                 POP      AF
                 RET
 
-
-
                 ; At this point the kbdState array contains the results of the old and new scan rows and
                 ; we know that there's at least one key that's changed state. Pull out each changed
-                ; combination and add them to the event queue.
+                ; combination and add them to the event queue. Also reset the auto-repeat counter if
+                ; the only key pressed is a meta key or if there are more than one key pressed.
 
                 ; First, build the meta key status
-_saveState::    LD       A,(kbdState+menu2Row*2)
+_saveState::    LD       A,(kbdState+menu2Row*3)
                 AND      20h                       ; Ignore everything except MNU
                 LD       E,A
-                LD       A,(kbdState+fn2Row*2)
+
+                ; Same for the FN2 row
+                LD       A,(kbdState+fn2Row*3)
                 AND      40h                       ; Ignore everything except FN2
                 OR       E
                 LD       E,A
-                LD       A,(kbdState+stateRow*2)
+
+                ; And finally the row with all the other control keys in
+                LD       A,(kbdState+stateRow*3)
                 AND      17h                       ; Mask out non meta keys
                 OR       E
                 LD       E,A                       ; Save meta key modes
@@ -151,28 +199,37 @@ _saveState::    LD       A,(kbdState+menu2Row*2)
                 ;      +-----------------> FN2
                 LD       (kbdMode),A               ; Store for later
 
-                ; Copy changed keys into the processing queue (without decoding)
-                LD       D,0           ; Current row number
+                ; Copy changed keys into the processing queue (without decoding) and
+                ; count the number of character keys pressed.
+                LD       D,0           ; Number of rows with character generating keys pressed, excluding metas
                 LD       B,9           ; Number of rows
                 LD       HL,kbdState   ; Step back through the table
 _pnxtrow:       LD       A,(HL)        ; New state
-                LD       C,A
+                LD       C,A           ; Save
                 INC      HL
                 XOR      A,(HL)        ; Compare with last poll. 1s mean a changed state
                 LD       (HL),C        ; Store the changed state
+                INC      HL            ; Points to character mask
                 AND      C             ; a '1' now means a key has been pressed in this row
-
+                AND      (HL)          ; Ignore meta keys
+                JR       Z,.nokey
                 ; At least one key pressed. Output this row for processing,
                 ; D:   Row number
                 ; A:   Changed key
                 ; E:   Meta keys
-                CALL     NZ,saverow
-
-                INC      HL            ; Next row
-                INC      D
+                CALL     saverow
+                INC      D             ; Number or rows with pressed character keys
+.nokey:         INC      HL            ; Next row
                 DJNZ     _pnxtrow
 
-                ; Deal with auto-repeat countdown
+                ; If there were no character generating keys pressed then reset the
+                ; auto repeat counter.
+                LD       A,D           ; Number of rows with pressed character keys
+                OR       A
+                JR       NZ,.cont      ; If there are no pressed keys then...
+                LD       A,firstRpt    ; ...reset the repeat key counter
+                LD       (rpCount),A
+
                 ; All rows processed and queued so OK to return.
 .cont           POP      HL
                 POP      DE
@@ -192,11 +249,15 @@ _pnxtrow:       LD       A,(HL)        ; New state
 ; Preserve: HL, BC, DE
 saverow:        PUSH     HL
                 PUSH     DE
+                PUSH     AF
                 LD       HL,(codeWrPtr)
                 LD       (HL),E            ; Save Meta
                 INC      HL
-                LD       (HL),D            ; Row number
+                LD       A,9
+                SUB      B
+                LD       (HL),A            ; Row number
                 INC      HL
+                POP      AF
                 LD       (HL),A            ; Changed keys
                 INC      HL
 
@@ -323,12 +384,6 @@ _nxtbit:        SLA      A
 
                 ; Key pressed. Add to queue.
                 LD       B,(HL)        ; The keycode (C still contains the meta chars)
-                ; PUSH     AF
-                ; LD       A,B
-                ; CALL     WRITE_8
-                ; LD       A,'-'
-                ; RST      08h
-                ; POP      AF
                 CALL     DOKEY         ; Add character in B to the input character queue
 
 _nochr:         INC      HL            ; Ready for the next bit
@@ -354,7 +409,7 @@ _empt:          POP       BC
 
 ; ------ DOKEY
 ; Add the character in the B register into the input queue, performing any
-; necessary VT100 expansions (TBD)
+; necessary VT100 expansions.
 ;
 ; INPUT: B - Character to store.
 ;        C - Meta key state for this key
@@ -448,76 +503,31 @@ DOKEY:          PUSH     AF
                 JR       NZ,.nowrap
                 LD       HL,kbdBuf
 .nowrap:        LD       (kbdWrPtr),HL
-                ; CALL     NL
-                ; LD       A,'"'
-                ; RST      08h
-                ; LD       A,B
-                ; RST      08h
-                ; LD       A,'"'
-                ; RST      08h
-                ; LD       A,' '
-                ; RST      08h
-                ; LD       A,'['
-                ; RST      08h
-                ; LD       A,B
-                ; CALL     WRITE_8
-                ; LD       A,','
-                ; RST      08h
-                ; LD       A,(kbdMode)
-                ; CALL     WRITE_8
-                ; LD       A,']'
-                ; RST      08h
-                ; CALL     NL
                 POP      HL
 _nostore:       POP      AF
                 RET
 
 
 
-
-; Return next character from input queue. Either:
-; + There are characters in the short kbdBuf OR
-; + Prime the kbdBuf from the codeBuf
-; Note that one scan code row can generate multiple keyboard codes
-KBDCHAR:        LD       A,(kbdCnt)
-                OR       A
-                JR       NZ,.gotchr
-
-.again:         CALL     PRIMEBUF
-
-.gotchr:        LD       A,(kbdCnt)
-                OR       A
-                JR       Z,.again                  ; Nothing so wait (blocking)
-
-                DEC      A                         ; There's at least one character
-                LD       (kbdCnt),A
-
-                PUSH     HL
-                LD       HL,(kbdRdPtr)
-                LD       A,(HL)
+; ---- CLRSCAN
+; Clear the previous scan codes. This will effectively enable auto-repeat. Also
+; used as part of keyboard initialisation.
+CLRSCAN:        PUSH     HL
+                PUSH     BC
                 PUSH     AF
+                LD       HL,kbdState+1
+                LD       B,9
+                XOR      A
+.clrnxt:        LD       (HL),A
                 INC      HL
-
-                ; Check for wrap
-                LD       A,L
-                CP       low (kbdBuf + KBD_BUFSIZE)
-                JR       NZ,.nowrap
-                LD       HL,kbdBuf
-.nowrap:        LD       (kbdRdPtr),HL
-                POP      AF                        ; Get the key back
+                INC      HL
+                INC      HL
+                DJNZ     .clrnxt
+                POP      AF
+                POP      BC
                 POP      HL
                 RET
 
-
-; ---- KBDCHK
-; Return NZ if there is at least ONE character in the input buffer. Z otherwise.
-KBDCHK:         LD       A,(kbdCnt)
-                OR       A
-                RET      NZ                        ; There are characters
-                CALL     PRIMEBUF                  ; Process scan codes
-                LD       A,(kbdCnt)
-                OR       A
-                RET
 
 
 
@@ -584,9 +594,6 @@ menu2Row       EQU        2         ; The scan row that includes the CTRL, SHIFT
 stateRow       EQU        6         ; The scan row that includes the CTRL, SHIFT, OPT and CAPS keys
 fn2Row         EQU        7         ; The scan row that includes the CTRL, SHIFT, OPT and CAPS keys
 
-modeBits       EQU        00011111b ; The bits to look at for keyboard state
-lockBit        EQU        3         ; Bit in control scan line that controls caps lock
-lockMask       EQU        00001000b ; Bit in control scan line that controls caps lock
 ; Default table
 tab_std::       DB       '76543210'
                 DB       ';][\=-98'
@@ -630,11 +637,6 @@ tab_caps::      DB       '76543210'
                 DB       CR,FN2,DEL,PGDN,TAB,ESC,F10,F9
                 DB       RIGHT,DOWN,UP,LEFT,BS,HOME,PGUP,SPC
 
-
-txlate::        DW       tab_std
-                DW       tab_shft
-                DW       tab_ctrl
-                DW       tab_caps
 
 ; VT100 escape sequence mapping
 V_F1            DC       '[10~'
@@ -728,9 +730,22 @@ kbdBufUsed      DS       1
 kbdBase         DB       0    ; Contains the upper 4 bits (LED control)
 kbdCaps         DB       0    ; 1 if caps lock is on
 kbdMode         DB       0    ; Keyboard mode bits (Shift CTRL etc)
-kbdState::      DS      18    ; Keyboard scan data. Each scan line is 16 bits. The first
-                              ; byte is the latest state, the second byte is the last state.
-                              ; generally we're looking for state changes.
+
+; Keyboard scan data. Each scan line is 3 bytes. The first
+; byte is the latest state, the second byte is the last state.
+; The third byte is fixed and masks out any keys that are not
+; character generating (eg a shift or ctrl key)
+kbdState:       DB       0,0,11111111b
+                DB       0,0,11111111b
+                DB       0,0,11011111b
+                DB       0,0,11111111b
+                DB       0,0,11111111b
+                DB       0,0,11111111b
+                DB       0,0,11111000b
+                DB       0,0,11111111b
+                DB       0,0,11111111b
+
+
 kbdCnt          DB       0    ; Number of characters in the kbdBuf
 kbdBuf::        DS       KBD_BUFSIZE
 ;.END

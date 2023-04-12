@@ -95,3 +95,20 @@ EN_PAGE MACRO
     LD    A,$03
     OUT   (PG_CTRL),A        ; Switch to page mode
     ENDM
+
+
+; CTC_VAL
+; Write a control value and  to one of the SIO write registers
+;   chn: A or B - which channel/port
+;   reg: The register number
+;   val: Date to write to the port
+;
+; A NOT PRESERVED
+CTC_VAL MACRO  chn,reg,val
+    LD    A,reg
+    OUT   (CTC_CH`chn`),A
+if ! nul &val
+    LD    A,val
+    OUT   (CTC_CH`chn`),A
+endif
+    ENDM

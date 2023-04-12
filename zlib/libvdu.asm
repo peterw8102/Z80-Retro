@@ -12,8 +12,10 @@
 ; import config.asm
 import defs.asm
 
-  extrn  WRITE_8, WRITE_16
-  public V_CLS,V_SCRUP,V_SCRDN,V_PRT,V_CTOG,V_CENABLE
+  extrn  WRITE_8, WRITE_16,TXA
+  extrn  BIN2HEX
+  ; public V_INIT,V_CLS,V_SCRUP,V_SCRDN,V_PRT,V_CTOG,V_CENABLE
+  public V_INIT,V_PRT,V_CTOG
 
 
 ; Definitions
@@ -24,8 +26,8 @@ LNCHRS      EQU   80         ; Number of characters in a row
 NUMLNS      EQU   30         ; Number of lines
 
 ; Start of video memory (when page FF mapped to top)
-CHRSET      EQU   $8000      ; 4K from here
-VIDEOM      EQU   $A000      ; Actual video memory to BLT to
+CHRSET      EQU   $0000      ; 4K from here
+VIDEOM      EQU   $2000      ; Actual video memory to BLT to
 
 ; Location of CHR$ 255 used for the cursor
 CURCHR      EQU   CHRSET+255*16
@@ -45,16 +47,128 @@ LASTLN      EQU   VIDEOM + PGCHRS - LNCHRS
 MAPMEM   MACRO
          PUSH    AF
          LD      A,VPAGE
-         ; OUT     (PG_CTRL + 2),A
+         OUT     (PG_PORT0),A
          POP     AF
          ENDM
+
+CLRMEM   MACRO
+         PUSH    AF
+         LD      A,(APPPAGE)
+         OUT     (PG_PORT0),A
+         POP     AF
+         ENDM
+
+
+V_PRT:      PUSH    HL
+            PUSH    DE
+            PUSH    BC
+            LD      C,A
+            XOR     A
+            LD      (VMASK),A
+            LD      A,C
+            MAPMEM
+            CALL    V_PRT2
+            CLRMEM
+            LD      A,1
+            LD      (VMASK),A
+            POP     BC
+            POP     DE
+            POP     HL
+            RET
+
+; ------ V_PRT
+; Write the character in A to the current cursor position and move
+; forward one character, scrolling if necessary.
+; V_PRT:      PUSH    AF
+;             CALL    TXA
+;             POP     AF
+V_PRT2:     ; MAPMEM
+            PUSH    HL
+            LD      HL,(VPTR)
+            LD      (VOLD),HL
+            LD      HL,(VPTR+2)
+            LD      (VOLD+2),HL
+            POP     HL
+            PUSH    AF
+            LD      A,(VSTATE)
+            OR      A
+            JR      NZ,SPECIAL
+_normal:    POP     AF
+
+            ; Check for special characters.
+_normal2:   CALL    CURS_OFF
+            CP      LF
+            JR      Z,V_DOWN
+            CP      CR
+            JR      Z,V_CR
+            CP      TAB
+            JR      Z,V_TAB
+            CP      FF
+            JR      Z,V_CLS
+            CP      ESC
+            JR      Z,V_ESC
+            CP      CSI          ; The 8 bit equivalent to ESC [
+            JR      Z,V_CSI
+            PUSH    HL
+            CALL    Q_INS        ; Check if we're in insert move
+            LD      HL,(VPTR)
+            LD      (HL),A
+            CALL    V_RIGHT      ; Move on
+            POP     HL
+            RET
+
+; ------ WRITE_16
+; Convert the 16 bit value in HL to 4 ASCII caracters and send to the console.
+; All registers preserved.
+WR_16:     PUSH AF
+           LD   A,H
+           CALL WR_8
+           LD   A,L
+           CALL WR_8
+           POP  AF
+           RET
+
+; ------ WRITE_8
+; Convert the 8 bit number in A into HEX characters in write to the console
+; A: number to write (not preserved)
+WR_8:      PUSH HL
+           CALL BIN2HEX
+           LD   A,H
+           CALL TXA
+           LD   A,L
+           CALL TXA
+           POP  HL
+           RET
+
+
+; ------ V_INIT
+; Initialise the VDU:
+;   1. Copy the default character set into the video card
+;   2. Clear the display memory to all spaces
+;   3. Initialse VPTR and VCOL.VLINE to top-left
+;   4. Initialise the cursor (to the space char)
+;
+; INPUTS: A  - contains the page to be restored at the end of a VDU operation.
+;         HL - points to the character set definition that MUST BE IN mapped
+;              memory and NOT in BANK 0.
+;
+V_INIT:   LD     (APPPAGE),A
+          MAPMEM
+          LD       BC,$1000   ; The character set is 4K
+          LD       DE,CHRSET  ; Desitnation address
+          LDIR
+
+          CALL     V_CLS
+
+          CLRMEM
+          RET
+
 
 ; ---- V_CLS
 ; Fill the entire 80x25 line display with spaces
 V_CLS:    PUSH    HL
           PUSH    DE
           PUSH    BC
-          MAPMEM
           LD      HL,VIDEOM
           LD      DE,VIDEOM+1
           LD      BC,PGCHRS
@@ -65,6 +179,7 @@ V_CLS:    PUSH    HL
           LD      HL,VIDEOM
           LD      (VPTR),HL
           CALL    CURS_MK
+          CLRMEM
           POP     BC
           POP     DE
           POP     HL
@@ -72,9 +187,9 @@ V_CLS:    PUSH    HL
 
 ; ------ V_SCRUP
 ; Scroll up - will scroll the current scroll region and clear the bottom line.
-V_SCRUP:    PUSH    BC
+V_SCRUP:    PUSH    HL
             PUSH    DE
-            PUSH    HL
+            PUSH    BC
             LD      DE,(SCR_MTOP)
             LD      HL,LNCHRS
             ADD     HL,DE                ; HL: Start of second line, DE top region line
@@ -90,14 +205,15 @@ V_SCRUP:    PUSH    BC
             LD      BC,LNCHRS-1
             LDIR
 
-            POP     HL
-            POP     DE
             POP     BC
+            POP     DE
+            POP     HL
             RET
 
 ; ------ V_SCRDN
 ; Scroll down - will scroll characters down one line and clear the top line.
-V_SCRDN:    PUSH    BC
+V_SCRDN:    PUSH    AF
+            PUSH    BC
             PUSH    DE
             PUSH    HL
             LD      HL,(SCR_MBOT)
@@ -129,12 +245,13 @@ V_SCRDN:    PUSH    BC
 .outRegion: POP     HL
             POP     DE
             POP     BC
+            POP     AF
             RET
 
 ; ------ Insert `n` blank characters at the current cursor position. Cursor doesn't move.
 V_CHINS:    LD      A,(VCOL)
-            CP      LNCHRS-1          ; End of line?
-            JR      Z,.eol
+            CP      LNCHRS            ; End of line?
+            JR      Z,_eol
 
             ; Work out how many characters to insert.
             PUSH    HL
@@ -145,8 +262,8 @@ V_CHINS:    LD      A,(VCOL)
             INC     A
             LD      (VARG1),A
 .ok:        ADD     L                 ; Position of last space to insert. If past end then just clear the line.
-            CP      LNCHRS-1
-            JR      NC,.ertoend        ; Inserting more than there's room for
+            CP      LNCHRS
+            JR      NC,_ertoend        ; Inserting more than there's room for
 
             PUSH    DE
             PUSH    BC
@@ -158,7 +275,6 @@ V_CHINS:    LD      A,(VCOL)
             LD      D,0
             OR      A
             SBC     HL,DE             ; HL is end of line
-            ; DEC     HL
             PUSH    HL
             LD      A,(VARG1)
             LD      E,A
@@ -190,22 +306,10 @@ V_CHINS:    LD      A,(VCOL)
             CALL    CURS_MK
             JR      CURS_ON
 
-            ; Number of characters to insert is more than room on the line so just clear the line.
-.ertoend:   XOR     A
-            LD      (VARG1),A
-            POP     HL
-            JR      L_LNERASE
-
-.eol:       PUSH    HL
-            LD      HL,(VPTR)
-            LD      (HL),' '
-            POP     HL
-            JP      CURS_MK
-
 ; ------ Delete `n` blank characters at the current cursor position. Cursor doesn't move.
 V_CHDEL:    LD      A,(VCOL)
             CP      LNCHRS-1          ; End of line?
-            JR      Z,.eol
+            JR      Z,_eol
 
             ; Work out how many characters to insert.
             PUSH    HL
@@ -216,8 +320,8 @@ V_CHDEL:    LD      A,(VCOL)
             INC     A
             LD      (VARG1),A
 .ok:        ADD     L                 ; Position of last space to insert. If past end then just clear the line.
-            CP      LNCHRS-1
-            JR      NC,.ertoend       ; Deleting more than chars on the line so just delete line
+            CP      LNCHRS
+            JR      NC,_ertoend       ; Deleting more than chars on the line so just delete line
 
             PUSH    DE
             PUSH    BC
@@ -263,12 +367,12 @@ V_CHDEL:    LD      A,(VCOL)
             JR      CURS_ON
 
             ; Number of characters to insert is more than room on the line so just clear the line.
-.ertoend:   XOR     A
+_ertoend:   XOR     A
             LD      (VARG1),A
             POP     HL
             JR      L_LNERASE
 
-.eol:       PUSH    HL
+_eol:       PUSH    HL
             LD      HL,(VPTR)
             LD      (HL),' '
             POP     HL
@@ -496,43 +600,6 @@ isInReg:    LD      A,(VLINE)
 
 
 
-; ------ V_PRT
-; Write the character in A to the current cursor position and move
-; forward one character, scrolling if necessary.
-V_PRT:      MAPMEM
-            LD      HL,(VPTR)
-            LD      (VOLD),HL
-            LD      HL,(VPTR+2)
-            LD      (VOLD+2),HL
-            PUSH    AF
-            LD      A,(VSTATE)
-            OR      A
-            JR      NZ,SPECIAL
-_normal:    POP     AF
-
-            ; Check for special characters.
-_normal2:   CALL    CURS_OFF
-            CP      LF
-            JR      Z,V_DOWN
-            CP      CR
-            JR      Z,V_CR
-            CP      TAB
-            JR      Z,V_TAB
-            CP      FF
-            JR      Z,V_CLS
-            CP      ESC
-            JR      Z,V_ESC
-            CP      CSI          ; The 8 bit equivalent to ESC [
-            JR      Z,V_CSI
-            PUSH    HL
-
-            CALL    Q_INS        ; Check if we're in insert move
-            LD      HL,(VPTR)
-            LD      (HL),A
-            CALL    V_RIGHT    ; Move on
-            POP     HL
-            RET
-
 ; ------ V_ESC
 ; Start of an escape sequence. Change state.
 V_ESC:     LD       A,S_ESC
@@ -623,7 +690,7 @@ _DIGIT:    CP      '9'+1
            PUSH    DE
            LD      HL,(ARGPTR)
            LD      D,A
-           LD      A,(HL)
+           LD      A,(HL)       ; Current value
            ADD     A
            LD      E,A
            ADD     A
@@ -758,6 +825,7 @@ V_CR:       PUSH    HL
             LD      (VCOL),A
             POP     DE
             POP     HL
+            CALL    CURS_MK
             RET                 ; No need to adjust here
 
 ; ------ V_DOWN
@@ -779,7 +847,7 @@ V_DOWN:     LD      A,(VLINE)
 ; ------ LOOP
 ; Call the routine in HL the number of times specified
 ; by VARG1. If VARG1 is zero then call the routine once.
-LOOP:       LD      A,VCEN
+LOOP:       LD      A,(VCEN)
             PUSH    AF
             XOR     A
             CALL    V_CENABLE      ; Disable the cursor
@@ -1405,21 +1473,25 @@ CURS_OFF:   PUSH    HL
 ; ------ V_CTOG
 ; Toggle the cursor at the current location.
 V_CTOG:     PUSH    AF
-            PUSH    HL
-
-            LD      A,(VCEN)
+            LD      A,(VMASK)     ; If normal VDU output busy then NO ISR updates
             OR      A
-            JR      Z,.fin
+            JR      Z,.fin2
+            LD      A,(VCEN)      ; Is the cursor administratively disabled?
+            OR      A
+            JR      Z,.fin2
 
+            PUSH    HL
             LD      HL,(VPTR)
+            MAPMEM
             LD      A,(HL)
             INC     A
             JR      Z,.cursoff
             CALL    CURS_ON
             JR      .fin
 .cursoff:   CALL    CURS_OFF
-.fin:       POP     HL
-            POP     AF
+.fin:       CLRMEM
+            POP     HL
+.fin2:      POP     AF
             RET
 
 ; ------- V_CENABLE
@@ -1436,6 +1508,7 @@ V_CENABLE:  OR       A
 .enable:    CALL     CURS_MK
             CALL     CURS_ON
             RET
+
 ; ------ NEG
 ; Twos complement of HL. Does NOT preserve A. Result returned in HL
 NEG         LD      A,L
@@ -1448,14 +1521,15 @@ NEG         LD      A,L
             RET
 
 
-            DSEG
+            ; DSEG
+APPPAGE:    DB      20h        ; The memory page that should be restored at the end of an operation (usually V_PTR)
 VPTR::      DW      VIDEOM     ; Pointer to cursor location
 VLINE       DB      0          ; Line number
 VCOL        DB      0          ; Col position
 
 VCURS       DB      0          ; Character that appears under the cursor
 VCEN        DB      1          ; NOT Zero, show cursor
-
+VMASK       DB      1          ; If zero the ISR must do nothing
 VINS        DB      0          ; If '1' then insert mode
 VCMASK      DB    $FF          ; What to use to create a cursor
 
@@ -1488,4 +1562,4 @@ S_ESC       EQU     1
 S_CSI       EQU     2
 S_CSIQ      EQU     3
 
-VSTATE      DB      0          ; 0: normal, 1: ESC pressed etc
+VSTATE      DB      S_NORMAL        ; 0: normal, 1: ESC pressed etc

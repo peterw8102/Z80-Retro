@@ -136,8 +136,10 @@ LDH:      CALL  PREPLD
           JR    cmd_load
 
 ; ---------------- LOAD
-; Process all lines starting with a ':'
-LDT:      CALL  PREPLD
+; Process all lines starting with a ':'. Hex load is always over the serial console
+LDT:      XOR   A
+          CALL  CNS_SET           ; Set serial console
+          CALL  PREPLD
           XOR   A
           CALL  SETHIST
           LD    HL, _WAITING      ; Command line HEX input
@@ -317,7 +319,7 @@ E_REC:    LD    HL,_REC_ERR
 
 
 
-_WAITING     DEFB "Waiting...",NULL
+_WAITING     DEFB CR,LF,"Waiting...",NULL
 _FNAME       DEFB "File? ",0
 _nxtblk$     DEFB CR,"Block: ",0
 _record$     DEFB CR,"Record: ",0

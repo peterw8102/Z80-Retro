@@ -602,8 +602,8 @@ tab_std::       DB       '76543210'
                 DB       'rqponmlk'
                 DB       'zyxwvuts'
                 DB       F3,F2,F1,FN1,LOCK,OPT,CTRL,SHIFT
-                DB       CR,FN2,DEL,PGDN,TAB,ESC,F5,F4
-                DB       RIGHT,DOWN,UP,LEFT,BS,HOME,PGUP,SPC
+                DB       CR,FN2,BS,PGDN,TAB,ESC,F5,F4
+                DB       RIGHT,DOWN,UP,LEFT,DEL,HOME,PGUP,SPC
 
 
 tab_shft::      DB       '&^%$',POUND,'@!)'
@@ -613,8 +613,8 @@ tab_shft::      DB       '&^%$',POUND,'@!)'
                 DB       'RQPONMLK'
                 DB       'ZYXWVUTS'
                 DB       F8,F7,F6,FN1,LOCK,OPT,CTRL,SHIFT
-                DB       CR,FN2,DEL,PGDN,TAB,ESC,F10,F9
-                DB       RIGHT,DOWN,UP,LEFT,BS,HOME,PGUP,SPC
+                DB       CR,FN2,BS,PGDN,TAB,ESC,F10,F9
+                DB       RIGHT,DOWN,UP,LEFT,DEL,HOME,PGUP,SPC
 
 
 tab_ctrl::      DB       '76543210'
@@ -624,7 +624,7 @@ tab_ctrl::      DB       '76543210'
                 DB       $12,$11,$10,$0F,$0E,$0D,$0C,$0B
                 DB       $1A,$19,$18,$17,$16,$15,$14,$13
                 DB       FC3,FC2,FC1,FN1,LOCK,OPT,CTRL,SHIFT
-                DB       CR,FN2,DEL,PGDN,TAB,CSI,FC3,FC4
+                DB       CR,FN2,BS,PGDN,TAB,CSI,FC3,FC4
                 DB       EOL,END,HOME,SOL,WRDDEL,HOME,PGUP,SPC
 
 tab_caps::      DB       '76543210'
@@ -634,8 +634,8 @@ tab_caps::      DB       '76543210'
                 DB       'RQPONMLK'
                 DB       'ZYXWVUTS'
                 DB       F8,F7,F6,FN1,LOCK,OPT,CTRL,SHIFT
-                DB       CR,FN2,DEL,PGDN,TAB,ESC,F10,F9
-                DB       RIGHT,DOWN,UP,LEFT,BS,HOME,PGUP,SPC
+                DB       CR,FN2,BS,PGDN,TAB,ESC,F10,F9
+                DB       RIGHT,DOWN,UP,LEFT,DEL,HOME,PGUP,SPC
 
 
 ; VT100 escape sequence mapping

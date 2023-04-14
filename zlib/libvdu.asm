@@ -12,9 +12,6 @@
 ; import config.asm
 import defs.asm
 
-  extrn  WRITE_8, WRITE_16,TXA
-  extrn  BIN2HEX
-  ; public V_INIT,V_CLS,V_SCRUP,V_SCRDN,V_PRT,V_CTOG,V_CENABLE
   public V_INIT,V_PRT,V_CTOG
 
 
@@ -42,31 +39,34 @@ LASTBYTE    EQU   VIDEOM + PGCHRS
 LASTLN      EQU   VIDEOM + PGCHRS - LNCHRS
 
 
-; Start with some primitive operations to be used as building blocks.
-
+; Macros for mapping/unmapping video memory
 MAPMEM   MACRO
-         PUSH    AF
          LD      A,VPAGE
          OUT     (PG_PORT0),A
-         POP     AF
          ENDM
 
 CLRMEM   MACRO
-         PUSH    AF
          LD      A,(APPPAGE)
          OUT     (PG_PORT0),A
-         POP     AF
          ENDM
 
 
+; ------ V_PRT
+; This is the only application entry point to the display driver (the others are
+; for initialisation and cursor blinking). Process the character in the accumulator.
+; How the character is processed is dependent on the current state of the parsing
+; engine, which in turn depends on previous characters.
+; INPUT:  A  - Character to process
+;
+; All registers EXCEPT the accumulator are preserved.
 V_PRT:      PUSH    HL
             PUSH    DE
             PUSH    BC
             LD      C,A
             XOR     A
             LD      (VMASK),A
-            LD      A,C
             MAPMEM
+            LD      A,C
             CALL    V_PRT2
             CLRMEM
             LD      A,1
@@ -77,26 +77,20 @@ V_PRT:      PUSH    HL
             RET
 
 ; ------ V_PRT
-; Write the character in A to the current cursor position and move
+; Process the character in A to the current cursor position and move
 ; forward one character, scrolling if necessary.
-; V_PRT:      PUSH    AF
-;             CALL    TXA
-;             POP     AF
-V_PRT2:     ; MAPMEM
-            PUSH    HL
-            LD      HL,(VPTR)
+V_PRT2:     LD      HL,(VPTR)
             LD      (VOLD),HL
             LD      HL,(VPTR+2)
             LD      (VOLD+2),HL
-            POP     HL
-            PUSH    AF
-            LD      A,(VSTATE)
-            OR      A
-            JR      NZ,SPECIAL
-_normal:    POP     AF
+            LD      HL,(VSTATEV)
+            JP      (HL)
 
-            ; Check for special characters.
-_normal2:   CALL    CURS_OFF
+; ------ NORMAL
+; Default state handler for the NORMAL case. Check whether the character to be
+; processed is the start of a known sequence and if not write it to the VDU.
+; If it's the start of a sequence then change the state machine appropriately.
+NORMAL:     CALL    CURS_OFF
             CP      LF
             JR      Z,V_DOWN
             CP      CR
@@ -105,41 +99,19 @@ _normal2:   CALL    CURS_OFF
             JR      Z,V_TAB
             CP      FF
             JR      Z,V_CLS
+            CP      DEL
+            JR      Z,V_DEL
+            CP      BS
+            JR      Z,V_BS
             CP      ESC
             JR      Z,V_ESC
             CP      CSI          ; The 8 bit equivalent to ESC [
             JR      Z,V_CSI
-            PUSH    HL
-            CALL    Q_INS        ; Check if we're in insert move
+            CALL    Q_INS        ; Check if we're in insert mode
             LD      HL,(VPTR)
             LD      (HL),A
             CALL    V_RIGHT      ; Move on
-            POP     HL
             RET
-
-; ------ WRITE_16
-; Convert the 16 bit value in HL to 4 ASCII caracters and send to the console.
-; All registers preserved.
-WR_16:     PUSH AF
-           LD   A,H
-           CALL WR_8
-           LD   A,L
-           CALL WR_8
-           POP  AF
-           RET
-
-; ------ WRITE_8
-; Convert the 8 bit number in A into HEX characters in write to the console
-; A: number to write (not preserved)
-WR_8:      PUSH HL
-           CALL BIN2HEX
-           LD   A,H
-           CALL TXA
-           LD   A,L
-           CALL TXA
-           POP  HL
-           RET
-
 
 ; ------ V_INIT
 ; Initialise the VDU:
@@ -179,7 +151,6 @@ V_CLS:    PUSH    HL
           LD      HL,VIDEOM
           LD      (VPTR),HL
           CALL    CURS_MK
-          CLRMEM
           POP     BC
           POP     DE
           POP     HL
@@ -599,47 +570,30 @@ isInReg:    LD      A,(VLINE)
             RET
 
 
-
-; ------ V_ESC
-; Start of an escape sequence. Change state.
-V_ESC:     LD       A,S_ESC
-           LD       (VSTATE),A
-           RET
-
-; ------ SPECIAL
-; State machine processing of a character sequence. Nothing very clever at the
-; moment. The state is stored in VSTATE. Values areL
-; 0: Normal - just echo the character. This isn't handled in this routine.
-; 1: ESC pressed - start of sequence seen.
-; Called with A: the current state.
-SPECIAL:   CP      S_ESC
-           JR      Z,P_ESC
-           CP      S_CSI
-           JR      Z,P_CSI
-           CP      S_CSIQ
-           JR      Z,P_CSIQ
-
-           ; No known state so return to normal mode and
-           ; print whatever the latest character was
-           POP     AF
-_CLEAR:    LD      A,S_NORMAL
-           LD      (VSTATE),A
+; ------ _CLEAR
+; Clear state machine back to 'NORMAL' - generally the end of an escape sequence.
+_CLEAR:    LD      HL,NORMAL
+           LD      (VSTATEV),HL
            XOR     A
            LD      (VARG1),A
            LD      (VARG2),A
            JR      CURS_MK
 
+; ------ V_ESC
+; Start of an escape sequence. Change state.
+V_ESC:     LD       HL,P_ESC
+           LD       (VSTATEV),HL
+           RET
 
 ; Escape character pressed. Decide what to do. Some are a continuation of other
 ; sequences.
-P_ESC:     POP     AF
-           CP      '['
+P_ESC:     CP      '['
            JR      Z,V_CSI
 
            ; Any sequence below WILL clear the state machine
            PUSH    AF
-           LD      A,S_NORMAL
-           LD      (VSTATE),A
+           LD      HL,NORMAL
+           LD      (VSTATEV),HL
            XOR     A
            LD      (VARG1),A
            POP     AF
@@ -665,8 +619,8 @@ P_ESC:     POP     AF
 
 ; ------ V_CSI
 ; 0x9B pressed or '[' after ESC
-V_CSI:     LD      A,S_CSI
-           LD      (VSTATE),A
+V_CSI:     LD      HL,P_CSI
+           LD      (VSTATEV),HL
            XOR     A
            LD      (VARG1),A
            LD      (VARG2),A
@@ -716,17 +670,14 @@ _DIGIT:    CP      '9'+1
 
 
 ; ESC [ seen.
-P_CSI:     POP     AF
-           CALL    _DIGIT
+P_CSI:     CALL    _DIGIT
            RET     Z           ; Nothing more to do.
 
            CALL    CURS_OFF
 
            ; All other options reset the state
-           PUSH    AF
-           LD      A,S_NORMAL
-           LD      (VSTATE),A
-           POP     AF
+           LD      HL,NORMAL
+           LD      (VSTATEV),HL
 
            CP      'r'
            JR      Z,L_REGION
@@ -764,24 +715,22 @@ P_CSI:     POP     AF
            JR      NZ,_CLEAR    ; Unknown - reset state.
 
            ; Enter CSIQ state
-           LD      A,S_CSIQ
-           LD      (VSTATE),A
+           LD      HL,P_CSIQ
+           LD      (VSTATEV),HL
+
 
            RET
 
 
 ; ESC [ ? sequence seen
-P_CSIQ:    POP     AF
-           CALL    _DIGIT
+P_CSIQ:    CALL    _DIGIT
            RET     Z           ; Nothing more to do.
 
            CALL    CURS_OFF
 
            ; All other options reset the state
-           PUSH    AF
-           LD      A,S_NORMAL
-           LD      (VSTATE),A
-           POP     AF
+           LD      HL,NORMAL
+           LD      (VSTATEV),HL
 
            CP      'h'
            JR      Z,L_CURSEN
@@ -810,6 +759,23 @@ V_TAB:      PUSH    HL
             POP     DE
             POP     HL
             JR      V_ADJ
+
+
+; ------ V_BS
+; Delete the character to the left of the current location and move the cursor left one space, unless at the start of the line.
+V_BS:       LD      A,(VCOL)
+            OR      A
+            RET     Z
+            CALL    V_LEFT
+            JR      V_CHDEL
+
+; ------ V_DEL
+; Delete the character at the current location and move leave the cursor unchanged
+V_DEL:      LD      A,(VCOL)
+            OR      A
+            RET     Z
+            JR      V_CHDEL
+
 
 ; ------ V_CR
 ; Move to the start of the current line.
@@ -868,22 +834,24 @@ CALLHL:     JP      (HL)
 
 ; ------ Define the scroll region (top,bottom]
 ; First parameter is the top, second in the bottom.
-L_REGION:   LD      A,(VARG1)       ; Is the top line in range?
-            CP      NUMLNS-1
+L_REGION:   CALL    ARGNORM         ; L:VARG1, H:VARG2
+            LD      A,L             ; Is the top line in range?
+            CP      NUMLNS
             JR      C,.cap1         ; Bad value
-            LD      A,NUMLNS-1
-            LD      (VARG1),A
-.cap1:      LD      A,(VARG2)
+            LD      L,NUMLNS
+.cap1:      LD      A,H
             CP      NUMLNS
             JR      C,.cap2         ; Bad value
-            LD      A,NUMLNS-1
-            LD      (VARG2),A
+            LD      H,NUMLNS
+            DEC     H
+            DEC     L
+            LD      (VARG1),HL
             ; Bottom must be at least one more than top
 .cap2:      PUSH    BC
-            LD      B,A             ; Save VARG2 - bottom
-            LD      A,(VARG1)
-            LD      C,A             ; Save top line
-            SUB     L               ; Number of lines in the region. Must be greater than 1
+            LD      B,H             ; Save VARG2 - bottom
+            LD      C,L             ; Save top line
+            LD      A,L
+            SUB     H               ; Number of lines in the region. Must be greater than 1
             JR      NC,.badReg      ; Invalid - region must be at least 2 lines.
 
             ; Calculate parameters for this region
@@ -944,10 +912,28 @@ L_RESTC:    PUSH    HL
             JR      _CLEAR
 
 
+; ------ ARGNORM
+; Normalise ARG1 and ARG2. If the value of either is zero then make it one. Return
+; ARG1 in L and ARG2 in H
+ARGNORM:    LD      HL,(VARG1)            ; Arg1 and arg2 in HL
+            LD      A,L
+            OR      A
+            JR      NZ,.ok1
+            INC     L
+.ok1:       LD      A,H
+            OR      A
+            JR      NZ,.ok2
+            INC     H
+.ok2:       LD      (VARG1),HL
+            RET
 
-; ------ Move cursor position to the [arg1, arg2] values
+
+
+; ------ Move cursor position to the [arg1, arg2] values. Both are 1 based
 L_MOVE:     PUSH    HL
-            LD      HL,(VARG1)            ; Arg1 and arg2 in HL
+            CALL    ARGNORM
+            DEC     H
+            DEC     L
             LD      (VLINE),HL            ; Store as new position
             CALL    CALCVPT               ; Re-calculate VPTR
             POP     HL
@@ -1231,8 +1217,8 @@ HLby80:     LD      A,L
 V_ADJ:      PUSH    HL
 
             ; Reset keyboard state after any adjustment.
-            LD      A,S_NORMAL
-            LD      (VSTATE),A
+            LD      HL,NORMAL
+            LD      (VSTATEV),HL
 
             LD      A,(VCOL)
 
@@ -1326,28 +1312,9 @@ V_ADJ:      PUSH    HL
 _INREGION:  PUSH    HL
             LD      HL,(SCR_TOP)       ; L = TOP, H = BOTTOM
 
-            ; PUSH    AF
-            ; CALL    WRITE_8
-            ; LD      A,':'
-            ; RST     08h
-            ; LD      A,L
-            ; CALL    WRITE_8
-            ; LD      A,'-'
-            ; RST     08h
-            ; POP     AF
-
-
             CP      L
             JR      C,.outside         ; Above the top line
             INC     H
-
-            ; PUSH    AF
-            ; CALL    WRITE_8
-            ; LD      A,':'
-            ; RST     08h
-            ; LD      A,H
-            ; CALL    WRITE_8
-            ; POP     AF
 
             CP      H
             JR      NC,.outside         ; Above the top line
@@ -1552,14 +1519,10 @@ SCR_LASTL   DW      LASTBYTE-LNCHRS ; Start of last line
 SCR_MSZ     DW      PGCHRS-LNCHRS+1 ; Number of bytes to DMA to scroll the region
 
 ; Sequence decoding is via a simplified state machine. The state is
-; stored in VSTATE and is one of the following:
-; S_NORMAL:     Normal character processing
-; S_ESC:        Escape key pressed
-; S_CSI:      Seen ESC [
-
-S_NORMAL    EQU     0
-S_ESC       EQU     1
-S_CSI       EQU     2
-S_CSIQ      EQU     3
-
-VSTATE      DB      S_NORMAL        ; 0: normal, 1: ESC pressed etc
+; stored in VSTATEV as a pointer to the state handler routine which
+; will be one of:
+; NORMAL:     Normal character processing
+; P_ESC:      Escape key pressed
+; P_CSI:      Seen ESC [
+; P_CSIQ:     Seen ESC [ ?
+VSTATEV     DW      NORMAL

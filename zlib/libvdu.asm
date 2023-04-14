@@ -138,10 +138,7 @@ V_INIT:   LD     (APPPAGE),A
 
 ; ---- V_CLS
 ; Fill the entire 80x25 line display with spaces
-V_CLS:    PUSH    HL
-          PUSH    DE
-          PUSH    BC
-          LD      HL,VIDEOM
+V_CLS:    LD      HL,VIDEOM
           LD      DE,VIDEOM+1
           LD      BC,PGCHRS
           LD      (HL),' '
@@ -151,17 +148,11 @@ V_CLS:    PUSH    HL
           LD      HL,VIDEOM
           LD      (VPTR),HL
           CALL    CURS_MK
-          POP     BC
-          POP     DE
-          POP     HL
           RET
 
 ; ------ V_SCRUP
 ; Scroll up - will scroll the current scroll region and clear the bottom line.
-V_SCRUP:    PUSH    HL
-            PUSH    DE
-            PUSH    BC
-            LD      DE,(SCR_MTOP)
+V_SCRUP:    LD      DE,(SCR_MTOP)
             LD      HL,LNCHRS
             ADD     HL,DE                ; HL: Start of second line, DE top region line
             LD      BC,(SCR_MSZ)         ; Number of characters to LDIR (Should be 80 less than region size)
@@ -175,19 +166,11 @@ V_SCRUP:    PUSH    HL
             LD      (HL),' '
             LD      BC,LNCHRS-1
             LDIR
-
-            POP     BC
-            POP     DE
-            POP     HL
             RET
 
 ; ------ V_SCRDN
 ; Scroll down - will scroll characters down one line and clear the top line.
-V_SCRDN:    PUSH    AF
-            PUSH    BC
-            PUSH    DE
-            PUSH    HL
-            LD      HL,(SCR_MBOT)
+V_SCRDN:    LD      HL,(SCR_MBOT)
             PUSH    HL
             LD      DE,LNCHRS
             OR      A
@@ -205,7 +188,7 @@ V_SCRDN:    PUSH    AF
             LDIR
             ; If cursor in region then adjust, if outside region then do not adjust.
             CALL    isInReg
-            JR      C,.outRegion
+            RET     C
             LD      A,L
             INC     A
             LD      (VLINE),A
@@ -213,10 +196,6 @@ V_SCRDN:    PUSH    AF
             LD      DE,LNCHRS
             ADD     HL,DE
             LD      (VPTR),HL
-.outRegion: POP     HL
-            POP     DE
-            POP     BC
-            POP     AF
             RET
 
 ; ------ Insert `n` blank characters at the current cursor position. Cursor doesn't move.
@@ -570,9 +549,9 @@ isInReg:    LD      A,(VLINE)
             RET
 
 
-; ------ _CLEAR
+; ------ V_NORM
 ; Clear state machine back to 'NORMAL' - generally the end of an escape sequence.
-_CLEAR:    LD      HL,NORMAL
+V_NORM:    LD      HL,NORMAL
            LD      (VSTATEV),HL
            XOR     A
            LD      (VARG1),A
@@ -599,7 +578,7 @@ P_ESC:     CP      '['
            POP     AF
 
            CP      ESC
-           JR      Z,_CLEAR
+           JR      Z,V_NORM
            CP      '7'
            JR      Z,L_SAVEC
 
@@ -615,7 +594,7 @@ P_ESC:     CP      '['
            JR      Z,L_DOWN
 
            ; Unknown sequence
-           JR      _CLEAR
+           JR      V_NORM
 
 ; ------ V_CSI
 ; 0x9B pressed or '[' after ESC
@@ -640,8 +619,6 @@ _DIGIT:    CP      '9'+1
            JR      C,.notdec
 
            ; Decimal digit. Add into argument
-           PUSH    HL
-           PUSH    DE
            LD      HL,(ARGPTR)
            LD      D,A
            LD      A,(HL)       ; Current value
@@ -652,8 +629,6 @@ _DIGIT:    CP      '9'+1
            ADD     E            ; A multiplied by 10
            ADD     D            ; Add in new units
            LD      (HL),A
-           POP     DE
-           POP     HL
            XOR     A            ; Processed so return zero (with Z set)
            RET
 
@@ -712,7 +687,7 @@ P_CSI:     CALL    _DIGIT
            CP      'l'
            JR      Z,L_OVER     ; Overwrite mode
            CP      '?'
-           JR      NZ,_CLEAR    ; Unknown - reset state.
+           JR      NZ,V_NORM    ; Unknown - reset state.
 
            ; Enter CSIQ state
            LD      HL,P_CSIQ
@@ -736,15 +711,13 @@ P_CSIQ:    CALL    _DIGIT
            JR      Z,L_CURSEN
            CP      'l'
            JR      Z,L_CURSDIS
-           JR      _CLEAR
+           JR      V_NORM
 
 
 ; ------ V_TAB
 ; Move cursor forward until the next 8th char. Inefficient at
 ; the moment!
-V_TAB:      PUSH    HL
-            PUSH    DE
-            LD      A,(VCOL)
+V_TAB:      LD      A,(VCOL)
             LD      HL,(VPTR)
             ; Calculate target
             LD      E,A
@@ -756,8 +729,6 @@ V_TAB:      PUSH    HL
             LD      D,0
             ADD     HL,DE       ; New VPTR position
             LD      (VPTR),HL
-            POP     DE
-            POP     HL
             JR      V_ADJ
 
 
@@ -779,9 +750,7 @@ V_DEL:      LD      A,(VCOL)
 
 ; ------ V_CR
 ; Move to the start of the current line.
-V_CR:       PUSH    HL
-            PUSH    DE
-            LD      A,(VCOL)
+V_CR:       LD      A,(VCOL)
             LD      E,A
             XOR     A
             LD      D,A
@@ -789,8 +758,6 @@ V_CR:       PUSH    HL
             SBC     HL,DE
             LD      (VPTR),HL
             LD      (VCOL),A
-            POP     DE
-            POP     HL
             CALL    CURS_MK
             RET                 ; No need to adjust here
 
@@ -799,14 +766,10 @@ V_CR:       PUSH    HL
 V_DOWN:     LD      A,(VLINE)
             INC     A
             LD      (VLINE),A
-            PUSH    HL
-            PUSH    DE
             LD      HL,(VPTR)
             LD      DE,LNCHRS
             ADD     HL,DE
             LD      (VPTR),HL
-            POP     DE
-            POP     HL
             JR      V_ADJ
 
 
@@ -822,7 +785,9 @@ LOOP:       LD      A,(VCEN)
             JR      NZ,.next
             INC     A
 .next:      LD      (VARG1),A
+            PUSH    HL
             CALL    CALLHL
+            POP     HL
             LD      A,(VARG1)
             DEC     A
             JR      NZ,.next
@@ -892,24 +857,20 @@ L_REGION:   CALL    ARGNORM         ; L:VARG1, H:VARG2
             POP     HL
             POP     DE
 .badReg:    POP     BC
-            JR      _CLEAR
+            JR      V_NORM
 
 ; ------ Save the current cursor position
-L_SAVEC:    PUSH    HL
-            LD      HL,(VPTR)
+L_SAVEC:    LD      HL,(VPTR)
             LD      (VSAVED),HL
             LD      HL,(VPTR+2)
             LD      (VSAVED+2),HL
-            POP     HL
-            JR      _CLEAR
+            JR      V_NORM
 
-L_RESTC:    PUSH    HL
-            LD      HL,(VSAVED)
+L_RESTC:    LD      HL,(VSAVED)
             LD      (VPTR),HL
             LD      HL,(VSAVED+2)
             LD      (VPTR+2),HL
-            POP     HL
-            JR      _CLEAR
+            JR      V_NORM
 
 
 ; ------ ARGNORM
@@ -930,13 +891,11 @@ ARGNORM:    LD      HL,(VARG1)            ; Arg1 and arg2 in HL
 
 
 ; ------ Move cursor position to the [arg1, arg2] values. Both are 1 based
-L_MOVE:     PUSH    HL
-            CALL    ARGNORM
+L_MOVE:     CALL    ARGNORM
             DEC     H
             DEC     L
             LD      (VLINE),HL            ; Store as new position
             CALL    CALCVPT               ; Re-calculate VPTR
-            POP     HL
             JR      V_ADJ                 ; Adjust for out of range
 
 
@@ -998,13 +957,11 @@ L_OVER:    LD      A,(VARG1)
 
 ; ------ No loop count for this one. If at the top of the scroll area then
 ; scroll up. Otherwise move the cursor up one line.
-L_SUP:      PUSH    HL
-            LD      A,(VLINE)             ; Where we are now
+L_SUP:      LD      A,(VLINE)             ; Where we are now
             LD      L,A
             LD      A,(SCR_TOP)
             CP      L                     ; If same then scroll down
             CALL    Z,V_SCRDN
-            POP     HL
             JR      V_UP
 
 ; ------ L_LNERASE
@@ -1019,7 +976,7 @@ L_LNERASE:  LD      A,(VARG1)
             JR      Z,.eraseStrt
             DEC     A
             JR      Z,.eraseLine
-            JR      _CLEAR              ; Unknown
+            JR      V_NORM              ; Unknown
 
 .eraseEnd:  PUSH    HL
             LD      A,(VCOL)
@@ -1030,7 +987,7 @@ L_LNERASE:  LD      A,(VARG1)
             CP      80
             JR      NZ,.next
 .fin:       POP     HL
-            JR      _CLEAR
+            JR      V_NORM
 
 .eraseStrt: PUSH    HL
             LD      A,(VCOL)
@@ -1059,7 +1016,7 @@ L_LNERASE:  LD      A,(VARG1)
             JR      NZ,.next3
             POP     DE
             POP     HL
-            JR      _CLEAR
+            JR      V_NORM
 
 
 
@@ -1075,7 +1032,7 @@ L_ERASE:    LD      A,(VARG1)
             JR      Z,.eraseUp
             DEC     A
             JR      Z,V_CLS
-            JR      _CLEAR
+            JR      V_NORM
 
             ; Clear from cursor to end of page
 .eraseDown: PUSH    HL
@@ -1128,17 +1085,15 @@ L_ERASE:    LD      A,(VARG1)
 .done:      POP     BC
             POP     DE
             POP     HL
-            JR      _CLEAR
+            JR      V_NORM
 
 
 
 ; ------ V_LEFT
 ; Move one cursor position to the left.
-V_LEFT:     PUSH    HL
-            LD      HL,(VPTR)
+V_LEFT:     LD      HL,(VPTR)
             DEC     HL
             LD      (VPTR),HL
-            POP     HL
             LD      A,(VCOL)
             DEC     A
             LD      (VCOL),A
@@ -1150,33 +1105,25 @@ V_UP:       CALL    _up
 _up:        LD      A,(VLINE)
             DEC     A
             LD      (VLINE),A
-            PUSH    HL
-            PUSH    DE
             LD      HL,(VPTR)
             LD      DE,LNCHRS
             OR      A
             SBC     HL,DE
             LD      (VPTR),HL
-            POP     DE
-            POP     HL
             RET
 
 
-V_RIGHT:    PUSH    HL
-            LD      HL,(VPTR)
+V_RIGHT:    LD      HL,(VPTR)
             INC     HL
             LD      (VPTR),HL
             LD      A,(VCOL)
             INC     A
             LD      (VCOL),A
-            POP     HL
             JR      V_ADJ        ; Adjust for line wrap, page scroll etc
 
 ; ------ CALCVPT
 ; Reset the VPTR value based on the [line, column] position.
-CALCVPT:    PUSH    HL
-            PUSH    DE
-            LD      A,(VLINE)
+CALCVPT:    LD      A,(VLINE)
             LD      H,0
             LD      L,A
             ; Multiple HL by 80 to get start of line.
@@ -1187,8 +1134,6 @@ CALCVPT:    PUSH    HL
             LD      D,0
             ADD     HL,DE        ; Add column offset
             LD      (VPTR),HL
-            POP     DE
-            POP     HL
             RET
 
 ; ------ HLby80
@@ -1383,9 +1328,6 @@ Q_INS:      PUSH    AF
             JR      Z,.overwrite
 
             ; Need to find end of line
-            PUSH    HL
-            PUSH    DE
-            PUSH    BC
             LD      HL,(VPTR)
             LD      E,A
             LD      A,LNCHRS-1
@@ -1406,9 +1348,6 @@ Q_INS:      PUSH    AF
             DJNZ    .next
             EX      DE,HL
             LD      (HL),' '
-            POP     BC
-            POP     DE
-            POP     HL
 .overwrite: POP     AF
             RET
 ; ------ CURS_ON
@@ -1468,13 +1407,11 @@ V_CENABLE:  OR       A
             JR       NZ,.enable
 
             ; Disable cursor. If ON then switch off
-            CALL     CURS_OFF
-            RET
+            JR      CURS_OFF
 
             ; Enable the cursor at the current location.
 .enable:    CALL     CURS_MK
-            CALL     CURS_ON
-            RET
+            JR       CURS_ON
 
 ; ------ NEG
 ; Twos complement of HL. Does NOT preserve A. Result returned in HL

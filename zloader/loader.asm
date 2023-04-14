@@ -300,7 +300,7 @@ DECCHR:     RST      10h
 
 ; --------------------- STRINGS
 ; _INTRO:   DEFB 13,"Z80 ZIOS 2.0.5",NULL
-_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[0;30r"
+_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[0;50r"
 _TITLE:   DEFB "Z80 ZIOS 2.0.5",NULL
 _CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r",NULL
 

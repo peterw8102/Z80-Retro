@@ -142,6 +142,9 @@ notRdWrap:      LD       (serRdPtr),HL
 rts1:           LD       A,(HL)
                 EI
                 POP      HL
+                CP       7fh             ; If it's a DEL character then make it a backspace
+                RET      NZ
+                LD       A,08h
                 RET                      ; Char ready in A
 
 ;------------------------------------------------------------------------------

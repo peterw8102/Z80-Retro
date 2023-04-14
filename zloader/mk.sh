@@ -58,6 +58,7 @@ zmac $INCLUDE $AFLAGS ./cmdfill.asm
 zmac $INCLUDE $AFLAGS ./cmdio.asm
 zmac $INCLUDE $AFLAGS ./cmdmodify.asm
 zmac $INCLUDE $AFLAGS ./cmdhelp.asm
+zmac $INCLUDE $AFLAGS ./cmdcons.asm
 zmac $INCLUDE $AFLAGS ./more.asm
 
 ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
@@ -87,6 +88,7 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/cmdio.rel \
         ./zout/cmdmodify.rel \
         ./zout/cmdhelp.rel \
+        ./zout/cmdcons.rel \
         ./zout/more.rel \
         -P C600 -D C000 \
         ../zios/zout/pcb.rel \

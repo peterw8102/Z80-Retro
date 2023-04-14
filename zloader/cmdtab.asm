@@ -7,7 +7,7 @@ import zlib.asm
    extrn MAPDSK,EXDBG,SHWHIST,RUN,WBOOT,IMG,HELP
 
    extrn FLSH_ID,FLSH_M,FLSH_PRG,FLSH_CLR
-
+   extrn CFGCONS
 
    public BDG_TABLE,CMD_TABLE,FNDCMD,SETMODE
 
@@ -119,6 +119,7 @@ CMD_TABLE:   CMDDEF 'BOS?',SDDIR
              CMDDEF 'BOS', SDRUN
              CMDDEF 'BO-', BOOTIX
              CMDDEF 'BO',  BOOT
+             CMDDEF 'CONS',CFGCONS
              CMDDEF 'C',   CONFIG
              CMDDEF 'DM',  DUMPM
              CMDDEF 'DI',  DUMPI

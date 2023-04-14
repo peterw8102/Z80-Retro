@@ -36,6 +36,9 @@ import zload.asm
           ; From CMDTAB
           extrn FNDCMD,SETMODE
 
+          ; Console selection for UI
+          extrn RSTCONS,SELCONS
+
 if CSET
           ; If wqe want to install a character set
           extrn INITCSET
@@ -185,8 +188,7 @@ endif
             AND   04h             ; Only interested in bit 2.
             JR    Z,.def
             LD    A,1
-.def:       LD    (CONSOLE),A
-            CALL  CNS_SET
+.def:       CALL  SELCONS
 
             ; Really simple CLI now. Display
 NOSIO:      LD    HL,_INTRO
@@ -228,8 +230,7 @@ E_BADPS:  LD    HL,_IOERR
 E_PRTERR:
 _prterr:  CALL  PRINT_LN
 
-main:     LD    A,(CONSOLE)
-          CALL  CNS_SET
+main:     CALL  RSTCONS
 
           LD    HL, _PROMPT
           CALL  PRINT
@@ -332,8 +333,5 @@ FIN_CODE:  DEFB    0
 AUTO_RUN:  DEFB    0
 
 DUMP_CHRS  EQU   SCRATCH
-
-; Console. If 0 then use the SIO, otherwise (assuming hardware is present) use the keyboard/SIO
-CONSOLE    DEFB    0       ; Default to serial
 
 .END

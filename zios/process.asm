@@ -17,9 +17,9 @@ import pcb_def.asm
 ; flag set.
 PR_INIT:    LD    HL,PAGE_MP
             LD    B,4
-            CALL  P_ALLOC
+_wrn:       CALL  P_ALLOC
             RET   C
-_wrn:       LD    (HL),A         ; Initialise the application page map
+            LD    (HL),A         ; Initialise the application page map
             INC   A
             INC   HL
             DJNZ  _wrn

@@ -6,12 +6,12 @@ import pcb_def.asm
 ; currently 32 pages and a global map of used pages. Each process knows which
 ; pages have been allocated.
 
-        extrn  ADD8T16
 
         public P_ALLOC,P_FREE,P_RES,P_MIN,_pages
+        extrn  ADD8T16
 
         ; ----- DEBUG -----
-        extrn  PRINT,WRITE_8,NL
+        extrn  PRINT,PRINT_LN,WRITE_8,NL
 
 ; ------- P_RES
 ; Force reserve of a specific page.
@@ -30,7 +30,6 @@ _badpg1:  POP     AF
           POP     BC
           POP     HL
           RET
-_m1       DEFB   'Reserve: ',0
 
 
 ; ------ P_MIN
@@ -45,9 +44,6 @@ P_MIN:    DEC    A
           JR     NZ,P_MIN
           RET
 
-_m2       DEFB   'SET MIN: ',0
-
-
 ; ------- P_ALLOC
 ; Search the available page map for the first available page and
 ; return the page number.
@@ -58,7 +54,7 @@ _m2       DEFB   'SET MIN: ',0
 P_ALLOC:  PUSH    BC
           PUSH    HL
           LD      HL,_pages
-          LD      B,04        ; B: count, C: base page in the current byte
+          LD      B,4         ; B: count, C: base page in the current byte
           LD      C,RAM_PG_0  ; C: First page in the current byte
 _lp:      LD      A,(HL)
           INC     A           ; If this is zero then all pages have been allocated.
@@ -75,7 +71,7 @@ _lp:      LD      A,(HL)
 _err:     POP    HL
           POP    BC
           XOR    A
-          CCF                 ; Set the C to indicate error
+          SCF                 ; Set the C to indicate error
           RET
 
           ; There's a page available in this byte. Which one? Find the first zero
@@ -83,20 +79,23 @@ _err:     POP    HL
           ;   C: contains the lowest page number in this byte
 _fndblk:  PUSH    HL             ; Make HL available as working registers
           LD      L,(HL)         ; Flag byte
-          LD      A,1            ; Bit mask
+          LD      H,$80          ; Bit mask, set MSB
           LD      B,8            ; Number of bits to test
-_nxtbt:   AND     L              ; If zero then this bit represents a free page
+_nxtbt:   LD      A,H
+          RLCA
+          LD      H,A
+          AND     L              ; If zero then this bit represents a free page
           JR      Z,_fndpg
 
           ; Not this page.
-          RLCA                   ; Move test bit mask one position to the left
           INC     C              ; Page number
           DJNZ    _nxtbt         ; Test bit
           POP     HL
           JR      _err           ; Shouldn't get here but treat as no available memory
 
           ; Found a free page. Change the bit mask and save.
-_fndpg:   OR      L              ; Set bit
+_fndpg:   LD      A,H            ; Get the mask back
+          OR      L              ; Set bit for allocated page
           POP     HL
           LD      (HL),A         ; Save modified mask
           LD      A,C            ; Get the allocated page number
@@ -257,7 +256,7 @@ P_MAPX::  PUSH  DE
 ; page is represented by a bit in this map, currently supporting 32 pages (512KB), the
 ; base memory. If a bit is zero then the page is available, 1: the page has already
 ; been allocated. The bit number must have 20h added (first RAM page is 20h)
-_pages:  DB   0,0,0,0
+_pages: DB   0,0,0,0
 
 
         END

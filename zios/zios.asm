@@ -17,3 +17,4 @@
 
   ; Console entry points
   extrn CNS_OUT,CNS_IN,CNS_CHK,CNS_SET
+  extrn DEV_OUT,DEV_IN,DEV_CHK

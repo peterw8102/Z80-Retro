@@ -14,8 +14,9 @@ import pcb_def.asm
           extrn  P_ALLOC,P_FREE
           extrn  SDTXLTD
           extrn  SD_BKRD,SD_BKWR,SD_PRG
+          extrn  DEV_OUT,DEV_IN,DEV_CHK
 
-          extrn  PRINT_LN
+          extrn  PRINT_LN,WRITE_D
 
           ; For debug
           ; public LD_MON,LD_PGSEL,LD_NOP,LD_STDSK,LD_QSDMP,LD_STDMA
@@ -70,6 +71,10 @@ LD_MON:   LD     HL,_M_MONS
 ; D:  Physical memory page to map into the bank (0-255)
 ; E:  The bank number into which to map the physical memory (0-3).
 ; NOTE: Mapping page 0 and 3 are likely to be a problem!
+;
+; RETURN: A contains the application page previously
+; mapped into this bank.
+;
 LD_PGSEL: LD     A,E
           CP     3
           RET    NC             ; There are 4 pages but the last one can't be changed by the application
@@ -80,11 +85,12 @@ LD_PGSEL: LD     A,E
           LD     L,A            ; PAGE_MP will always be low in data store and not on a 256 byte boundary
 
           ; HL points to the correct place in the PAGE_MP map
-          LD     (HL),D
+          LD     B,(HL)         ; Get the OLD page number
+          LD     (HL),D         ; Store the new page
 
           ; E is the bank into which page D should be mapped.
           BANK_I E,D
-
+          LD     A,B            ; Return old page number in A
           POP    BC
           POP    HL
           RET
@@ -102,19 +108,34 @@ LD_PGSEL: LD     A,E
 
 ; --------- RX_CHR (CMD 2)
 ; Transmit the character in E
-TX_CHR:   LD     A,E
-          RST    08h
+TX_CHR:   LD     A,E        ; Character to print
+          PUSH   DE
+          PUSH   HL
+          CALL   DEV_OUT
+          POP    HL
+          POP    DE
+          ; RST    08h
           RET
 
 ; --------- RX_CHR (CMD 3)
 ; Return next character in A (and C)
-RX_CHR:   RST    10h
+RX_CHR:   PUSH   DE
+          PUSH   HL
+          CALL   DEV_IN
+          POP    HL
+          POP    DE
+          ; RST    10h
           LD     C,A
           RET
 
 ; --------- CHK_CHR (CMD 4)
 ; If there are any characters in the buffer then return the first one in A
-CHK_CHR:  RST    18h
+CHK_CHR:  PUSH   DE
+          PUSH   HL
+          CALL   DEV_CHK
+          POP    HL
+          POP    DE
+          ; RST    18h
           RET
 
 ; --------- LD_STDSK (CMD 5)
@@ -532,7 +553,7 @@ _TIME:    DEFB 00h             ; Secs + enable clock
 JTAB:     DW     LD_MON       ; CMD 0  - Jump back to ZLoader
           DW     LD_PGSEL     ; CMD 1  - RAM Page Select (map)
           DW     P_ALLOC      ; CMD 2  - Allocate a new memory page
-          DW     P_FREE       ; CMD 3  - Allocate a new memory page
+          DW     P_FREE       ; CMD 3  - Free a new memory page
           DW     TX_CHR       ; CMD 4  - Send character to serial port A
           DW     RX_CHR       ; CMD 5  - Rx character from serial port A, wait if none available
           DW     CHK_CHR      ; CMD 6  - Check for a character, return if available
@@ -561,6 +582,6 @@ JTAB:     DW     LD_MON       ; CMD 0  - Jump back to ZLoader
 
 MAX_CODE: EQU          ($ - JTAB) << 1
 
-_M_MONS:  DEFB   10,13,"Monitor...", 0
+_M_MONS:  DEFB   10,13,"ZIOS...", 10,13,0
 
 .END

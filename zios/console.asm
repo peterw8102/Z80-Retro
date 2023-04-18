@@ -10,10 +10,13 @@ import pcb_def.asm
 
             public CNS_INI,CNS_SET
             public CNS_OUT,CNS_IN,CNS_CHK
+            public DEV_OUT,DEV_IN,DEV_CHK
 
             extrn  HASPIO,HASVDU
 
             CSEG
+
+MaxDev      EQU    2
 
 ; ------ CNS_INI
 ; Initialise device handler blocks for SIO and console. IF there is no hardware
@@ -37,7 +40,7 @@ CNS_INI:    ; Copy initial dispatch table (serial port)
 ; Select the console device to be used.
 ; INPUT:  A - zero (0) serial port, one (1) VDU if installed
 ; OUTPUT: A - the OLD console selection (can be used to restore later)
-CNS_SET:    CP      2           ; Requested device must be 0 or 1
+CNS_SET:    CP      MaxDev      ; Requested device must be 0 or 1
             JR      NC,.baddev
 _set:       PUSH    HL
             PUSH    DE
@@ -67,6 +70,60 @@ _set:       PUSH    HL
 .baddev:    LD      A,(current) ; Make sure we return current device even in error
             RET
 
+; ------ GETDEV
+; Get the dispatch table for the device referenced in the B register. If
+; the device number is invalid then return the C flag CLEAR, otherwise
+; return the address of the table in the HL register pair.
+GETDEV:     LD      C,A           ; Save the character
+            LD      A,B
+            CP      MaxDev
+            RET     NC
+            LD      HL,dev0
+            OR      A
+.nxtdev:    JR      Z,.found
+            INC     HL
+            INC     HL
+            DEC     A
+            JR      .nxtdev
+
+            ; Found
+.found:     PUSH    DE
+            LD      E,(HL)
+            INC     HL
+            LD      D,(HL)
+            EX      DE,HL
+            POP     DE
+            SCF
+            RET
+
+
+; ------ DEV_OUT, DEV_IN, DEV_CHK
+; Similar to the assigned CNS_XX functions but take a device number in the B register.
+DEV_OUT:    CALL    GETDEV
+            RET     NC
+            JR      _EXEC
+
+DEV_IN:     CALL    GETDEV
+            RET     NC
+            JR      _EXEC_IN
+
+DEV_CHK:    CALL    GETDEV
+            RET     NC
+            JR      _EXEC_CHK
+
+_EXEC_CHK   INC     HL
+            INC     HL
+            INC     HL
+_EXEC_IN:   INC     HL
+            INC     HL
+            INC     HL
+
+; ------ _EXEC
+; HL points to a pointer (!). Load the address pointed to by HL then jump to that address.
+_EXEC:      LD      A,C
+            JP      (HL)
+
+
 ; ------------- DISPATCH FUNCTION -------------
 ; These are the three functions that get installed at the RST vectors
 CNS_OUT:    JP      TXA
@@ -80,6 +137,9 @@ SerPort::   JP      TXA
 VduPort::   JP      V_PRT
             JP      KBDCHAR
             JP      KBDCHK
+
+
+
 
           DSEG
 

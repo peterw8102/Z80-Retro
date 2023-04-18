@@ -26,8 +26,8 @@ import pcb_def.asm
 ; will tell the loader what automatic/boot behaviour to take.
 ; OUTPUT: A   - the hardware status register (bits 0-2)
 ZIOS_INI::  LD    A,MN2_PG+1
-            CALL  P_MIN
-            CALL  PR_INIT
+            CALL  P_MIN        ; Reserve ZLoader memory pages
+            CALL  PR_INIT      ; Initialise process control block
 
             ; Initialise drive map. Map logical drives 0-15 to physical blocks 1-16. Need to store
             ; the physical address << 6 (Upper 10 bits of the 32 bit SD card address).

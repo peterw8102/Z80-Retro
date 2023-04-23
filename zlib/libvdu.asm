@@ -737,8 +737,13 @@ V_TAB:      LD      A,(VCOL)
 V_BS:       LD      A,(VCOL)
             OR      A
             RET     Z
+            LD      A,(VCEN)
+            PUSH    AF
+            XOR     A
+            CALL    V_CENABLE      ; Disable the cursor
             CALL    V_LEFT
-            JR      V_CHDEL
+            POP     AF
+            JR      V_CENABLE       ; Restore cursor state
 
 ; ------ V_DEL
 ; Delete the character at the current location and move leave the cursor unchanged
@@ -792,8 +797,7 @@ LOOP:       LD      A,(VCEN)
             DEC     A
             JR      NZ,.next
             POP     AF
-            CALL    V_CENABLE       ; Restore cursor state
-            RET
+            JR      V_CENABLE       ; Restore cursor state
 
 CALLHL:     JP      (HL)
 

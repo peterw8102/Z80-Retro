@@ -98,8 +98,8 @@ EN_PAGE MACRO
 
 
 ; CTC_VAL
-; Write a control value and  to one of the SIO write registers
-;   chn: A or B - which channel/port
+; Write a control value and timer value to one of the SIO write registers
+;   chn: 0-3
 ;   reg: The register number
 ;   val: Date to write to the port
 ;

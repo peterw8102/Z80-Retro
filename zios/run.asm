@@ -18,6 +18,7 @@ import pcb_def.asm
             extrn  P_MAPX,ZS_BRK
             extrn  CNTINUE
             extrn  NUL_ISR,BANKST
+            extrn  ZIOS_OFF
 
             CSEG
 
@@ -33,8 +34,12 @@ INSTDRV:: ; Check configuration to see whether we're meant to be installing driv
           RRCA
           JR     C,.dodrv
 
-          ; ZIOS service not required. If the start address is NOT zero
-          ; then write a jump instruction to the start of application memory.
+          ; ZIOS service not required. Disable the hardware interrupt sources we're using
+          ; to avoid the running software having to programme hardware it doesn't need.
+          CALL   ZIOS_OFF
+
+          ; If the start address is NOT zero then write a jump instruction
+          ; to the start of application memory.
           LD     A,H
           OR     L
           RET    Z

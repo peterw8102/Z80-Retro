@@ -6,7 +6,7 @@ import pcb_def.asm
 ; Check whether there's a graphics card and a keyboard attached and if so
 ; start the local console (this runs alongside the serial port console)
 
-            public VDU_INI,CTCPROC
+            public VDU_INI,VDU_OFF,CTCPROC
             extrn  HASPIO,HASVDU
 
             CSEG
@@ -29,22 +29,27 @@ VDU_INI:    CALL  HASPIO
 
             CALL    KBDINIT
             LD      HL,TMINT0
-            LD      (0xC000+CTC_ICH1),HL       ; Install interrupt vector for all 4 channels
+            LD      (0xC000+CTC_ICH3),HL       ; Install interrupt vector for all 4 channels
             CTC_VAL 0,$F0                      ; Set interrupt vector
 
-            ; Cascade channels 0 and 1. Channel 0 divides system clock
-            ; to give an event approximately once every 2ms. Channel 1
-            ; then divides this by 100 to give an event appromately evey
-            ; 1/5th of a second (5 events per second)
-            ; CTC_VAL 0,00100111b,60   ; Channel 0 divides down the system clock
-            ; CTC_VAL 1,11101111b,48   ; Channel 1 counts time 0 events so can divide down another 256
+            ; Use Time 3 to generate a periodic interrupt to scan the keyboard
+            ; for key presses and to blink the cursor.
+            ;
+            ; ASSUME: The RTC (DS1307+) is configured to generate a 4KHz signal on
+            ; SQW and that jumper P4 connects SQW to timer 3 input.
+            CTC_VAL 3,11101111b,130      ; Channel 3 counts time 0 events so can divide down another 256
 
-            ; Working values:
-            CTC_VAL 0,00100111b,60     ; Channel 0 divides down the system clock
-            CTC_VAL 1,11101111b,30     ; Channel 1 counts time 0 events so can divide down another 256
+            ; Make sure the DS1307+ is configured to generate a 4KHz output signal on the SQW/OUT pin. This
+            ; is used as the input (CLK/TRG3) for timer 3.
+            CALL    RTC_SOS
 
             RET
 
+; ------ VDU_OFF
+; Disable timer interrupts. Stops scanning the keyboard and blinking the cursor. Only clear down
+; timer 3 because that's all we're responsible for.
+VDU_OFF:    CTC_VAL 3,00000011b      ; Channel 3 software reset and disable interrup[ts.
+            RET
 ; Process CTC.
 CTCPROC:: PUSH    HL
           PUSH    AF

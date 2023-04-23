@@ -39,11 +39,6 @@ import zload.asm
           ; Console selection for UI
           extrn RSTCONS,SELCONS
 
-if CSET
-          ; If wqe want to install a character set
-          extrn INITCSET
-endif
-
           ; Exported
           public main
           public END_RES
@@ -179,10 +174,6 @@ RUN_CLI:    ; We're running in supervisor mode
             CALL  ZIOS_INI
             LD    (HW_SWTCH),A       ; State of the hardware config switches
 
-if CSET
-            ; Install character set
-            CALL   INITCSET
-endif
             ; Decide which console to use
             LD    A,(HW_SWTCH)    ; State of the hardware config switches
             AND   04h             ; Only interested in bit 2.

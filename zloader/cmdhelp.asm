@@ -13,10 +13,13 @@ import zload.asm
 
           ; Imports from 'zloader'
           extrn  main,E_BADPS,SDPAGE,S_COLSTR
-          extrn  SETMODE
+          extrn  SETMODE,MORE
 
           ; Exports
-          public HELP
+          public HELP,HELPC
+
+; Maximum number of lines to display before pausing.
+MAX_LNS   EQU    20
 
 ; ----- HELP
 ; Display mode specific help text. The first byte of each entry is a bitmap
@@ -27,15 +30,24 @@ import zload.asm
 ; second is a summary description.
 HELP:     LD    HL,_ref
           CALL  PRINT_LN
-          XOR   A
+          LD    HL,_HTEXT
+          LD    (NXTHLP),HL
+
+          ; This is the second entry point after a --- more --- prompt. Values
+          ; are read from memory allowing us to use the standard MORE.ASM
+          ; processing.
+HELPC:    XOR   A
+          LD    C,A              ; Number of lines displayed in page
           CALL  SETMODE
           LD    B,A              ; Save mode
-          LD    HL,_HTEXT
+
+          LD    HL,(NXTHLP)
 _nline:   LD    A,(HL)
           OR    A                ; End of table on zero
           JR    Z,main
           AND   B
           JR    Z,_skp2          ; Not relevant to the current mode
+          INC   C
           INC   HL
           CALL  PRINT_80         ; Returns HL after end of first string
           PUSH  HL               ; First character of second string
@@ -45,8 +57,15 @@ _nline:   LD    A,(HL)
           EX    DE,HL
           CALL  PRINT_80
           CALL  NL
-          JR    _nline
 
+          ; Reached MAX_LNS?
+          LD    A,C
+          CP    MAX_LNS
+          JR    C,_nline
+
+          LD    (NXTHLP),HL      ; Ready for next page.
+          LD    HL,_MOREBLK
+          JR    MORE
 
           ; Skip the next two 80h terminated strings.
 _skp2:    INC   HL
@@ -69,6 +88,14 @@ HELPT MACRO flg,cmd,txt
     DC     txt
     ENDM
 
+NXTHLP    DEFW  0
+
+_MOREBLK  DEFW  0
+          DEFW  .morestr
+          DEFW  .morestr
+
+.morestr  DEFB  '?+',0
+
 _HTEXT:         HELPT 2,"B XXXX",             "set BP"
                 HELPT 1,"BO-",                "load block protocol file (no exec)"
                 HELPT 1,"BO",                 "as BO- but run the loaded file"
@@ -84,6 +111,9 @@ _HTEXT:         HELPT 2,"B XXXX",             "set BP"
                 HELPT 3,"DT [dtime]",         "Display or set date/time"
                 HELPT 3,"D",                  "Dump more"
                 HELPT 3,"F ADD LN VV",        "Fill LN bytes from ADD with VV"
+                HELPT 3,"FI",                 "Display information on FLASH device"
+                HELPT 3,"FP",                 "Copy a new version of ZLoader to FLASH"
+                HELPT 3,"FPC",                "Copy character set def. to FLASH"
                 HELPT 2,"G [addr]",           "Run (from address) until breakpoint"
                 HELPT 1,"G [addr]",           "Run (from address)"
                 HELPT 3,"H",                  "Clear screen"
@@ -105,4 +135,5 @@ _HTEXT:         HELPT 2,"B XXXX",             "set BP"
                 HELPT 3,"WB [params]",        "Add bootable image",0
                 HELPT 3,"WI [params]",        "Write image to SD",0
                 DEFB  0
-_ref:           DEFB  "See Wiki for details",10,13,"https://github.com/peterw8102/Z80-Retro/wiki",10,13,0
+_ref:           DEFB  "See Wiki for details",10,13,"https://github.com/peterw8102/Z80-Retro/wiki",0
+_pause:         DC    "--- more ---"

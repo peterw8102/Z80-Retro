@@ -16,11 +16,11 @@ import zload.asm
 
   extrn  main,E_PRTERR
 
-  public FLSH_ID,FLSH_PRG
+  public FLSH_ID,FLSH_PRG,FLSH_CHR
 
 TPG_0    EQU   00h
 TPG_1    EQU   01h
-
+TPG_2    EQU   02h       ; Page that contains the character set
 ; ------------------- FLSH_ID - Read Flash Info
 ; No parameters. Displays the flash ID. Good test to see whether the flash
 ; device is accessible and reporting sensible data (basically that THIS
@@ -44,8 +44,6 @@ FLSH_ID:  LD    HL,_flsh_id
 ;
 ; A sanity check is made on the RAM contents which must include "ZIOS" at
 ; locations 003Ch.
-;
-; DEBUG: Currently the monitor will be written to page 10h and 11h (testing)
 FLSH_PRG: BANK   1,(PAGE_MP)
           LD     A,(403Ch)
           CP     'Z'
@@ -60,7 +58,9 @@ FLSH_PRG: BANK   1,(PAGE_MP)
           CP     'S'
           JR     NZ,_isnok
 
-          ; Looks like it's probably value. Confirm with user.
+          ; Looks like it's probably valid. Confirm with user.
+          LD     HL,_inst
+          CALL   PRINT_LN
           LD     HL,_conf
           CALL   PRINT
           RST    10h
@@ -119,16 +119,60 @@ _do:      LD     HL,_gd_img
           JR     E_PRTERR
 
 
-
 _isnok:   LD     HL,_bad_img
           JR     E_PRTERR
+
+; ------ FLSH_CHR
+; Write a character set to a flash page. A character set defines 256 characters as a set of
+; 16 bytes per character - so the whole character set is 4KB in size. The character
+; set MUST have been preloaded into application address range 8000h-8fffh. No
+; checls are made on the content.
+FLSH_CHR: LD     HL,_chset
+          CALL   PRINT_LN
+          LD     HL,_conf
+          CALL   PRINT
+          RST    10h
+          CP     'Y'
+          JR     Z,_docset
+
+          LD     HL,_cancel
+          JR     E_PRTERR
+
+_docset:  LD     HL,_gd_cset
+          CALL   PRINT_LN
+
+          ; Clear the 4K flash page holding the character set
+          LD     HL,_clpage
+          CALL   PRINT
+          LD     A,TPG_2
+          CALL   WRITE_8
+          CALL   NL
+
+          LD     A,TPG_2
+          LD     HL,0
+          CALL   FL_CSECT
+
+          ; Write the first 4K of application page 2 into the
+          ; first 4K of the flash page TPG_2 (writes one
+          ; flash sector)
+          LD     A,(PAGE_MP+2)
+          LD     B,A
+          LD     C,TPG_2
+          LD     HL,0
+          LD     DE,0
+          CALL   FL_WSECT
+          LD     HL,_done
+          JR     E_PRTERR
+
 
 _flsh_id  DEFB 'Flash ID: ',0
 _bad_img  DEFB "Ram doesn't contain a valid ZLoader image",0
 _gd_img   DEFB "Writing ZLoader to Flash...",0
+_gd_cset  DEFB "Writing new character to Flash...",0
 _done     DEFB "complete",0
 _clpage   DEFB "Clearing page: ",0
 _wrpage   DEFB "Writing page: ",0
 _cancel   DEFB "Cancelled",0
-_conf     DEFB "This command will upgrade ZLoader in flash",10,13
-          DEFB "Please confirm (Y/n) ",0
+_chset    DEFB "Overwrite character set stored in flash",0
+_inst     DEFB "This command will upgrade ZLoader in flash",0
+_conf     DEFB "Please confirm (Y/n) ",0

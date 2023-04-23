@@ -34,7 +34,6 @@ fi
 # Assemble the library modules to be relocatable.
 zmac $INCLUDE $AFLAGS ./loader.asm
 zmac $INCLUDE $AFLAGS ./disassembler.asm
-zmac $INCLUDE $AFLAGS ./charset.asm
 zmac $INCLUDE $AFLAGS ./breakpoint.asm
 zmac $INCLUDE $AFLAGS ./sdaddr.asm
 zmac $INCLUDE $AFLAGS ./sdutils.asm
@@ -65,7 +64,6 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/loader.rel \
         ./zout/disassembler.rel \
         ./zout/breakpoint.rel \
-        ./zout/charset.rel \
         ./zout/sdaddr.rel \
         ./zout/sdutils.rel \
         ./zout/cmdflsh.rel \

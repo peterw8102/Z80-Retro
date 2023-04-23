@@ -39,6 +39,7 @@ import defs.asm
           public SKIPSPC,WASTESPC,BUFCHR,BUFCHUP
           public SETHIST,GETHIST
           public INHEX,INHEX_2,INHEX_4,GET_HEX,GET_DEC
+          public BRK_HK
 
           ; Data values
           public INPTR,INBUF,_ENDPRG
@@ -880,3 +881,5 @@ HPOS:       DEFW  MLBUF    ; Pointer to place in hist buffer when using up/down 
             ASEG
             ORG   D_HISTB
 MLBUF:      DS    MLSZ
+
+BRK_HK:     DW      0

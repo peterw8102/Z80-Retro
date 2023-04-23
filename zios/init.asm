@@ -6,9 +6,9 @@ import pcb_def.asm
   extrn   P_MIN,PR_INIT
   extrn   AP_DISP
   extrn   NUL_ISR
-  extrn   VDU_INI
+  extrn   VDU_INI,VDU_OFF
   extrn   CNS_INI
-  public  ZIOS_INI
+  public  ZIOS_INI,ZIOS_OFF
 
 ; init.asm
 ; System initialisation code. ZIOS must be initialised after the loader
@@ -85,6 +85,15 @@ _nxtisr:    LD    (HL),E
             ; Return the status of the hardware configuration switch
             CALL   SW_CFG
 
+            RET
+
+; ------ ZIOS_OFF
+; Called to disable all active hardware used by ZIOS. Call this (eg from ZLoader) before starting
+; execution of code that doesn't use the ZIOS services.
+ZIOS_OFF:   CALL   VDU_OFF
+
+            ; Disable SIO interrupts for channel 0
+            CALL   SIO_OFF
             RET
 
 ; ---- _EISR

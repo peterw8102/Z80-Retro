@@ -6,7 +6,8 @@ import pcb_def.asm
 ; Check whether there's a graphics card and a keyboard attached and if so
 ; start the local console (this runs alongside the serial port console).
 ; Note that SIO/B is NOT used as a console device and is effective reserved
-; for talking to a Raspberry Pi via a specific block protocol.
+; for talking to a Raspberry Pi via a specific block protocol. This could
+; change in future to make things more generaic.
 
             public CNS_INI,CNS_SET
             public CNS_OUT,CNS_IN,CNS_CHK

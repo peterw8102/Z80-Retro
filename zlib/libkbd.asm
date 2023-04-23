@@ -32,9 +32,9 @@ import defs.asm
 
 ; Store processed characters. Doesn't need to be any longer than the
 ; longest VT100 expansion.
-KBD_BUFSIZE     .EQU     $8      ; Doesn't need to be very long. Just enough
-CODE_BUFSIZE    .EQU     $80      ; Undecoded characters (row/col codes)
-
+KBD_BUFSIZE     EQU     $8      ; Doesn't need to be very long. Just enough
+CODE_BUFSIZE    EQU     $80      ; Undecoded characters (row/col codes)
+F5_ROW          EQU     7
                 CSEG
 
 ; ---- KBDINIT
@@ -112,9 +112,9 @@ KBDCHK:         LD       A,(kbdCnt)
 ; A low level scan reporting all keys pressed. Assumed to be called from a timer ISR
 ; and so optimised to return as soon as ppssible on no key pressess.
 KBDSCAN:        PUSH     AF
-                PUSH     BC
-                PUSH     DE
                 PUSH     HL
+                PUSH     DE
+                PUSH     BC
 
                 LD       HL,kbdState
 
@@ -161,9 +161,9 @@ _nxts:          PUSH     AF
                 OR       A
                 JR       NZ,_saveState
 
-                POP      HL
-                POP      DE
                 POP      BC               ; All done, no keys pressed. Return as quickly as possible
+                POP      DE
+                POP      HL
                 POP      AF
                 RET
 
@@ -172,7 +172,7 @@ _nxts:          PUSH     AF
                 ; combination and add them to the event queue. Also reset the auto-repeat counter if
                 ; the only key pressed is a meta key or if there are more than one key pressed.
 
-                ; First, build the meta key status
+
 _saveState::    LD       A,(kbdState+menu2Row*3)
                 AND      20h                       ; Ignore everything except MNU
                 LD       E,A
@@ -199,9 +199,40 @@ _saveState::    LD       A,(kbdState+menu2Row*3)
                 ;      +-----------------> FN2
                 LD       (kbdMode),A               ; Store for later
 
+                OR       A
+                JR       NZ,.nobrk
+
+                ; Check BRK_HK. If non zero then check whether F5 has been pressed.
+                LD       HL,(BRK_HK)
+                LD       A,L
+                OR       H
+                JR       Z,.nobrk
+
+                ; Check 'pressed' status for F5
+                LD       A,(kbdState+F5_ROW*3)     ; New state
+                BIT      1,A                       ; F5
+                JR       Z,.nobrk
+
+                ; Break is pressed. Was it pressed on last scan?
+                LD       A,(kbdState+F5_ROW*3+1)
+                BIT      1,A
+                JR       NZ,.nobrk                ; F5 was NOT pressed on last keypress
+
+                ; At this point F5 has been pressed and there's a break handler. Make
+                ; the stack the same as it would be from the SIO:
+                ;    Ret address from SERINT
+                ;    AF at start of ISR
+                ;    HL at start of ISR
+                ;    AF containing the break character
+                POP      BC
+                POP      DE
+                LD       A,3
+                JP       (HL)
+
+
                 ; Copy changed keys into the processing queue (without decoding) and
                 ; count the number of character keys pressed.
-                LD       D,0           ; Number of rows with character generating keys pressed, excluding metas
+.nobrk:         LD       D,0           ; Number of rows with character generating keys pressed, excluding metas
                 LD       B,9           ; Number of rows
                 LD       HL,kbdState   ; Step back through the table
 _pnxtrow:       LD       A,(HL)        ; New state
@@ -231,9 +262,9 @@ _pnxtrow:       LD       A,(HL)        ; New state
                 LD       (rpCount),A
 
                 ; All rows processed and queued so OK to return.
-.cont           POP      HL
+.cont           POP      BC
                 POP      DE
-                POP      BC               ; All done, no keys pressed. Return as quickly as possible
+                POP      HL               ; All done, no keys pressed. Return as quickly as possible
                 POP      AF
                 RET
 

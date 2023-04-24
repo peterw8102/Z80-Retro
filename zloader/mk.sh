@@ -88,7 +88,7 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/cmdhelp.rel \
         ./zout/cmdcons.rel \
         ./zout/more.rel \
-        -P C600 -D C000 \
+        -P C500 -D C000 \
         ../zios/zout/pcb.rel \
         ../zlib/zout/libsio.rel \
         ../zios/zout/nvram.rel \

@@ -2,6 +2,7 @@ import ../zlib/defs.asm
 import config.asm
 import pcb_def.asm
 
+
 ; run.asm
 ; Code to configure and run an application. There are two types of application:
 ;   1. 'bare'      - doesn't use any ZIOS services and does it's own thing. Has
@@ -19,6 +20,7 @@ import pcb_def.asm
             extrn  CNTINUE
             extrn  NUL_ISR,BANKST
             extrn  ZIOS_OFF
+            extrn  main
 
             CSEG
 
@@ -34,10 +36,6 @@ INSTDRV:: ; Check configuration to see whether we're meant to be installing driv
           RRCA
           JR     C,.dodrv
 
-          ; ZIOS service not required. Disable the hardware interrupt sources we're using
-          ; to avoid the running software having to programme hardware it doesn't need.
-          CALL   ZIOS_OFF
-
           ; If the start address is NOT zero then write a jump instruction
           ; to the start of application memory.
           LD     A,H
@@ -47,26 +45,30 @@ INSTDRV:: ; Check configuration to see whether we're meant to be installing driv
           LD    A,$C3          ; JP
           LD    ($4000),A
           LD    ($4001),HL     ; Start address
+
+          ; ZIOS service not required. Disable the hardware interrupt sources we're using
+          ; to avoid the running software having to programme hardware it doesn't need.
+          CALL   ZIOS_OFF
+
           OR    A
           RET
 
 .dodrv:   ; Copy our driver code into the end of APPLICATION memory. It's
           ; currently at the end of our second bank.
-          PUSH  HL
+          PUSH  HL                     ; Save start address
           LD    HL,$FE00               ; Our top 512 bytes need to be copied to the application page
           LD    DE,$BE00               ; Application last page
           LD    BC,512                 ; Transfer 512 bytes
           LDIR
-          POP   HL
+          POP   HL                     ; Restore start address
 
           ; Store HL (run address) in the app copy of our drivers
           LD     (R_PC_S - $C000 + $8000),HL
-
-          PUSH   AF            ; Partially rotate exec flags
+          PUSH   AF                    ; Partially rotate exec flags
 
           ; Patch the dispatch point for the API in page 0 (RST 30h)
           LD     A,$C3
-          LD     (4030h),A     ; API entry point: RST 30h
+          LD     (4030h),A             ; API entry point: RST 30h
           LD     HL,AP_ST
           LD     (4031h), HL
 

@@ -18,7 +18,6 @@ VDU_INI:    CALL  HASPIO
             CALL  HASVDU
             RET   NZ
 
-            ; LD      A,1
             BANK    1,CSET_PG
             LD      A,MN_PG
             LD      HL,$4000

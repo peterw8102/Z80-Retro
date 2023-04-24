@@ -875,11 +875,10 @@ INIT:       DEFB  0        ; Initialised to 'false'. Set true once hist bug init
 MLINE:      DEFB  1        ; If true then implement a line buffer/line editor
 LPOS:       DEFW  MLBUF    ; Pointer to where the next history line will be added
 HPOS:       DEFW  MLBUF    ; Pointer to place in hist buffer when using up/down arrow keys
+BRK_HK:     DEFW  0
 
 ; Storage for the previous 'n' lines. Keeping it simple - there's a 1K buffer of variable
 ; length lines. THIS BLOCK MUST BE ALIGNED ON A 1K BOUNDARY.
             ASEG
             ORG   D_HISTB
 MLBUF:      DS    MLSZ
-
-BRK_HK:     DW      0

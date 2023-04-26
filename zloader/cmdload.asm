@@ -48,8 +48,10 @@ SHOWBCNT:  PUSH  HL
            PUSH  DE
            PUSH  BC
            PUSH  AF
-           LD    HL,(REPTYPE)
-           CALL  PRINT
+           LD    A,ESC
+           RST   08h
+           LD    A,'8'
+           RST   08h
            LD    HL,(LOAD_CNT)
            INC   HL
            LD    (LOAD_CNT),HL
@@ -127,12 +129,12 @@ PREPLD:   LD    HL,100h           ; Default load address for binary data
 
 LDF:      CALL  PREPLD
           LD    HL,_nxtblk$
-          LD    (REPTYPE),HL
+          CALL  PRINT
           JR    cmd_bin
 
 LDH:      CALL  PREPLD
           LD    HL,_record$
-          LD    (REPTYPE),HL
+          CALL  PRINT
           JR    cmd_load
 
 ; ---------------- LOAD
@@ -304,25 +306,21 @@ BOOT:     LD    A,1
 ; Load default image from Raspberry Pi and if AUTO_RUN is sset
 ; then execute that image.
 BOOTIX:   LD    HL,_record$
-          LD    (REPTYPE),HL
+          CALL  PRINT
           XOR   A
           LD    (LOAD_MODE),A      ; Force Intel Hex format load
           LD    HL,_BOOTHEX        ; From the default file
           LD    BC,8
           JR    LOADF
 
-
-
 E_REC:    LD    HL,_REC_ERR
           JR    E_PRTERR
 
 
-
-
 _WAITING     DEFB CR,LF,"Waiting...",NULL
 _FNAME       DEFB "File? ",0
-_nxtblk$     DEFB CR,"Block: ",0
-_record$     DEFB CR,"Record: ",0
+_nxtblk$     DEFB CR,"Block: ",ESC,'7',0
+_record$     DEFB CR,"Record: ",ESC,'7',0
 _REC_ERR     DEFB CR,LF,"Bad rec",NULL
 _COMPLETE    DEFB CR,LF,"Complete",0
 _BOOTHEX     DEFB "boot.ihx",0
@@ -338,4 +336,3 @@ PROGADD    DEFS    2
 PROGPG     DEFS    1
 
 FIN_CODE:  DEFB    0
-REPTYPE:   DEFW    0

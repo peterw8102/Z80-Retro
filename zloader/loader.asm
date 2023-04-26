@@ -133,26 +133,29 @@ if IS_DEVEL
 ifdef OVERWRITE
             ; Want to overwrite the live version with this version
             ; Have to do the copy in two sections (for this release)
-            ; 1. Move RAM page 21 to page 20 (current installed monitor)
-            BANK  1,20h
-            LD    HL,0         ; Copy RAM page 22 to RAM page 20
-            LD    DE,$4000
+            ; 1. Move our first page to page 20 (current installed monitor)
+            BANK  2,20h
+            LD    HL,0         ; Copy our current first page into page 20
+            LD    DE,$8000
             LD    BC,$4000
             LDIR
             ; 2. Map this into bank zero to free page 21
             BANK  0,20h        ; Replaces ourselves
 
-            ; 3. Copy page 22 into the now vacated page 21
-            BANK  2,23h
-            BANK  3,21h
-            LD    HL,$8000     ; Copy RAM page 22 to RAM page 21
-            LD    DE,$C000
+            ; 3. Copy our second page (in bank 3) into page 21
+            BANK  2,21h
+            LD    HL,$4000     ; Copy RAM page 22 to RAM page 21
+            LD    DE,$c000
             LD    BC,$4000
             LDIR
+
+            ; 4. And finally map the new contents of page 21 into bank 3, freeing up the page we were using.
+            BANK  3,21h        ; Replaces ourselves
 endif
 else
+            ; ----- Running from Flash - copy to RAM -----
             ; Copy the first 32KB of Flash to the first 32K of RAM.
-            BANK  0,FSH_PG_0   ; Flash page 1 -> bank 1
+            BANK  0,FSH_PG_0   ; Flash page 0 -> bank 0
             BANK  1,FSH_PG_0+1 ; Flash page 1 -> bank 1
             BANK  2,MN_PG      ; RAM page 0 into bank 2
             BANK  3,MN2_PG     ; RAM page 1 into bank 3
@@ -293,7 +296,7 @@ DECCHR:     RST      10h
 ; --------------------- STRINGS
 ; _INTRO:   DEFB 13,"Z80 ZIOS 2.0.5",NULL
 _INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[0;50r"
-_TITLE:   DEFB "Z80 ZIOS 2.0.5",NULL
+_TITLE:   DEFB "Z80 ZIOS 2.0.7",NULL
 _CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r",NULL
 
 ; Set scroll area for debug

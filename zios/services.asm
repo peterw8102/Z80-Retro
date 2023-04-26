@@ -114,7 +114,6 @@ TX_CHR:   LD     A,E        ; Character to print
           CALL   DEV_OUT
           POP    HL
           POP    DE
-          ; RST    08h
           RET
 
 ; --------- RX_CHR (CMD 3)
@@ -124,7 +123,6 @@ RX_CHR:   PUSH   DE
           CALL   DEV_IN
           POP    HL
           POP    DE
-          ; RST    10h
           LD     C,A
           RET
 
@@ -135,7 +133,6 @@ CHK_CHR:  PUSH   DE
           CALL   DEV_CHK
           POP    HL
           POP    DE
-          ; RST    18h
           RET
 
 ; --------- LD_STDSK (CMD 5)

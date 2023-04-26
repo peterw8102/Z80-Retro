@@ -222,12 +222,14 @@ CMD_B:          PUSH     AF
                 OUT      (SIOA_C),A
                 LD       A,RTS_HIGH
                 OUT      (SIOA_C),A
+                DI                  ; Disable interrupts - there's no flow control!
                 POP      AF
                 PUSH     DE         ; Destination bufer not used to send the request so save
                 CALL     _SEND_CMD  ; Send the command
                 POP      DE
                 CALL       _WAIT_RES  ; Wait for the response
                 PUSH     AF
+                EI
                 LD       A, $05
                 OUT      (SIOA_C),A
                 LD       A,RTS_LOW

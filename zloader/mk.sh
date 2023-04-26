@@ -28,7 +28,7 @@ if [ -z "$RELEASE" ]; then
   fi
 else
   echo "Building RELEASE version of ZLoader"
-  AFLAGS+=" -DRELEASE"
+  AFLAGS+=" -DRELEASE -DOVERWRITE"
 fi
 
 # Assemble the library modules to be relocatable.

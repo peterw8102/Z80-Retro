@@ -21,7 +21,7 @@ if [ -z "$RELEASE" ]; then
   fi
 else
   echo "Building RELEASE version of ZIOS"
-  AFLAGS+=" -DRELEASE"
+  AFLAGS+=" -DRELEASE -DOVERWRITE"
 fi
 
 zmac -I ../zlib $AFLAGS ./services.asm

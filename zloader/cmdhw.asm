@@ -63,13 +63,33 @@ SH_PIO:     LD       HL,_PDIS
 
 ; ---- SH_SW
 ; Display the current value of the configuration DIP switch.
-SH_SW:      LD       HL,_CFGSW
+SH_SW:      PUSH     DE
+            LD       HL,_CFGSW
             CALL     PRINT
             LD       HL,S_COLSTR
             CALL     PRINT
             LD       A,D
             CALL     WRITE_8
+            LD       HL,_CONS
+            CALL     PRINT_80
+            LD       A,D
+            BIT      2,A
+            LD       HL,_TTY
+            JR       Z,.isz
+            LD       HL,_VDU
+.isz:       CALL     PRINT_80
+            LD       HL,_BOOTPI
+            LD       A,D
+            AND      3
+            DEC      A
+            JR       Z,.zboot
+            LD       HL,_BOOTSD
+            DEC      A
+            JR       Z,.zboot
+            LD       HL,_BOOTZ
+.zboot:     CALL     PRINT_80
             CALL     NL
+            POP      DE
             RET
 
 ; ---- SH_SDC
@@ -119,3 +139,9 @@ _EMP:        DEFB " Missing", NULL
 _PRE:        DEFB " Present", NULL
 _INST:       DEFB "Installed", NULL
 _SFND:       DEFB "Found", NULL
+_CONS:       DC   " - Console: "
+_TTY:        DC   "SIO. "
+_VDU:        DC   "VDU. "
+_BOOTZ:      DC   "Boot ZLoader"
+_BOOTPI:     DC   "Boot from Pi"
+_BOOTSD:     DC   "Boot from SDCard"

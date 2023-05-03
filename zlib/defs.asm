@@ -19,6 +19,13 @@ SPC        .EQU     20H
 ESC        .EQU     1BH
 CSI        .EQU     9BH             ; 8 bit ANSI equivalent of ESC [
 
+; WordStar editing keys
+K_LEFT      EQU     13h
+K_RIGHT     EQU     04h
+K_UP        EQU     05h
+K_DOWN      EQU     18h
+
+
 ; Address of the MMU page control registers
 PG_PORT0    EQU   $60
 PG_CTRL     EQU   $64    ; switches paging on/off (bit 0). Off after boot. Write to 1 after initialisation.

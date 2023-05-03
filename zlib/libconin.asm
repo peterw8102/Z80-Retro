@@ -271,6 +271,14 @@ getc:     RST      10H
           JR       Z, delfd
           CP       VT
           JR       Z, deol
+          CP       K_LEFT
+          JR       Z,_pchr
+          CP       K_RIGHT
+          JR       Z,_nchr
+          CP       K_UP
+          JR       Z,_pline
+          CP       K_DOWN
+          JR       Z,_nline
 
           ; Not a control character so store in buffer, insert space if necessary
 _ext:     LD      A,LINELEN

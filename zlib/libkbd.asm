@@ -26,9 +26,9 @@
 ; import config.asm
 import defs.asm
 
-                extrn  BRK_HK,WRITE_8,WRITE_16,NL
+                extrn  BRK_HK,WRITE_8,WRITE_16,NL,ADD8T16
 
-                public KBDINIT,KBDSCAN,KBDCHAR,KBDCHK
+                public KBDINIT,KBDSCAN,KBDCHAR,KBDCHK,KBDSMDE
 
 ; Store processed characters. Doesn't need to be any longer than the
 ; longest VT100 expansion.
@@ -494,15 +494,17 @@ DOKEY:          PUSH     AF
                 INC      HL
                 OR       (HL)
                 JR       Z,.noexp2   ; No expansion
-                LD       B,ESC
-                CALL     DOKEY
                 LD       A,(HL)
                 DEC      HL
                 LD       L,(HL)
                 LD       H,A          ; HL now points to the sequence. Replay
 .nxtchr:        LD       A,(HL)
                 AND      $7F
-                LD       B,A
+                CP       '['         ; If it's an '[' then we need an ESC prefix
+                JR       NZ,.noesc
+                LD       B,ESC
+                CALL     DOKEY
+.noesc:         LD       B,A
                 CALL     DOKEY        ; Recursive put
                 LD       A,(HL)
                 RLA
@@ -559,8 +561,89 @@ CLRSCAN:        PUSH     HL
                 POP      HL
                 RET
 
+; ------ KBDMAP
+; Map one of the keys in one of the translation tables to
+; emit a different code to standard.
+; Parameters:
+; L: Table that contains the key to map (0-3)
+;    0: Standard keys
+;    1: When shift is pressed
+;    2: When CTRL is pressed
+;    3: When CAPS is locked
+; B: Offset into table to be mapped. MAX: 47h
+; C: New code to return for this character
+KBDMAP::  LD    A,$03
+          AND   L             ; Make sure it's in range
+          LD    HL,tabset
+          JR    Z,.std
+          ADD   A,A           ; x2
+          CALL  ADD8T16       ; HL points a pointer to the start of the correct txlation tab
+.std:     LD    A,(HL)        ; Get the pointer to start of table into HL
+          INC   HL
+          LD    H,(HL)
+          LD    L,A           ; HL points to start of table
+          LD    A,B
+          CP    NUMKEYS
+          RET   NC
+          CALL  ADD8T16       ; Add to table base
+          LD    (HL),C
+          RET
 
+; ------ KBDSMDE
+; Switch between two main keyboard operating modes:
+; A=0   : VT100 (default). Arrow keys returns VT100 sequences
+; A=1   : Wordstar. Arrow keys and some other keys return traditional
+;         control keys which a number of CP/M programmes seem to
+;         prefer over VT100. In particular, most CCP replacements
+;         use these codes.
+; Individual keys can be configured using the SETKEY function.
+;
+; Keyboard modes are changed by overwriting entries in the lookup
+; tables. Each patch table is defined in a list of 'patch' codes.
+; Each patch code comprises three bytes.
+;
+; The first selects one of the four key state tables (tab_std,
+; tab_shft etc).
+;
+; The second selects the key offset into that table to be patched.
+;
+; The last is the key code to be placed in the table.
+;
+; The end of the table is identified by an 0xFF value in the first byte.
+;
+; Note that this method does NOT allow any key to return any key
+; sequence. The key can be configured to return any byte value. If
+; the byte value is >$C0 then that code will be expanded into one
+; of the preconfigured escape sequences (VTMAP).
+KBDSMDE:: PUSH  HL
+          PUSH  DE
+          PUSH  BC
+          LD    DE,MD_VT100
+          DEC   A
+          JR    NZ,.overlay
+          LD    DE,MD_WSTR
+.overlay: LD    A,(DE)           ; Zero means end of table
+          INC   DE
+          LD    L,A              ; This byte identifes the table, saved in L
+          INC   A
+          JR    Z,.end
 
+          LD    A,(DE)
+          INC   DE
+          LD    B,A              ; The character offset into the table
+
+          LD    A,(DE)
+          INC   DE               ; Points to start of next entry
+          LD    C,A              ; The mapped character
+          ; PUSH  DE
+          CALL  KBDMAP
+          ; POP   DE
+          JR    .overlay
+
+.end:     POP   BC
+          POP   DE
+          POP   HL
+          RET
 
 
 ; Control characters
@@ -574,6 +657,9 @@ SPC            EQU        $20
 ; Pound is a special (and horrible) case - it's in the extended ASCII set with value A3
 POUND          EQU        $A3
 
+
+; All values >$C0 are extended codes that will be expanded into
+; ANSI/VT100 escape sequences.
 F1             EQU        $C1
 F2             EQU        $C2
 F3             EQU        $C3
@@ -602,11 +688,14 @@ HOME           EQU        $E2
 END            EQU        $E3
 SOL            EQU        $E4
 EOL            EQU        $E5
+
 UP             EQU        $E6
 DOWN           EQU        $E7
 LEFT           EQU        $E8
 RIGHT          EQU        $E9
+
 WRDDEL         EQU        $EA
+WSHOME         EQU        $EB
 
 ; Keys with upper 4 bits set should NOT be recorded as key presses. These
 ; are the mode keys: CTRL, SHIFT etc
@@ -625,8 +714,73 @@ menu2Row       EQU        2         ; The scan row that includes the CTRL, SHIFT
 stateRow       EQU        6         ; The scan row that includes the CTRL, SHIFT, OPT and CAPS keys
 fn2Row         EQU        7         ; The scan row that includes the CTRL, SHIFT, OPT and CAPS keys
 
+; Define well known offsets into the table that we want to redfine.
+O_MNU          EQU        $12
+O_F1           EQU        $32
+O_F2           EQU        $31
+O_F3           EQU        $30
+O_F4           EQU        $3F
+O_F5           EQU        $3E
+O_FN1          EQU        $33
+O_FN2          EQU        $39
+O_BS           EQU        $3A
+O_PDWN         EQU        $3B
+O_PUP          EQU        $46
+O_TAB          EQU        $3C
+O_ESC          EQU        $3D
+O_RIGHT        EQU        $40
+O_DOWN         EQU        $41
+O_UP           EQU        $42
+O_LEFT         EQU        $43
+O_DEL          EQU        $44
+O_HOME         EQU        $45
+O_SPC          EQU        $47
+
+; Defines for the four state tables
+T_STD          EQU        $00
+T_SHFT         EQU        $01
+T_CTRL         EQU        $02
+T_CAPS         EQU        $03
+
+; Number of slots in each of the tab_??? tables.
+NUMKEYS        EQU        $48
+
+MD_VT100:      DB    T_STD,   O_UP,        UP
+               DB    T_STD,   O_DOWN,      DOWN
+               DB    T_STD,   O_LEFT,      LEFT
+               DB    T_STD,   O_RIGHT,     RIGHT
+               DB    T_STD,   O_HOME,      HOME
+               DB    T_STD,   O_PUP,       PGUP
+               DB    T_STD,   O_PDWN,      PGDN
+
+               DB    T_CTRL,  O_UP,        HOME
+               DB    T_CTRL,  O_DOWN,      END
+               DB    T_CTRL,  O_LEFT,      SOL
+               DB    T_CTRL,  O_RIGHT,     EOL
+               DB    T_CTRL,  O_BS,        WRDDEL
+
+
+
+               DB    $ff
+
+MD_WSTR:       DB    T_STD,   O_UP,        $05   ; CTRL-E
+               DB    T_STD,   O_DOWN,      $18   ; CTRL-X
+               DB    T_STD,   O_LEFT,      $13   ; CTRL-S
+               DB    T_STD,   O_RIGHT,     $04   ; CTRL-D
+               DB    T_STD,   O_HOME,      WSHOME
+               DB    T_STD,   O_PUP,       $12
+               DB    T_STD,   O_PDWN,      $03
+
+               DB    T_CTRL,  O_UP,        $12   ; CTRL-R
+               DB    T_CTRL,  O_DOWN,      $03   ; CTRL-C
+               DB    T_CTRL,  O_LEFT,      $01   ; CTRL-A
+               DB    T_CTRL,  O_RIGHT,     $06   ; CTRL-F
+               DB    T_CTRL,  O_BS,        $14   ; CTRL-T
+
+               DB    $ff
+
 ; Default table
-tab_std::       DB       '76543210'
+tab_std:        DB       '76543210'
                 DB       ';][\=-98'
                 DB       "ba",MNU,"/.,`'"    ;'
                 DB       'jihgfedc'
@@ -637,9 +791,9 @@ tab_std::       DB       '76543210'
                 DB       RIGHT,DOWN,UP,LEFT,DEL,HOME,PGUP,SPC
 
 
-tab_shft::      DB       '&^%$',POUND,'@!)'
+tab_shft:       DB       '&^%$',POUND,'@!)'
                 DB       ':}{|+_(*'
-                DB       "BA",MNU,'?><~"'
+                DB       "BA",MNU,'?><~"'  ;'
                 DB       'JIHGFEDC'
                 DB       'RQPONMLK'
                 DB       'ZYXWVUTS'
@@ -648,7 +802,7 @@ tab_shft::      DB       '&^%$',POUND,'@!)'
                 DB       RIGHT,DOWN,UP,LEFT,DEL,HOME,PGUP,SPC
 
 
-tab_ctrl::      DB       '76543210'
+tab_ctrl:       DB       '76543210'
                 DB       ';][\=-98'
                 DB       $02,$01,MNU,"/.,`'"    ;'
                 DB       $0A,$09,$08,$07,$06,$05,$04,$03
@@ -658,7 +812,7 @@ tab_ctrl::      DB       '76543210'
                 DB       CR,FN2,BS,PGDN,TAB,CSI,FC3,FC4
                 DB       EOL,END,HOME,SOL,WRDDEL,HOME,PGUP,SPC
 
-tab_caps::      DB       '76543210'
+tab_caps:       DB       '76543210'
                 DB       ';][\=-98'
                 DB       "BA",MNU,"/.,`'"    ;'
                 DB       'JIHGFEDC'
@@ -668,6 +822,10 @@ tab_caps::      DB       '76543210'
                 DB       CR,FN2,BS,PGDN,TAB,ESC,F10,F9
                 DB       RIGHT,DOWN,UP,LEFT,DEL,HOME,PGUP,SPC
 
+tabset:         DW       tab_std
+                DW       tab_shft
+                DW       tab_ctrl
+                DW       tab_caps
 
 ; VT100 escape sequence mapping
 V_F1            DC       '[10~'
@@ -688,6 +846,8 @@ V_PGUP          DC       '[5~'
 V_PGDN          DC       '[6~'
 
 
+; WordStar sequences can go here
+W_HOME          DB       $11,'E'+$80
 
 ; VT100 map starting with character $C0
 VTMAP:          DW       0               ; $C0
@@ -706,7 +866,7 @@ VTMAP:          DW       0               ; $C0
                 DW       0
                 DW       0
                 DW       0
-                DW       0               ; $D0
+                DW       0               ; D0
                 DW       0
                 DW       0
                 DW       0
@@ -722,7 +882,7 @@ VTMAP:          DW       0               ; $C0
                 DW       0
                 DW       0
                 DW       0
-                DW       V_PGUP         ; $E0
+                DW       V_PGUP          ; E0
                 DW       V_PGDN
                 DW       V_HOME
                 DW       V_END
@@ -733,7 +893,7 @@ VTMAP:          DW       0               ; $C0
                 DW       V_LEFT
                 DW       V_RIGHT
                 DW       0
-                DW       0
+                DW       W_HOME
                 DW       0
                 DW       0
                 DW       0

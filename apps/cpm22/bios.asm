@@ -6,7 +6,7 @@
 import zapi.asm
 
            extrn  CCP,BDOS
-           public BOOT,_endall
+           public BOOT,_endall,WBOOTE
 
 cdisk:     EQU  0004h      ;address of current disk number 0=a,... l5=p
 iobyte:    EQU  0003h      ;intel i/o byte

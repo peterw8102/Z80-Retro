@@ -26,4 +26,4 @@ import defs.asm
   extrn  V_INIT,V_CENABLE,V_CTOG,V_PRT
 
   ; Keyboard
-  extrn  KBDINIT,KBDSCAN,KBDCHAR,KBDCHK
+  extrn  KBDINIT,KBDSCAN,KBDCHAR,KBDCHK,KBDSMDE

@@ -12,10 +12,11 @@ import pcb_def.asm
 ;
 ; Now ZIOS is taking two RAM pages both must be mapped into the Z80 address
 
-            public AP_ST,END_APP,DO_BP_S,CNTINUE,AND_RUN,CHR_ISR,RAWGO
+            public AP_ST,END_APP,DO_BP_S,CNTINUE,AND_RUN,CHR_ISR,CTC_ISR,NUL_ISR,RAWGO
             public R_PC_S,JP_RUN,ZS_BRK
             extrn  AP_DISP
             extrn  ISRCTXT
+            extrn  CTCPROC
 
             CSEG
 
@@ -43,11 +44,11 @@ AP_END:   DI
           BANK   2,(PAGE_MP+2)  ; Back into application space
           BANK   3,(PAGE_MP+3)  ; Back into application space
           LD     A,I            ; Now the memory is OK, put A somewhere we can get to it (could be stack)
-          LD     (R_ACC),A   ; Definitely have the stack now so push AF where we can get it
+          LD     (R_ACC),A      ; Definitely have the stack now so push AF where we can get it
           LD     A,VEC_BASE     ; Restore interrupt vector
           LD     I,A            ; Put I back to our vector before EI
           EI                    ; Safe to allow interrupts again
-          LD     A,(R_ACC)   ; And restore A
+          LD     A,(R_ACC)      ; And restore A
           RET                   ; And carry on
 
 ;----- DO_BP_S
@@ -90,8 +91,42 @@ CHR_ISR:  DI
           BANK   3,(PAGE_MP+3)       ; Application space back into bank 0
 
           POP    AF
-          EI                         ; Back to application
+
+; -------- NULISR
+; Dummy entry to prevent client ISR code doing damage when in system calls.
+NUL_ISR:  EI
           RETI
+
+; Timer ISR for when running in application space.
+CTC_ISR:  DI
+          PUSH   AF
+          PUSH   BC
+          PUSH   DE
+          PUSH   HL
+
+          BANK   3,MN2_PG            ; ZIOS in CPU memory page 3
+          BANK   0,MN_PG             ; ZIOS in CPU memory page 3
+          LD     (R_SP),SP           ; Save the application stack into PCB
+          LD     SP,SP_STK           ; Get our supervisor stack
+          LD     (ISRCTXT),A         ; Will be non-zero
+          CALL   CTCPROC             ; Do the interrupt
+          XOR    A
+          LD     (ISRCTXT),A         ; Clear the context flag
+          LD     SP,(R_SP)           ; Restore the application stack
+          BANK   0,(PAGE_MP)         ; VDU might have mapped in the character set to bank 0
+          BANK   3,(PAGE_MP+3)       ; Application space back into bank 0
+
+          POP    HL
+          POP    DE
+          POP    BC
+          POP    AF
+          EI
+          RETI
+
+
+
+
+
 
 ; -------- ZIOS_BRK
 ; Place to jump to when a break character is trapped.

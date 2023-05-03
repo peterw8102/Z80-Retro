@@ -27,8 +27,8 @@ import ../zlib/defs.asm
 RTC_ID    EQU 11010000b ; DS1307+ RTC address = 0xB0
 I2C_RD    EQU 1
 I2C_WR    EQU 0
-
-_CFG      EQU 10010000b        ; Output enabled, 1Hz clock
+CTL_REG   EQU 7
+_CFG      EQU 10010001b        ; SQWE output enabled, 400KHz frequency
 
 ; -- RTC_MWR
 ; Write a block of data to RTC memory. This protects the number of bytes that can be written to 56
@@ -101,7 +101,10 @@ _rb1:     CALL     I2C_RBY
 
 ; -- RTC_SET
 ; Set the time.
-; HL: Points to a 'time' configuration structure which is 7 bytes.
+; HL: Points to a 'time' configuration structure which is 7 bytes. A
+; last eight byte is appended to make sure we're enabling SQWE with a
+; 400KHz clock used to drive timer channel 3 for the keyboard
+; interrupts/VDU cursor.
 RTC_SET:  PUSH     BC
           XOR      A
           CALL     setrdpt
@@ -157,11 +160,11 @@ RTC_SOS:  CALL     I2C_STRT
           CALL     I2C_WBY
 
           ; Write the byte we want to start from (0)
-          XOR      A
+          LD       A,CTL_REG           ; Just write the control word at address 7
           CALL     I2C_WBY
 
           ; And the data value
-          XOR      A
+          LD       A,_CFG
           CALL     I2C_WBY
           CALL     I2C_STOP
           RET

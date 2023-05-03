@@ -124,14 +124,15 @@ dloop2:   CALL  WRITE_16          ; 4 hex digits from HL (the address)
 ; -------------------- DMP16 --------------------
 ; Dump 16 bytes from content of HL to stdout.
 ; INPUT:  HL - Address of first byte to display
-; All registered EXCEPT 'AF' preserved.
-DMP16:    PUSH  BC
+; OUTPUT: HL - Contains the address of the first byte AFTER to dumped block
+; All registers EXCEPT 'AF' preserved.
+DMP16:    PUSH  AF
+          PUSH  BC
           PUSH  DE
           PUSH  HL
 
           ; Prepare dump area
           LD     HL,DUMP_CHRS
-          LD    (DUMP_CHRS),HL
           LD     B,20h
           LD     A,20h
 _clr:     LD     (HL),A
@@ -139,9 +140,9 @@ _clr:     LD     (HL),A
           DJNZ   _clr;
           XOR    A
           LD     (HL),A
-          POP   HL
+          POP   HL               ; HL points to data to be displayed
           WRITE_CHR SPC
-          LD    DE,DUMP_CHRS+2
+          LD    DE,DUMP_CHRS+2   ; Start accumulating the ASCII equivalent
           LD    B,16             ; Number of bytes to display
 dloop:    LD    A,(HL)
           CP    20h
@@ -159,11 +160,14 @@ writeout: INC   DE
           WRITE_CHR SPC
           DJNZ  dloop
           PUSH  HL
+          EX    DE,HL
+          LD    (HL),0
           LD    HL,DUMP_CHRS
           CALL  PRINT_LN
           POP   HL
           POP   DE
           POP   BC
+          POP   AF
           RET
 
 ; ---- decode
@@ -177,7 +181,7 @@ _nexti:   CALL  DECINST    ; Disassemble a single (multi-byte) instruction
           JR    MORE
 
 ; ----- DECINST
-; Decode and display single instruction. HL points to the sart of the instruction. Displays
+; Decode and display a single instruction. HL points to the sart of the instruction. Displays
 ; the HEX bytes for this instruction followed by a newline.
 ; INPUT:  HL - the application space address of the instruction
 ;          A - Address mode

@@ -1,5 +1,5 @@
 ; **********************************************
-; Implements: 'F' (fill mempory)
+; Implements: 'F' (fill memory)
 ; Syntax:
 ;    F start len val;
 ;

@@ -5,7 +5,10 @@ import pcb_def.asm
 
   extrn   P_MIN,PR_INIT
   extrn   AP_DISP
-  public  ZIOS_INI
+  extrn   NUL_ISR
+  extrn   VDU_INI,VDU_OFF
+  extrn   CNS_INI
+  public  ZIOS_INI,ZIOS_OFF
 
 ; init.asm
 ; System initialisation code. ZIOS must be initialised after the loader
@@ -23,8 +26,8 @@ import pcb_def.asm
 ; will tell the loader what automatic/boot behaviour to take.
 ; OUTPUT: A   - the hardware status register (bits 0-2)
 ZIOS_INI::  LD    A,MN2_PG+1
-            CALL  P_MIN
-            CALL  PR_INIT
+            CALL  P_MIN        ; Reserve ZLoader memory pages
+            CALL  PR_INIT      ; Initialise process control block
 
             ; Initialise drive map. Map logical drives 0-15 to physical blocks 1-16. Need to store
             ; the physical address << 6 (Upper 10 bits of the 32 bit SD card address).
@@ -47,6 +50,15 @@ ZIOS_INI::  LD    A,MN2_PG+1
             LD     A,VEC_BASE
             LD     I,A
 
+            LD    HL,0xC000+ISR_BASE
+            LD    DE,NUL_ISR
+            LD    B,16
+_nxtisr:    LD    (HL),E
+            INC   HL
+            LD    (HL),D
+            INC   HL
+            DJNZ  _nxtisr
+
             ; Add entry to vector table for supervisor SIO ISR
             LD     HL,_EISR
             LD     (0xC000+SIO_ARX),HL
@@ -63,9 +75,25 @@ ZIOS_INI::  LD    A,MN2_PG+1
             LD     HL,AP_DISP
             LD     (31h),HL
 
+            ; And initialise the console dispatcher.
+            CALL   CNS_INI
+
+            ; If the keyboard and video card are available then set up CTC for
+            ; keyboard scanning and make a virtual console available.
+            CALL   VDU_INI
+
             ; Return the status of the hardware configuration switch
             CALL   SW_CFG
 
+            RET
+
+; ------ ZIOS_OFF
+; Called to disable all active hardware used by ZIOS. Call this (eg from ZLoader) before starting
+; execution of code that doesn't use the ZIOS services.
+ZIOS_OFF:   CALL   VDU_OFF
+
+            ; Disable SIO interrupts for channel 0
+            CALL   SIO_OFF
             RET
 
 ; ---- _EISR

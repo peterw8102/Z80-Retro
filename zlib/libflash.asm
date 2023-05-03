@@ -4,8 +4,6 @@ import defs.asm
   ;
   public FL_ID,FL_CSECT,FL_CPAGE,FL_WSECT,FL_WPAGE
 
-  extrn WRITE_8,WRITE_16,NL
-
 POFFSET   EQU 0100000000000000b
 
 ; Translate a 15 bit command address to a CPU address mode and write
@@ -58,7 +56,7 @@ FL_CSECT: PUSH    AF
 
           CALL    _blink
 
-          CALL    cmdmode         ; Set to command pages
+          CALL    cmdmode           ; Set to command pages
 
           LD       A,80h            ; Activate erase mode
           CALL     FLSH_CMD
@@ -140,28 +138,6 @@ _nextb:   PUSH  BC
           BANK  1,B
           LD    HL,(FROM_ADD)
 
-          ; PUSH  AF
-          ; PUSH  HL
-          ; LD    A,B
-          ; CALL  WRITE_8
-          ; LD    A,'-'
-          ; RST   08h
-          ; CALL  WRITE_16
-          ; LD    A,':'
-          ; RST   08h
-          ; LD    A,(HL)
-          ; CALL  WRITE_8
-          ; LD    A,' '
-          ; RST   08h
-          ; LD    A,'-'
-          ; RST   08h
-          ; LD    A,'>'
-          ; RST   08h
-          ; LD    A,' '
-          ; RST   08h
-          ; POP   HL
-          ; POP   AF
-
           LD    A,(HL)
           INC   HL
           LD    (FROM_ADD),HL    ; Ready for the next byte... A is the value we want
@@ -233,21 +209,6 @@ FLSH_CMD:  PUSH     HL
 ;         B - data
 _flsh_bt:  LD    A,$A0
            CALL  FLSH_CMD    ; Flash CMD
-
-           ; PUSH  HL
-           ; PUSH  AF
-           ; LD    A,C
-           ; CALL  WRITE_8
-           ; LD    A,'-'
-           ; RST   08h
-           ; CALL  WRITE_16
-           ; LD    A,':'
-           ; RST   08h
-           ; LD    A,B
-           ; CALL  WRITE_8
-           ; CALL  NL
-           ; POP   AF
-           ; POP   HL
 
            BANK  1,C         ; Map in target page
            LD    (HL),B      ; Write the byte

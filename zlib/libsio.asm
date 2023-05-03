@@ -27,7 +27,8 @@
 ; import config.asm
 import defs.asm
 
-                public INITSIO, TXA, RXA, CKINCHAR, _ENDLIBS, BRK_HK, SERINT
+                public INITSIO,SIO_OFF,TXA,RXA,CKINCHAR,_ENDLIBS,SERINT
+                extrn  BRK_HK
 
 ; Full input buffering with incoming data hardware handshaking
 ; Handshake shows full before the buffer is totally filled to allow run-on from the sender
@@ -142,6 +143,9 @@ notRdWrap:      LD       (serRdPtr),HL
 rts1:           LD       A,(HL)
                 EI
                 POP      HL
+                CP       7fh             ; If it's a DEL character then make it a backspace
+                RET      NZ
+                LD       A,08h
                 RET                      ; Char ready in A
 
 ;------------------------------------------------------------------------------
@@ -173,17 +177,10 @@ INITSIO:      DI
               XOR       A
               LD        (serBufUsed),A
 
-              ; RESET both channel A and B
-              OUT     (SIOA_C),A
-              OUT     (SIOB_C),A
+              ; Fully disable/reset the SIO channels
+              CALL    SIO_OFF
 
-              ; Channel A - RESET
-              SIO_C   A,00011000b    ; Channel reset
-              SIO_C   A,00110000b    ; Error reset
-
-              ; Channel B - RESET
-              SIO_C   B,00011000b    ; Channel reset
-              SIO_C   B,00110000b    ; Error reset
+              ; Start programming both channels from scratch.
 
               ; SET INTERRUPT VECTOR - ONLY USED FOR PORT A but set through port B. Port A is polled.
               SIO_WR  B,2,SIO_INTV   ; INTERRUPT VECTOR ADDRESS
@@ -203,6 +200,21 @@ INITSIO:      DI
               POP     AF
               RET
 
+; ------ Close down both channel 1 and 2, prevent further interrupts.
+SIO_OFF:      XOR       A
+              LD        (serBufUsed),A
+
+              ; Channel A - RESET
+              SIO_C   A,00011000b    ; Channel reset
+              SIO_C   A,00110000b    ; Error reset
+              SIO_WR  A,1,0          ; Disable interrupts
+
+              ; Channel B - RESET
+              SIO_C   B,00011000b    ; Channel reset
+              SIO_C   B,00110000b    ; Error reset
+              SIO_WR  B,1,0          ; Disable interrupts
+              RET
+
 _ENDLIBS:
                 DSEG
 serBuf          .DS      SER_BUFSIZE
@@ -211,6 +223,5 @@ serRdPtr        .DS      2
 serBufUsed      .DS      1
 
 useisr          .DS      1
-BRK_HK          .DW      0
 
 ;.END

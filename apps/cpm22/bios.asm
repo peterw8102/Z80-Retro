@@ -3,10 +3,10 @@
 ;   http://cpuville.com/Code/CPM-on-a-new-computer.html
 
 ; Grab the API command codes
-import ../../zloader/api.asm
+import zapi.asm
 
            extrn  CCP,BDOS
-           public BOOT,_endall
+           public BOOT,_endall,WBOOTE
 
 cdisk:     EQU  0004h      ;address of current disk number 0=a,... l5=p
 iobyte:    EQU  0003h      ;intel i/o byte
@@ -14,11 +14,11 @@ disks:     EQU  04h        ;number of disks in the system
 CR:        EQU  0DH
 LF:        EQU  0AH
 STK:       EQU  80H        ; Small stack between RST and CP/M buffers
+CACHECPM:  EQU  1          ; If non-zero then cache CCP etc in shadow RAM
 ; XCCP:       EQU  @@4
 
           ASEG
           ORG 0
-          DI
           JP  BOOT
 
 
@@ -30,7 +30,7 @@ STK:       EQU  80H        ; Small stack between RST and CP/M buffers
 
           ; JUMP TABLE (main BIOS entry). This must be located immediately after the end of BDOS
 
-BIOS:
+BIOS::
 JMPTAB:   JP BOOT      ;-3: Cold start routine
 WBOOTE:   JP WBOOT     ; 0: Warm boot - reload command processor
           JP CONST     ; 3: Console status
@@ -76,7 +76,7 @@ WBOOTE:   JP WBOOT     ; 0: Warm boot - reload command processor
 ;  no translations
 ;
 ;  disk Parameter header for disk 00
-dpbase:  defw  0000h, 0000h
+dpbase::  defw  0000h, 0000h
   defw  0000h, 0000h
   defw  dirbf, dpblk0
   defw  0000h, all00
@@ -96,7 +96,7 @@ dpbase:  defw  0000h, 0000h
   defw  dirbf, dpblk0
   defw  0000h, all03
 
-  dpblk0:	;disk parameter block for all disks.
+  dpblk0::	;disk parameter block for all disks.
     defw	512   ;sectors per track                  SPT - 512 sectors per track
     defm	4     ;block shift factor 2K blocks       BSH - 2K allocation blocks
     defm	15    ;block mask                         BLM - Mask for 2K blocks
@@ -132,16 +132,12 @@ dpbase:  defw  0000h, 0000h
 ; ***** IMPLEMENTATION *****
 ; ****** COLD BOOT *******/
 START:
-BOOT:     XOR    a
-          LD     (iobyte),A   ; clear the iobyte
+BOOT:     XOR    A
           LD     (cdisk),A    ; select disk zero
+          INC    A            ; Default output to CRT (which will default to serial if not available)
+          LD     (iobyte),A   ; clear the iobyte
 
           LD     SP,STK       ; Set a temporary small stack in spare space below the CPM buffer
-
-          ; Configure the loader with our DMA buffer
-          LD     HL,blkbuf
-          LD     C,A_DSKDM
-          RST    30h          ; Set DMA address
 
           ; Write out HELLO message (whatever's in the CP/M buffer)
           LD     HL,CCP+6
@@ -158,13 +154,6 @@ WBOOT:    LD    SP, STK     ; Set a temporary small stack in spare space below t
           CALL  SELDSK
           CALL  HOME        ; go to track 00
           CALL  CPMLOAD
-
-          ; LD    HL,_STARTN
-          ; CALL  _strout
-
-          ; JP    gocpm
-
-; _STARTN   DEFB  'Starting...',10,13,0
 
 gocpm:    LD    a, 0c3h     ; c3 is a jmp instruction
           LD  	(0),A	      ; for jmp to wboot
@@ -199,7 +188,10 @@ diskok:   LD    C,A         ; send to the CCP
 ; ****** CONST: Console status *******/
 ; Use ZIOS library and check for available character.
 ; Char available: return ff if character ready, 0 otherwise
-CONST:    LD    C,A_CHKCH
+CONST:    LD    A,(IOBYTE)
+          AND   1
+          LD    B,A
+          LD    C,A_CHKCH
           RST   30H      ; Check for waiting character ->
           RET   Z        ; No character -> 0
           XOR   A
@@ -208,19 +200,25 @@ CONST:    LD    C,A_CHKCH
 
 ; ****** CONIN: Read character from console *******/
 ; Char available: return in A. Wait until there is  character
-CONIN:    LD    C,A_RXCHR
+CONIN:    LD    A,(IOBYTE)
+_IN:      AND   1
+          LD    B,A
+          LD    C,A_RXCHR
           RST   30H  ; Character returned in A
           OR    A    ; set flags
           RET
 
 ; ****** CONOUT: Console output *******/
-; Write character in A to console
-CONOUT:   LD     E,C
-          LD     C,A_TXCHR
+; Write character in C to console
+CONOUT:   LD    A,(IOBYTE)
+_OUT:     AND   1
+          LD    B,A
+          LD    E,C
+          LD    C,A_TXCHR
           RST   30H
           RET
 
-; ****** _strout: String output a string. String terminated by a 0, pointed by HL *******/
+; ****** _strout: Output a string. String terminated by a 0, pointed by HL *******/
 ; Write character in A to console
 _strout:  LD    A,(HL)
           OR    A
@@ -231,9 +229,28 @@ _strout:  LD    A,(HL)
           RST   30H
           JR    _strout
 
-LIST:     RET
-PUNCH:    RET
-READER:   RET
+; ***** The list output device does exactly the same as CONOUT but uses different IOBYTE bits
+LIST:     LD    A,(IOBYTE)
+          RLCA                ; The LST device is in the top two bits
+          RLCA
+          JR _OUT
+
+; ***** The punch output device does exactly the same as CONOUT but uses different IOBYTE bits
+PUNCH:    LD    A,(IOBYTE)
+          RRCA
+          RRCA
+          RRCA
+          RRCA
+          JR _OUT
+
+; ***** The reader input device does exactly the same as CONIN but uses different IOBYTE bits ****/
+READER:   LD    A,(IOBYTE)
+          RRCA
+          RRCA
+          JR _IN
+
+
+
 
 ; CPM/2 extensions
 LISTST:   XOR  A
@@ -266,7 +283,7 @@ SECTRN:   LD   H,B
 
 ; ********** SELDSK *********
 ; select disk given by register c
-seldsk:   LD    HL, 0000h  ;error return code
+seldsk::  LD    HL, 0000h  ;error return code
           LD    A, C
           CP    disks    ; must be between 0 and 3
           RET   NC       ; no carry if 4, 5,...
@@ -275,7 +292,7 @@ seldsk:   LD    HL, 0000h  ;error return code
           LD    (diskno),A
 
           ; Clear the disk buffer.
-          CALL  _flush
+          ; CALL  _flush
 
           ; Return the disk parameter block to the caller (BDOS) so it knows the disk geometry.
           LD    L, A     ; l=disk number 0, 1, 2, 3
@@ -304,6 +321,16 @@ settrk:   LD    (track),BC
 ; ********** SETDMA *********
 ; set  dma address given by registers b and c. The address is simply stored for later.
 setdma:   LD  (dmaad),BC  ;save the address
+
+          ; Tell ZIOS where to DMA data
+          PUSH   HL
+          PUSH   BC
+          LD     H,B
+          LD     L,C
+          LD     C,A_DSKDM
+          RST    30h          ; Set DMA address
+          POP    BC
+          POP    HL
           RET
 
 ; ********** SETSEC *********
@@ -324,13 +351,16 @@ setsec:   LD  (sector),BC
 ;   + Read the 512 byte block
 ;   + Copy out the 128 byte requested block
 ;
-read:     CALL  _primebuf
-          ; Copy the relevant portion of the buffered block.
-          CALL  _calcoff
-          LD    DE,(dmaad)
-          LD    BC,128
-          LDIR
+read:     PUSH  BC
+          PUSH  DE
+          PUSH  HL
+          CALL  _calcblk
+          LD    C,A_CPMRD
+          RST   30h          ; BLK READ
           XOR   A            ; Never fails (!)
+          POP   HL
+          POP   DE
+          POP   BC
           RET
 
 ; ********** WRITE *********
@@ -341,24 +371,19 @@ read:     CALL  _primebuf
 ; Track number in 'track'
 ; Sector number in 'sector'
 ; Dma address in 'dmaad' (0-65535)
-write:    CALL  _primebuf
-          ; Calc offset into block buffer
-          CALL  _calcoff
-          EX    DE,HL        ; DE contains address in block buffer (where to put the data)
-          ; Copy 128 bytes from DMA address into the block buffer
-          LD    HL,(dmaad)   ; Where we want to copy FROM
-          LD    BC,128
-          LDIR
-          ; Buffer contains new data. Write to the SD card.
-          LD      DE,(blkstrt)
-          LD      HL,(blkstrt+2)
-
-          ; LD      BC,blkbuf
-          ; CALL    SD_WBLK
-          LD      C,A_DSKWR
-          RST     30h         ; BLOCK WRITE
-_werr:    XOR     A
-          ; INC   A
+write:    PUSH  BC
+          PUSH  DE
+          PUSH  HL
+          PUSH  BC
+          CALL  _calcblk
+          POP   BC
+          LD    B,C
+          LD    C,A_CPMWR
+          RST   30h          ; BLK READ
+          XOR   A
+          POP   HL
+          POP   DE
+          POP   BC
           RET
 
 ; --- If CPM system load fails then jump back to the monitor
@@ -370,8 +395,52 @@ _errld:   LD    E,'X'
 freeze:   JR    freeze
 
 
-CPMLOAD:  ; Work out how many blocks need to be loaded
-          LD   HL,JMPTAB
+CPMLOAD:  ; Check whether we have a cached version.
+if CACHECPM
+          LD   A,(cachepg)
+          OR   A
+          JR   Z,doload      ; No cached version so load from disk.
+
+          LD   A,1
+else
+          JR   doload
+endif
+; ---- CPCACHE
+; A: 0 - copy into cache page, 1 - copy from cache page
+CPCACHE:  PUSH  AF          ; Save out input parameter
+          LD    A,(cachepg)
+          LD    D,A         ; Page to map...
+          LD    E,2         ; ...into bank 2
+          LD    C,A_PGSEL   ; Page map command
+          RST   30h         ; Returns the old page, which needs to be restored
+          LD    (apppg),A   ; Store old page number so it can be restored
+          LD    HL,JMPTAB
+          LD    DE,CCP
+          OR    A
+          SBC   HL,DE      ; HL is now the number of bytes to copy.
+          LD    B,H
+          LD    C,L        ; Store for copy
+          LD    L,E
+          LD    A,$BF      ; Destination will be in the page 0x8000 onwards
+          AND   D
+          LD    H,A        ; HL points into cache page (source address)
+          ; Check direction: into or from cache
+          POP   AF
+          OR    A
+          JR    NZ,_dpcpy
+          EX    DE,HL      ; Change copy direction
+_dpcpy:   LDIR             ; Copied
+          ; Remap application page back into bank 2
+          LD    C,A_PGSEL  ; Page map command
+          LD    A,(apppg)  ; The saved application page
+          LD    D,A        ; Page to map...
+          LD    E,2        ; ..into bank 2
+          RST   30h        ; Returns the old page, which needs to be restored
+          RET
+
+
+          ; Work out how many blocks need to be loaded
+doload:   LD   HL,JMPTAB
           LD   BC,CCP
           OR   A            ; Clear carry
           SBC  HL,BC        ; Numer of bytes
@@ -404,129 +473,66 @@ load1:    ; load  one more sector
           POP   AF         ; Get the remaining block count back
           DEC   A          ; Any left to process?
           JR    NZ,load1   ; Yes
+
+if CACHECPM
+          ; Now loaded. Cache for next time
+          LD    C,A_PGALC
+          RST   30h        ; Get a memory page
+          OR    A
+          RET   Z          ; Non pages available (unlikely) but can't cache.
+          LD    (cachepg),A
+
+          XOR   A          ; Copy into cache
+          JR    CPCACHE
+else
           RET
-
-
-; _HEX_CHRS: DEFB  "0123456789ABCDEF"
-; _HELLO:    DEFB  "CP/M 2.2 BIOS - Peter Wilson 2023"
-;            DEFB   0
-
-
-; -- _primebuf
-; Check whether the page referencing disk/track/sector is already in the buffer. If not then load
-; that page into the buffer and return.
-_primebuf: CALL    _calcblk        ; blkstrt now contains the correct SD card address
-           LD      DE,blkstrt
-           LD      HL,lststrt
-           LD      B,4
-_chn:      LD      A,(DE)
-           CP      (HL)
-           JR      NZ,_nomtch
-           INC     HL
-           INC     DE
-           DJNZ    _chn
-
-           ; Requested block matches currently loaded bock.
-           RET
-
-_nomtch:   ; Address block mismatch. Load the new block. The loader already has
-           ; the DMA address for our block buffer
-           PUSH    HL
-           PUSH    DE
-           PUSH    BC
-
-           LD      DE,(blkstrt)
-           LD      HL,(blkstrt+2)
-           LD      (lststrt),DE
-           LD      (lststrt+2),HL
-
-           LD      C,A_DSKRD
-           RST     30h          ; BLK READ
-
-           POP     BC
-           POP     DE
-           POP     HL
-           RET
-
-; The content of the cached sector can no longer be relied upon so invalidate it.
-_flush:    LD      HL,$FFFF
-           LD      (lststrt),HL
-           LD      (lststrt+1),HL
-           RET
+endif
 
 ; -- _calcblk
-; Convert disk/track/sector into a logical sector address for the SD card. In
-; this case. Each disk has 512 sectors per track. Each sector is 127 bytes so
+; Convert disk/track/sector into a logical sector address for ZIOS.
+; Each disk has 512 sectors per track. Each sector is 128 bytes so
 ; 32K per track.
 ;
 ; Store result in 'blkstrt'.
 ;
 ;   +------------+------------+------------+------------+
-;   |  virtdisk  |  Not Used  | N/U |<--13 bit offset-->|
+;   |  virtdisk  |  Not Used  |N/U|<---15 bit offset--->|
 ;   +------------+------------+------------+------------+
 ;
 ; Logical disk layout is 64 (2^5) tracks each comprising 512 sectors (2^9) = 2^14
 ;
-;    (sector & 0fffCh >> 2) : Converts sector for SDCard block. Will be a value from 0..128
+; Using the ZIOS CP/M helper which handles 128 byte sector addresses rather than
+; the native SDCard 512.
 _calcblk:  LD     HL,(sector)     ; Sector is in the range 0 - 512 (9 bits).
-           LD     A,0FCh          ; Round sector down to 512 byte SD block
-           AND    L               ; By masking out the 2 least sig. bits
 
-           ; ZLoader blocks are 512 bytes so need to divide CP/M sector by 4 to get the
-           ; sector that contains the CP/M track
-
-           ; Divide by 2. After this the value of H contains no useful information
-           SRL    H
-           RRA
-           LD     L,A
-
-           ; L now contains the partial ZL sector number. Get the track number into
+           ; Need to merge in the track number as bits 10-15 (5 bits = 64 tracks)
+           ; L now contains the partial ZIOS sector number. Get the track number into
            LD     A,(track)
            AND    3Fh             ; Mask the lower 6 bits (0-63)
-           LD     H,A             ; Working register
+           RLCA                   ; *2 so it aligns with the track number
+           OR     H               ; Add in the sector number
+           LD     H,A             ; HL is now the full 15 bit offset into the logical drive.
 
-           ; HL now addresses logical 256 byte area. Divide again to get 512 byte sector size
-           SRL    H
-           RR     L
-
-           ; This is the least significant 16 biyes of the address (13 bits relevant)
-           LD     (blkstrt),HL    ; Store LS 16 bit word of SD card address
+           ; This is the least significant 16 bits of the address (15 bits relevant)
+           ; LD     (blkstrt),HL    ; Store LS 16 bit word of SD card address
 
            ; The upper 16 bits at the moment: top byte is disk number, lower is zeros
 
-           ; CPM disk number is 0-3. Let ZLoader do the mapping
-           EX     DE,HL
-           LD     L,0
+           ; CPM disk number is 0-3. Let ZIOS do the mapping
+           EX     DE,HL           ; LSW in DE
+           LD     L,0             ; Always zero with usable addresses
            LD     A,(diskno)
            LD     H,A
-           LD     (blkstrt+2),HL  ; Store as next byte of offset.
+           ; LD     (blkstrt+2),HL  ; Store as next byte of offset.
 
            ; Full 32 bit logical SDCard address suitable for the ZLoader is in HLDE. The
            ; same address is stored in blkstrt.
            RET
 
-; -- _calcoff
-; Return HL as the offset into the blkbuf of the currently selected sector.
-; HL: Calculated buffer offset.
-; A not saved
-_calcoff:   PUSH  DE
-            LD    HL,0
-            LD    A,(sector)
-            AND   03h
-            RRCA
-            RR    L
-            RRCA
-            RL    H
-            LD    DE,blkbuf
-            LD    A,E
-            ADD   L
-            LD    L,A
-            LD    A,D
-            ADC   A,H
-            LD    H,A         ; HL: Start of sector data
-            POP   DE
-            RET
-;
+
+
+
+
 ;  the remainder of the cbios is reserved uninitialized
 ;  data area, and does not need to be a Part of the
 ;  system  memory image (the space must be available,
@@ -543,11 +549,11 @@ dmaad:   DEFS  2    ;direct memory address
 ;   +------------+------------+------------+------------+
 ;   |  virtdisk  |  Not Used  | N/U |<--13 bit offset-->|
 ;   +------------+------------+------------+------------+
-blkstrt: DEFW  0, 0 ;4 byte SD card logical address for a 512 byte block
-blkoff:  DEFB  0    ;Offset into blkstrt for requested block
-blkbuf:  DEFS  512  ;buffer to receive a single 512B block
+; blkstrt: DEFW  0, 0 ;4 byte SD card logical address for a 512 byte block
+; blkoff:  DEFB  0    ;Offset into blkstrt for requested block
+; blkbuf:  DEFS  512  ;buffer to receive a single 512B block
 
-lststrt: DEFW  0FFFFh, 0FFFFh ; Which sector did we last read?
+; lststrt: DEFW  0FFFFh, 0FFFFh ; Which sector did we last read?
 
   DSEG
 ;  scratch ram area for bdos use
@@ -562,4 +568,12 @@ all03:    DEFS  513       ;allocation vector 3
 ; chk02:    DEFS  128     ;check vector 2
 ; chk03:    DEFS  128     ;check vector 3
 ;
+; Cache page - if not zero then this memory page holds a
+; preloaded copy of the CCP/BDOS/BIOS code - allowing
+; a fast/responsive CLI/
+cachepg:: DB    0
+
+; Tempory store for the application page we temporarily replace with the cache page.
+apppg::   DB    0
+
 _endall:  EQU  $

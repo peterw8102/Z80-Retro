@@ -36,10 +36,8 @@ import zload.asm
           ; From CMDTAB
           extrn FNDCMD,SETMODE
 
-if CSET
-          ; If wqe want to install a character set
-          extrn INITCSET
-endif
+          ; Console selection for UI
+          extrn RSTCONS,SELCONS
 
           ; Exported
           public main
@@ -68,19 +66,19 @@ VEC_CODE  EQU   $C3
           JR     main       ; Warm start for the loader.
 
           ORG    $08
-          JR     TXA
+          JR     CNS_OUT
 
           ORG    $0b
           JR     DO_BP      ; Entry point for breakpoints
 
           ORG    $10
-          JR     RXA
+          JR     CNS_IN
 
           ORG    $13
           JR     BRK_HDLR   ; Entry point for breakpoints
 
           ORG    $18
-          JR     CKINCHAR
+          JR     CNS_CHK
 
           ORG    $3C
 if !IS_DEVEL
@@ -130,27 +128,34 @@ START:     ; 0. Make sure we're in paged memory mode
 
 
 if IS_DEVEL
+            ; Two options here. Either run in-situ, which can make some debug
+            ; functions (as in debugging ZLoader) easier.
+ifdef OVERWRITE
             ; Want to overwrite the live version with this version
             ; Have to do the copy in two sections (for this release)
-            ; 1. Move RAM page 21 to page 20 (current installed monitor)
-            BANK  1,20h
-            LD    HL,0         ; Copy RAM page 22 to RAM page 20
-            LD    DE,$4000
+            ; 1. Move our first page to page 20 (current installed monitor)
+            BANK  2,20h
+            LD    HL,0         ; Copy our current first page into page 20
+            LD    DE,$8000
             LD    BC,$4000
             LDIR
             ; 2. Map this into bank zero to free page 21
             BANK  0,20h        ; Replaces ourselves
 
-            ; 3. Copy page 22 into the now vacated page 21
-            BANK  2,23h
-            BANK  3,21h
-            LD    HL,$8000     ; Copy RAM page 22 to RAM page 21
-            LD    DE,$C000
+            ; 3. Copy our second page (in bank 3) into page 21
+            BANK  2,21h
+            LD    HL,$4000     ; Copy RAM page 22 to RAM page 21
+            LD    DE,$c000
             LD    BC,$4000
             LDIR
+
+            ; 4. And finally map the new contents of page 21 into bank 3, freeing up the page we were using.
+            BANK  3,21h        ; Replaces ourselves
+endif
 else
+            ; ----- Running from Flash - copy to RAM -----
             ; Copy the first 32KB of Flash to the first 32K of RAM.
-            BANK  0,FSH_PG_0   ; Flash page 1 -> bank 1
+            BANK  0,FSH_PG_0   ; Flash page 0 -> bank 0
             BANK  1,FSH_PG_0+1 ; Flash page 1 -> bank 1
             BANK  2,MN_PG      ; RAM page 0 into bank 2
             BANK  3,MN2_PG     ; RAM page 1 into bank 3
@@ -172,19 +177,32 @@ RUN_CLI:    ; We're running in supervisor mode
             CALL  ZIOS_INI
             LD    (HW_SWTCH),A       ; State of the hardware config switches
 
-if CSET
-            ; Install character set
-            CALL   INITCSET
-endif
+            ; Set keyboard input mode from NVRAM
+            LD    A,(NVRAM)
+            AND   CF_VT100
+            LD    A,0
+            JR    NZ,.vt100       ; Want VT100 mode
+            INC   A
+.vt100:     LD    B,0
+            LD    C,A_KBDMAP
+            LD    D,A
+            RST   30h            ; Set keyboard mode
+
+            ; Decide which console to use
+            LD    A,(HW_SWTCH)    ; State of the hardware config switches
+            AND   04h             ; Only interested in bit 2.
+            JR    Z,.def
+            LD    A,1
+.def:       CALL  SELCONS
 
             ; Really simple CLI now. Display
-NOSIO:      LD    HL, _INTRO
+NOSIO:      LD    HL,_INTRO
             CALL  PRINT_LN
             CALL  SH_HW
 
 if !IS_DEVEL
           ; Check the state of the DIL switches and look for autoboot mode
-          LD    A,(HW_SWTCH)       ; State of the hardware config switches
+          LD    A,(HW_SWTCH)    ; State of the hardware config switches
           AND   03h             ; Only interested in bits 0 and 1.
 
           DEC   A               ; If 01 then do Pi boot
@@ -217,7 +235,8 @@ E_BADPS:  LD    HL,_IOERR
 E_PRTERR:
 _prterr:  CALL  PRINT_LN
 
-main:     LD    SP,SP_STK       ; Dump the stack and restart on *main*
+main:     CALL  RSTCONS
+
           LD    HL, _PROMPT
           CALL  PRINT
           CALL  GET_LINE
@@ -278,20 +297,20 @@ _std:     EX    DE,HL
           JR    NC,SHOW_RGS
           JR    main
 
-DECCHR:     RST      10h
+DECCHR:     LD       HL,_NULLSTR
+            RST      10h
             CP       3
-            JR       Z,main
+            JR       Z,_prterr
             CALL     WRITE_8
             JR       DECCHR
 
 
-
-
 ; --------------------- STRINGS
-; _INTRO:   DEFB "Z80 ZIOS 1.18.10",NULL
-_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[1;50r"
-_TITLE:   DEFB "Z80 ZIOS 2.0.2",NULL
-_CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r",NULL
+; _INTRO:   DEFB 13,"Z80 ZIOS 2.0.5",NULL
+_INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[0;50r"
+_TITLE:   DEFB "Z80 ZIOS 2.1.0",NULL
+_CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r"
+_NULLSTR  DEFB NULL
 
 ; Set scroll area for debug
 _DBMD:    DEFB ESC,"[2J",ESC,"[1m",ESC,"[1;6HSTACK",ESC,"[m",ESC,"[11;50r",ESC,"[9;1H  >",ESC,"[12,1H",NULL
@@ -321,6 +340,5 @@ FIN_CODE:  DEFB    0
 AUTO_RUN:  DEFB    0
 
 DUMP_CHRS  EQU   SCRATCH
-
 
 .END

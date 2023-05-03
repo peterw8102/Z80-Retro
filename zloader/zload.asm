@@ -1,4 +1,4 @@
-SCRATCH      EQU      $C300     ; Reserve 256 byutes for a scratch area
+SCRATCH      EQU      $FD00     ; Reserve 256 byutes for a scratch area
 
 ; Some shared use of the scatch area
 LASTB      EQU     SCRATCH      ; Size of last block (2 bytes)

@@ -1,4 +1,5 @@
 #/bin/sh
+set -x
 pushd ../zlib
 ./mk.sh
 popd
@@ -8,72 +9,62 @@ popd
 
 rm zout/*
 
-# Assemble the library modules to be relocatable.
+AFLAGS="-j -J --rel7 --oo obj,lst"
+INCLUDE="-I ../zlib -I ../zios "
+
 if [ -z "$RELEASE" ]; then
-  echo "Building DEVELOPMENT version"
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./loader.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./disassembler.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./charset.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./breakpoint.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./sdaddr.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./sdutils.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdflsh.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmddump.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdload.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmddtime.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdcfg.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdpage.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdexec.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdhist.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdregs.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdsdimg.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdsdboot.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdsd.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdtab.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdsdmap.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdsdwrite.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdhw.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdfill.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdio.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdmodify.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./cmdhelp.asm
-  zmac -I ../zlib -I ../zios -j -J --rel7 --oo obj,lst ./more.asm
+  echo "Building DEVELOPMENT version of ZLoader"
+
+  # In development mode also allow the option to not overwrite the flashed
+  # version of ZIOS/ZLoader. This is useful in the case where you're
+  # working on a new version of either, as opposed to a new version
+  # if a client application.
+  if [ -z "$DEBUG" ]; then
+    echo "Overwrite live ZLoader with development version"
+    AFLAGS+=" -DOVERWRITE"
+  else
+    echo "Development ZLoader will reside in pages 22 and 23"
+    AFLAGS+=" -DDEBUG"
+  fi
 else
-  echo "Building RELEASE version"
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./loader.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./disassembler.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./charset.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./breakpoint.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./sdaddr.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./sdutils.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdflsh.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmddump.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdload.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmddtime.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdcfg.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdpage.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdexec.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdhist.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdregs.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdsdimg.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdsdboot.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdsd.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdtab.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdsdmap.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdsdwrite.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdhw.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdfill.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdio.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdmodify.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./cmdhelp.asm
-  zmac -I ../zlib -I ../zios -DRELEASE -j -J --rel7 --oo obj,lst ./more.asm
+  echo "Building RELEASE version of ZLoader"
+  AFLAGS+=" -DRELEASE -DOVERWRITE"
 fi
+
+# Assemble the library modules to be relocatable.
+zmac $INCLUDE $AFLAGS ./loader.asm
+zmac $INCLUDE $AFLAGS ./disassembler.asm
+zmac $INCLUDE $AFLAGS ./breakpoint.asm
+zmac $INCLUDE $AFLAGS ./sdaddr.asm
+zmac $INCLUDE $AFLAGS ./sdutils.asm
+zmac $INCLUDE $AFLAGS ./cmdflsh.asm
+zmac $INCLUDE $AFLAGS ./cmddump.asm
+zmac $INCLUDE $AFLAGS ./cmdload.asm
+zmac $INCLUDE $AFLAGS ./cmddtime.asm
+zmac $INCLUDE $AFLAGS ./cmdcfg.asm
+zmac $INCLUDE $AFLAGS ./cmdpage.asm
+zmac $INCLUDE $AFLAGS ./cmdexec.asm
+zmac $INCLUDE $AFLAGS ./cmdhist.asm
+zmac $INCLUDE $AFLAGS ./cmdkbd.asm
+zmac $INCLUDE $AFLAGS ./cmdregs.asm
+zmac $INCLUDE $AFLAGS ./cmdsdimg.asm
+zmac $INCLUDE $AFLAGS ./cmdsdboot.asm
+zmac $INCLUDE $AFLAGS ./cmdsd.asm
+zmac $INCLUDE $AFLAGS ./cmdtab.asm
+zmac $INCLUDE $AFLAGS ./cmdsdmap.asm
+zmac $INCLUDE $AFLAGS ./cmdsdwrite.asm
+zmac $INCLUDE $AFLAGS ./cmdhw.asm
+zmac $INCLUDE $AFLAGS ./cmdfill.asm
+zmac $INCLUDE $AFLAGS ./cmdio.asm
+zmac $INCLUDE $AFLAGS ./cmdmodify.asm
+zmac $INCLUDE $AFLAGS ./cmdhelp.asm
+zmac $INCLUDE $AFLAGS ./cmdcons.asm
+zmac $INCLUDE $AFLAGS ./more.asm
 
 ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/loader.rel \
         ./zout/disassembler.rel \
         ./zout/breakpoint.rel \
-        ./zout/charset.rel \
         ./zout/sdaddr.rel \
         ./zout/sdutils.rel \
         ./zout/cmdflsh.rel \
@@ -84,6 +75,7 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/cmdpage.rel \
         ./zout/cmdexec.rel \
         ./zout/cmdhist.rel \
+        ./zout/cmdkbd.rel \
         ./zout/cmdregs.rel \
         ./zout/cmdsdimg.rel \
         ./zout/cmdsdboot.rel \
@@ -96,14 +88,17 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/cmdio.rel \
         ./zout/cmdmodify.rel \
         ./zout/cmdhelp.rel \
+        ./zout/cmdcons.rel \
         ./zout/more.rel \
-        -P C400 -D C000 \
+        -P C500 -D C000 \
         ../zios/zout/pcb.rel \
         ../zlib/zout/libsio.rel \
         ../zios/zout/nvram.rel \
         ../zios/zout/init.rel \
         ../zios/zout/mempage.rel \
         ../zios/zout/drive.rel \
+        ../zios/zout/vdu.rel \
+        ../zios/zout/console.rel \
         ../zlib/zout/libutils.rel \
         ../zlib/zout/libcmd.rel \
         ../zlib/zout/libconin.rel \
@@ -114,6 +109,8 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ../zlib/zout/librtc.rel \
         ../zlib/zout/libmisc.rel \
         ../zlib/zout/libflash.rel \
+        ../zlib/zout/libkbd.rel \
+        ../zlib/zout/libvdu.rel \
         ../zios/zout/services.rel \
         ../zios/zout/devmap.rel \
         ../zios/zout/sdblk.rel \

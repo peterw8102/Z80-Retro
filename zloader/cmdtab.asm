@@ -4,10 +4,10 @@ import zlib.asm
    extrn BP,NSTEP,SET_RGS,SSTEP,GO,SDDIR,SDLOAD,SDRUN,BOOTIX,BOOT
    extrn CONFIG,DHW,DUMPM,DUMPI,DNVRAM,DTIME,DUMP,FILL,CLS,INPUT,LDF,LDH,LDT
    extrn SDMOD,MODIFY,NSTEP,OUTPUT,PAGE,DECCHR,SDUMP,SMAP,SWRITE
-   extrn MAPDSK,EXDBG,SHWHIST,RUN,WBOOT,IMG,HELP
-
-   extrn FLSH_ID,FLSH_M,FLSH_PRG,FLSH_CLR
-
+   extrn MAPDSK,EXDBG,SHWHIST,RUN,WBOOT,IMG,HELP,HELPC
+   extrn KEYBOARD
+   extrn FLSH_ID,FLSH_M,FLSH_PRG,FLSH_CHR
+   extrn CFGCONS
 
    public BDG_TABLE,CMD_TABLE,FNDCMD,SETMODE
 
@@ -119,6 +119,7 @@ CMD_TABLE:   CMDDEF 'BOS?',SDDIR
              CMDDEF 'BOS', SDRUN
              CMDDEF 'BO-', BOOTIX
              CMDDEF 'BO',  BOOT
+             CMDDEF 'CONS',CFGCONS
              CMDDEF 'C',   CONFIG
              CMDDEF 'DM',  DUMPM
              CMDDEF 'DI',  DUMPI
@@ -128,12 +129,14 @@ CMD_TABLE:   CMDDEF 'BOS?',SDDIR
              CMDDEF 'D',   DUMP
 
              CMDDEF 'FI',  FLSH_ID
+             CMDDEF 'FPC', FLSH_CHR
              CMDDEF 'FP',  FLSH_PRG
 
              CMDDEF 'F',   FILL
 
              CMDDEF 'H',   CLS
              CMDDEF 'I',   INPUT
+             CMDDEF 'KBD', KEYBOARD
              CMDDEF 'LF',  LDF
              CMDDEF 'LH',  LDH
              CMDDEF 'L',   LDT
@@ -152,6 +155,7 @@ CMD_TABLE:   CMDDEF 'BOS?',SDDIR
              CMDDEF 'G',   RUN
              CMDDEF 'WB',  WBOOT
              CMDDEF 'WI',  IMG
+             CMDDEF '?+',  HELPC
              CMDDEF '?',   HELP
              DB      0
 

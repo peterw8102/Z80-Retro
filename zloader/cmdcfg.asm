@@ -23,7 +23,7 @@ import zload.asm
   extrn  E_BADPS
   extrn  main
 
-  public CONFIG,CFG_TAB
+  public CONFIG,CFG_TAB,CFGSHOW
 
 
 ; ------------ CONFIG
@@ -31,14 +31,14 @@ import zload.asm
 ; only using the first byte as 8 boolean flags.
 ; Bit 0:  Default for 'BOOT' - DON'T install page 0 drivers (image is stand alone)
 CONFIG:   CALL   WASTESPC
-          JR     Z,_cfshw
+          JR     Z,CFGSHOW
 
           ; Expect a hex(ish) number for the parameter ID
           CALL   GET_HEX
           JR     Z,E_BADPS
           LD     A,L
           LD     HL,CFG_TAB
-          JR     C,_cfshw
+          JR     C,CFGSHOW
 
           ; Find the parameter ID
           OR     A
@@ -101,7 +101,7 @@ _cfsv:    LD     A,B
           CALL   NVSAV
           JR     main
 
-_cfshw:   LD     HL,CFG_TAB
+CFGSHOW:  LD     HL,CFG_TAB
           LD     B,0             ; Config index
 _cfnc:    LD     A,(HL)
           OR     A
@@ -180,5 +180,9 @@ CFG_TAB:        DEFB      00000001b                ; Bit 0
                 DEFB      00000100b                ; Bit 2
                 DEFB      0
                 DEFB      "Debugger: ",0
+
+                DEFB      00001000b                ; Bit 3
+                DEFB      0
+                DEFB      "VT100: ",0
 
                 DEFB      0         ; Terminator

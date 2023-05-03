@@ -10,9 +10,10 @@ NO       .EQU      0
 CF_LOADOS   EQU   00000001b
 CF_BREAK    EQU   00000010b
 CF_DEBUG    EQU   00000100b
+CF_VT100    EQU   00001000b
 
 ; Default flag byte if NVRAM invalid
-CFG_DEF     EQU   CF_DEBUG|CF_LOADOS|CF_BREAK
+CFG_DEF     EQU   CF_VT100|CF_DEBUG|CF_LOADOS|CF_BREAK
 
 ; Bits of the flag byte that are used for process execution.
 CFG_EXEC    EQU   CF_DEBUG|CF_LOADOS|CF_BREAK
@@ -35,6 +36,13 @@ else
 IS_DEVEL    EQU    1h          ; Make adjustments if we're testing a new loader. SET THIS
 endif
 
+ifdef OVERWRITE
+; Overwrite flash resident ZLoader with the development version, so page numbers are different.
+ZL_OFFSET   EQU    0
+else
+ZL_OFFSET   EQU    2
+endif
+
 ; RAM_PG_0 is the first page MMU page which is RAM. Generally Flash occupies low page
 ; numbers while RAM resides from page 20h. This can be swapped with a jumper on the
 ; board, although this is more for historical reasons.
@@ -43,43 +51,47 @@ FSH_PG_0    EQU   00h
 
 ; The first MMU page into which to load code using the various load commands. Leave this
 ; value unchanged.
-LD_PAGE     EQU   RAM_PG_0 + 2
+LD_PAGE     EQU   RAM_PG_0 + 2 + ZL_OFFSET
 
 ; Decide whether to install the character set (depends whether the graphic card is installed). If
 ; there's no graphic card then CSET can be set to 0 to disable however there are no problems leaving
 ; this enabled.
 CSET        EQU   1
-if IS_DEVEL
-CSET_PG     EQU   $23
-else
-CSET_PG     EQU   $2
-endif
+CSET_PG     EQU   2        ; Page from which to load the default character set. Always load the one from flash
 
 ; MN_PG is the memory page number from which this loader is running. NORMALLY this will be the page number
 ; of the first RAM page (20h if RAM is high). In debug this needs to be 1 because the real monitor loads
 ; into the first page.
-MN_PG       EQU   RAM_PG_0
+MN_PG       EQU   RAM_PG_0+ZL_OFFSET
 
 ; The extended page for the loader is stored in the next RAM page after MN_PG.
 MN2_PG      EQU   MN_PG+1
 
 ; Where to put the interrupt vector table. Place it in the top 256 bytes of RAM (ZIOS reserved area)
-VEC_BASE    EQU   0xFF
+VEC_BASE    EQU    0xFF
+
+ISR_BASE    EQU   0x3FE0
 
 ; Page offset to the ISR handlers
-SIO_IB       EQU   0x3FE0
+SIO_IB      EQU   0x3FE0
 
 ; Interupt vectors for each SIO identifiable condition (WR 1, Ch. B, Bit 2 set)
-SIO_BTX      EQU   SIO_IB
-SIO_BST      EQU   SIO_IB+2
-SIO_BRX      EQU   SIO_IB+4
-SIO_BSP      EQU   SIO_IB+6
+SIO_BTX     EQU   SIO_IB
+SIO_BST     EQU   SIO_IB+2
+SIO_BRX     EQU   SIO_IB+4
+SIO_BSP     EQU   SIO_IB+6
 
-SIO_ATX      EQU   SIO_IB+8
-SIO_AST      EQU   SIO_IB+10
-SIO_ARX      EQU   SIO_IB+12
-SIO_ASP      EQU   SIO_IB+14
+SIO_ATX     EQU   SIO_IB+8
+SIO_AST     EQU   SIO_IB+10
+SIO_ARX     EQU   SIO_IB+12
+SIO_ASP     EQU   SIO_IB+14
 
+; Interrupt vectors for CTC
+CTC_IB      EQU   0x3FF0
+CTC_ICH0    EQU   CTC_IB
+CTC_ICH1    EQU   CTC_IB+2
+CTC_ICH2    EQU   CTC_IB+4
+CTC_ICH3    EQU   CTC_IB+6
 
 ; ------------- KNOWN ADDRESSES -------------
 ; A loader application (LOADER) should install several entry points
@@ -88,6 +100,6 @@ SIO_ASP      EQU   SIO_IB+14
 ;            0B:  ZIOS jumps here when a breakpoint (RST 28h) occurs
 ; Declare a warm start address for whatever loaded ZIOS. Jump to this to get
 ; back to the monitor level CLI.
-WARMSTRT     EQU   04h
-HNDL_BP      EQU   0bh
-HNDL_BRK     EQU   13h
+WARMSTRT    EQU   04h
+HNDL_BP     EQU   0bh
+HNDL_BRK    EQU   13h

@@ -13,7 +13,7 @@ IS_TRACE EQU 0
 
       extrn  SD_INIT,SD_RBLK,SD_WBLK,SD_PRES,SD_SEL,SDMPADD,ADD8T16
 
-      public SD_BKRD, SD_BKWR, SD_PRG, ENDBLK
+      public SD_BKRD,SD_BKWR,SD_PRG,SD_STAT,ENDBLK
 
       ; --------------- DEBUG SYMBOLS --------------
 if IS_DEBUG || IS_TRACE
@@ -43,6 +43,7 @@ if IS_TRACE
           POP    HL
           CALL   _showlog
 endif
+          LD     B,0        ; It's a read operation so need the data.
           CALL   prep
 
 if IS_DEBUG
@@ -266,7 +267,7 @@ endif
 ; INPUTS:  HL  - Points to buffer to receive stats (or zero for no copy)
 ;          B   - if not zero then clear the stats after the copy
 ; HL,A not preserved
-SD_STAT:: LD      A,L
+SD_STAT:  LD      A,L
           OR      H
           JR      Z,.nocopy
 
@@ -522,7 +523,7 @@ prep:     LD     A,B
 ; used block.
 ; INPUTS:   HLDE - Absolute sector number required
 ;           A    - The SDCard number (0 or 1)
-; OUTPUTS:  HL   - Address of the loaded block (also SLOTADD)
+; OUTPUTS:  BC   - Address of the loaded block (also SLOTADD)
 primebuf:  CALL    getslot         ; BC receiving buffer address
            LD      (SLOTADD),BC    ; The cached block address
 
@@ -577,8 +578,31 @@ if IS_DEBUG
            CALL    NL
            ; ----------------- DEBUG ----------------
 endif
+           ; If the access mode is '2' then no need to do a
+           ; read before write.
+           LD      A,(WRT_MDE)
+           CP      2             ; Write to new block
+           JR      NZ,_loadchc
+
+           ; First write to an unallocated sector so fill
+           ; with zeroes and return.
+           LD     HL,ST_CLN
+           CALL   INC64
+
+           LD     H,B
+           LD     L,C
+           LD     D,H
+           LD     E,L
+           LD     (HL),0
+           INC    DE
+           PUSH   BC          ; Save address of buffer
+           LD     BC,511      ; Size of buffer
+           LDIR               ; Clear
+           POP    BC
+           RET
+
            ; Select the correct SDCard for the read operation
-           LD      A,(SDCARD)
+_loadchc:  LD      A,(SDCARD)
            CALL    SD_SEL
 
            ; Update read stats
@@ -1027,6 +1051,7 @@ ENDBLK   EQU   $
 ST_READ  DEFW  0,0
 ST_WRITE DEFW  0,0
 ST_HITS  DEFW  0,0
+ST_CLN   DEFW  0,0
 ENDSTAT  EQU   $
 
   END

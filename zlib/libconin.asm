@@ -39,6 +39,7 @@ import defs.asm
           public SKIPSPC,WASTESPC,BUFCHR,BUFCHUP
           public SETHIST,GETHIST
           public INHEX,INHEX_2,INHEX_4,GET_HEX,GET_DEC
+          public BRK_HK
 
           ; Data values
           public INPTR,INBUF,_ENDPRG
@@ -264,12 +265,20 @@ getc:     RST      10H
           JR       Z, _esc
           CP       CR
           JR       Z, eol
-          CP       BS
+          CP       BS            ; Character to the left - cursor moves
           JR       Z, bspc
-          CP       DEL
-          JR       Z, bspc
+          CP       DEL           ; Character at cursor - cursor does NOT move
+          JR       Z, delfd
           CP       VT
           JR       Z, deol
+          CP       K_LEFT
+          JR       Z,_pchr
+          CP       K_RIGHT
+          JR       Z,_nchr
+          CP       K_UP
+          JR       Z,_pline
+          CP       K_DOWN
+          JR       Z,_nline
 
           ; Not a control character so store in buffer, insert space if necessary
 _ext:     LD      A,LINELEN
@@ -532,6 +541,13 @@ deol:     XOR      A
           JR       getc
 
 
+; ------ del
+; Delete character at the current cursor position. The cursor doesn't move.
+delfd:    CALL     DELETE
+          JR       getc
+
+; ------ bspc
+; Delete character to the left of the cursor, close space and move cursor left.
 bspc:     XOR      A
           CP       B
           JR       Z, getc
@@ -539,6 +555,7 @@ bspc:     XOR      A
           ; Delete character
           DEC      HL
           DEC      B
+
           WRITE_CHR ESC
           WRITE_CHR '['
           WRITE_CHR 'D'
@@ -866,6 +883,7 @@ INIT:       DEFB  0        ; Initialised to 'false'. Set true once hist bug init
 MLINE:      DEFB  1        ; If true then implement a line buffer/line editor
 LPOS:       DEFW  MLBUF    ; Pointer to where the next history line will be added
 HPOS:       DEFW  MLBUF    ; Pointer to place in hist buffer when using up/down arrow keys
+BRK_HK:     DEFW  0
 
 ; Storage for the previous 'n' lines. Keeping it simple - there's a 1K buffer of variable
 ; length lines. THIS BLOCK MUST BE ALIGNED ON A 1K BOUNDARY.

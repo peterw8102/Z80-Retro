@@ -54,6 +54,10 @@ args.shift();
 function toHex2(val) {
   return ('00'+val.toString(16)).substr(-2);
 }
+// Output two character hext value of a byte (zero padded for <0x10)
+function toHex4(val) {
+  return ('0000'+val.toString(16)).substr(-4);
+}
 
 /** Every file in the output package is prefixed with a CP/M
  *  download command specifying the file name and then a U0
@@ -181,6 +185,55 @@ function convertFile(file, flen) {
   log("APPROX BYTES: ", oplines * sliceSize);
 }
 
+/** patchFile
+ *  The patch file is expected to be in an Intel hex format. If the
+ *  source file has a .com extension then the contents are assumed
+ *  to be located at address 100h
+ *  @param {String} fpath - to the file being patched
+ *  @param {Buffer} fl    - data being patched (content of fpath file)
+ *  @param {Buffer} patch - Intel hex format patch file
+ *  @return reference to the modified buffer
+ */
+function patchFile(fpath, fl, patch) {
+  // Read each line in the patch file and process any data records.
+  const pdata = patch.toString().split(/[\r\n]+/g);
+  log("INPUT FILE LENGTH: ", fl.length);
+  log("SPLIT FILE: ", pdata);
+  const maxOffset = fl.length;
+
+  while (pdata.length>0) {
+    // Process a single line.
+    const parts = splitLine.exec(pdata.shift()) ?? [];
+
+    const len  = parseInt(parts[1],16);
+    const type = parseInt(parts[3],16);
+    let   cs   = parseInt(parts[5],16);
+    let   addr = parseInt(parts[2],16);
+    let   data = parts[4];
+
+    if (type!=0)
+      continue;
+
+    log("PROCESSING: ", parts);
+
+    // Data record. Get address and patch each byte
+    addr -= 0x100;      // Execution address is 100h
+
+    log("ADDR: ", addr.toString(16), " DATA: ", data);
+    for (let i=0;i<len;i++) {
+      const byte = parseInt(data.slice(i*2, i*2+2),16);
+      log("BYTE: ", byte.toString(16));
+      if (addr<maxOffset)
+        fl.writeUInt8(byte, addr);
+      else
+        log("Offset out of range: ", toHex4(addr));
+      addr += 1;
+    }
+  }
+  log("MODIFIED DATA: ", fl);
+  // Split into lines
+  return fl;
+}
 
 /** Given a fully qualified file path, load the contents of that
  *  file and generate the relevant HEX byte sequence.
@@ -199,6 +252,10 @@ function processFile(fpath) {
     log("ROOT FNAME: "+fname);
     log("FILE LENGTH: ", flen);
 
+    if (patchData!=null) {
+      patchFile(fpath, fl, patchData);
+    }
+
     // Intel hex file?
     const isHex = (/\.hex$/).test(fname);
     if (isHex) {
@@ -215,6 +272,7 @@ function processFile(fpath) {
 
 
 const filesToProcess = [];
+var   patchName, patchData;
 
 /** Check whether a specified argument represents a file,
  *  a directory or is invalid. If a directory then
@@ -229,6 +287,23 @@ const filesToProcess = [];
  *      is an entry from a directory.
  */
 function parseParam(argPath) {
+  if (argPath.indexOf('--patch=')==0) {
+    // Record patch file name
+    patchName = argPath.replace(/^--patch=/,'');
+    log("Patch incoming file with: "+patchName);
+
+    if (!fs.existsSync(patchName)) {
+      errout("Patch file '"+patchName+"' doesn't exist\n");
+      patchName = null;
+    }
+    else {
+      const fname = patchName.replace(/^.*\//,'');
+      patchData   = fs.readFileSync(patchName);
+
+      log("PATCH DATA: ", patchData.toString());
+    }
+    return;
+  }
   if (!fs.existsSync(argPath)) {
     errout("Path: '"+argPath+"' doesn't exist. Argument ignored\n");
     return;
@@ -260,6 +335,12 @@ function parseParam(argPath) {
     parseParam(fpath);
 
   log("TOTAL FILES TO BE PROCESSED: ", filesToProcess);
+
+  if (patchData!=null && filesToProcess.length>1) {
+    errout("--patch can only be used on a single file!\n")
+    process.reallyExit();
+  }
+
 
   // Now generate the package for all accepted files
   while (fpath = filesToProcess.shift()) { // eslint-disable-line

@@ -59,7 +59,21 @@ SH_VDU:     LD       HL,_VDIS
 SH_PIO:     LD       HL,_PDIS
             LD       A,4
             AND      E
-            JR       _disres
+            PUSH     AF
+            CALL     _disres
+            POP      AF
+            ; If there IS a PIO then show current keyboard mapping.
+            RET      Z
+            LD       HL,_KBDDIS
+            CALL     PRINT
+            LD       HL,S_COLSTR
+            CALL     PRINT
+            LD       HL,_WS
+            LD       A,(NVRAM)
+            AND      CF_VT100
+            JR       Z,.isws
+            LD       HL,_VT
+.isws:      JR       PRINT_LN
 
 ; ---- SH_SW
 ; Display the current value of the configuration DIP switch.
@@ -131,14 +145,17 @@ _isyes:     JR       PRINT_LN
 
 
 
-_VDIS:       DEFB "Video",TAB,NULL
-_CFGSW:      DEFB "Cfg Sw",TAB,NULL
-_SDIS:       DEFB "SDCard",TAB,NULL
-_PDIS:       DEFB "PIO",TAB,NULL
+_VDIS:       DEFB "Video",NULL
+_CFGSW:      DEFB "Cfg Sw",NULL
+_SDIS:       DEFB "SDCard",NULL
+_PDIS:       DEFB "PIO",NULL
+_KBDDIS:     DEFB "Keyboard mapping",NULL
 _EMP:        DEFB " Missing", NULL
 _PRE:        DEFB " Present", NULL
 _INST:       DEFB "Installed", NULL
 _SFND:       DEFB "Found", NULL
+_WS:         DEFB "WordStar",NULL
+_VT:         DEFB "VT100",NULL
 _CONS:       DC   " - Console: "
 _TTY:        DC   "SIO. "
 _VDU:        DC   "VDU. "

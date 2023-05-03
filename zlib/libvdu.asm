@@ -108,7 +108,9 @@ NORMAL:     CALL    CURS_OFF
             CP      CSI          ; The 8 bit equivalent to ESC [
             JR      Z,V_CSI
             CALL    Q_INS        ; Check if we're in insert mode
-            LD      HL,(VPTR)
+            LD      HL,CATTR
+            OR      (HL)
+            LD      HL,(VPTR)    ; Normal character
             LD      (HL),A
             CALL    V_RIGHT      ; Move on
             RET
@@ -123,14 +125,38 @@ NORMAL:     CALL    CURS_OFF
 ; INPUTS: A  - contains the page to be restored at the end of a VDU operation.
 ;         HL - points to the character set definition that MUST BE IN mapped
 ;              memory and NOT in BANK 0.
+;         B  - 0: Copy Flash character set as-is
+;              1: Create inverse video of characters for upper 128 byte range
 ;
 V_INIT:   LD     (APPPAGE),A
           MAPMEM
+          LD       A,B
+          OR       A          ; Zero?
+          JR       NZ,.invert ; No, so go create an inverse video set
           LD       BC,$1000   ; The character set is 4K
           LD       DE,CHRSET  ; Desitnation address
           LDIR
+          JR       .end
 
-          CALL     V_CLS
+.invert:  LD       BC,$800    ; The first 128 characters are 2K
+          LD       DE,CHRSET  ; Desitnation address
+          LDIR
+
+          ; Manually create the upper 128 characters
+          LD       HL,CHRSET
+          LD       DE,CHRSET+$800
+          LD       BC,$800
+.next:    LD       A,(HL)
+          CPL
+          LD       (DE),A
+          INC      HL
+          INC      DE
+          DEC      BC
+          LD       A,B
+          OR       C
+          JR       NZ,.next
+
+.end:     CALL     V_CLS
 
           CLRMEM
           RET
@@ -686,6 +712,8 @@ P_CSI:     CALL    _DIGIT
            JR      Z,L_INS      ; Insert mode
            CP      'l'
            JR      Z,L_OVER     ; Overwrite mode
+           CP      'm'
+           JR      Z,L_ATTR     ; Overwrite mode
            CP      '?'
            JR      NZ,V_NORM    ; Unknown - reset state.
 
@@ -708,9 +736,9 @@ P_CSIQ:    CALL    _DIGIT
            LD      (VSTATEV),HL
 
            CP      'h'
-           JR      Z,L_CURSEN
+           JR      Z,L_EN
            CP      'l'
-           JR      Z,L_CURSDIS
+           JR      Z,L_DIS
            JR      V_NORM
 
 
@@ -922,16 +950,26 @@ L_NSCDN:    LD      HL,V_SCRDN
             JR      LOOP
 
 ; ------ Enable or disable the cursor. The arg MUST be 25.
-L_CURSEN:  LD      A,(VARG1)
-           CP      25
+L_EN:      LD      A,(VARG1)
+           CP      25             ; Enable cursor
+           JR      Z,V_CENABLE
+           CP      5              ; Enable inverse video
            RET     NZ
-           JR      V_CENABLE
+           LD      A,80h
+           LD      (CATTR),A
+           RET
 
-L_CURSDIS: LD      A,(VARG1)
+L_DIS:     LD      A,(VARG1)
+           CP      5
+           JR      Z,L_INVOFF
            CP      25
            RET     NZ
            XOR     A
            JR      V_CENABLE
+
+L_INVOFF:  XOR     A
+           LD      (CATTR),A
+           RET
 
 ; ------ Switch between overwrite and insert mode.
 L_INS:     LD      A,(VARG1)
@@ -955,6 +993,16 @@ L_OVER:    LD      A,(VARG1)
            LD      (VCMASK),A
            JR      CURS_MK
 
+; ------ L_ATTR
+; Set character attributes. Currently only support inverse video.
+L_ATTR:   LD      A,(VARG1)
+          OR      A
+          JR      Z,.invoff
+          CP      7
+          RET     NZ           ; Not recognised
+          LD      A,80h
+.invoff:  LD      (CATTR),A
+          JR      CURS_MK
 
 
 
@@ -1440,6 +1488,8 @@ VCEN        DB      1          ; NOT Zero, show cursor
 VMASK       DB      1          ; If zero the ISR must do nothing
 VINS        DB      0          ; If '1' then insert mode
 VCMASK      DB    $FF          ; What to use to create a cursor
+
+CATTR       DB      0          ; Value to OR into characters written to screen. 80h to set inverse video.
 
 ; Save cursor position at start of print operation.
 VOLD        DW      VIDEOM,0

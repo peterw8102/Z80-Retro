@@ -5,7 +5,7 @@ import zlib.asm
    extrn CONFIG,DHW,DUMPM,DUMPI,DNVRAM,DTIME,DUMP,FILL,CLS,INPUT,LDF,LDH,LDT
    extrn SDMOD,MODIFY,NSTEP,OUTPUT,PAGE,DECCHR,SDUMP,SMAP,SWRITE
    extrn MAPDSK,EXDBG,SHWHIST,RUN,WBOOT,IMG,HELP,HELPC
-
+   extrn KEYBOARD
    extrn FLSH_ID,FLSH_M,FLSH_PRG,FLSH_CHR
    extrn CFGCONS
 
@@ -136,6 +136,7 @@ CMD_TABLE:   CMDDEF 'BOS?',SDDIR
 
              CMDDEF 'H',   CLS
              CMDDEF 'I',   INPUT
+             CMDDEF 'KBD', KEYBOARD
              CMDDEF 'LF',  LDF
              CMDDEF 'LH',  LDH
              CMDDEF 'L',   LDT

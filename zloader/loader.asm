@@ -177,6 +177,17 @@ RUN_CLI:    ; We're running in supervisor mode
             CALL  ZIOS_INI
             LD    (HW_SWTCH),A       ; State of the hardware config switches
 
+            ; Set keyboard input mode from NVRAM
+            LD    A,(NVRAM)
+            AND   CF_VT100
+            LD    A,0
+            JR    NZ,.vt100       ; Want VT100 mode
+            INC   A
+.vt100:     LD    B,0
+            LD    C,A_KBDMAP
+            LD    D,A
+            RST   30h            ; Set keyboard mode
+
             ; Decide which console to use
             LD    A,(HW_SWTCH)    ; State of the hardware config switches
             AND   04h             ; Only interested in bit 2.
@@ -286,9 +297,10 @@ _std:     EX    DE,HL
           JR    NC,SHOW_RGS
           JR    main
 
-DECCHR:     RST      10h
+DECCHR:     LD       HL,_NULLSTR
+            RST      10h
             CP       3
-            JR       Z,main
+            JR       Z,_prterr
             CALL     WRITE_8
             JR       DECCHR
 
@@ -296,8 +308,9 @@ DECCHR:     RST      10h
 ; --------------------- STRINGS
 ; _INTRO:   DEFB 13,"Z80 ZIOS 2.0.5",NULL
 _INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[0;50r"
-_TITLE:   DEFB "Z80 ZIOS 2.0.7",NULL
-_CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r",NULL
+_TITLE:   DEFB "Z80 ZIOS 2.0.10",NULL
+_CLRSCR:  DEFB ESC,"[2J",ESC,"[1;50r"
+_NULLSTR  DEFB NULL
 
 ; Set scroll area for debug
 _DBMD:    DEFB ESC,"[2J",ESC,"[1m",ESC,"[1;6HSTACK",ESC,"[m",ESC,"[11;50r",ESC,"[9;1H  >",ESC,"[12,1H",NULL

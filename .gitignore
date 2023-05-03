@@ -74,3 +74,6 @@ samples/
 *.rel
 !images/*.hex
 
+.tmp*
+.tmp.driveupload/
+.tmp.drivedownload/

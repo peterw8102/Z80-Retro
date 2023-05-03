@@ -21,6 +21,7 @@ VDU_INI:    CALL  HASPIO
             BANK    1,CSET_PG
             LD      A,MN_PG
             LD      HL,$4000
+            LD      B,1          ; Upper bit inverts character display
             CALL    V_INIT
 
             ; Have everything that's required for our own console (NOT: can't detect

@@ -17,6 +17,7 @@ A_PGFRE      EQU    3    ; Free a memory page
 A_TXCHR      EQU    4    ; Send character to stdout
 A_RXCHR      EQU    5    ; Wait for/return next character (stdin)
 A_CHKCH      EQU    6    ; Check for character (stdin)
+A_KBDMAP     EQU    7    ; Map Omega keyboard keys to char sequences
 
 A_DSKMP      EQU    10    ; Map logical disk number
 A_QDSKMP     EQU    11    ; Query disk map

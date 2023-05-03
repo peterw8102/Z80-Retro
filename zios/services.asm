@@ -15,7 +15,7 @@ import pcb_def.asm
           extrn  SDTXLTD
           extrn  SD_BKRD,SD_BKWR,SD_PRG
           extrn  DEV_OUT,DEV_IN,DEV_CHK
-
+          extrn  NVRAM,NVSAV
           extrn  PRINT_LN,WRITE_D
 
           ; For debug
@@ -215,6 +215,37 @@ _nxdrv:   ; Map logical drive referenced in register C.
           POP      DE
           POP      BC
           RET
+
+; --------- LD_KBMAP (CMD 7)
+; Select a keyboard map OR map a specific key. Currently only
+; selecting between VT100 and Wordstar is supported.
+;
+; Parameters: B:  0 - Select keyboard mapping
+;                 1 - Map single key (N/A - TBD)
+;             If B is 0 then:
+;             D:  0 - VT100
+;                 1 - WordStar
+LD_KBMAP: LD     A,B
+          OR     A
+          RET    NZ            ; ONLY support map selection
+          LD     A,D
+          CP     2             ; Only allow maps 0 and 1
+          RET    NC
+          ; Change the VT100 flag in NVRAM (make this change persistent!)
+          LD     A,(NVRAM)
+          AND    ~CF_VT100     ; Default to vt100 OFF (Wordstar)
+          LD     E,A
+          LD     A,D
+          OR     A
+          JR     NZ,.notvt100
+          LD     A,CF_VT100
+          OR     E
+          LD     E,A
+.notvt100:LD     A,E
+          LD     (NVRAM),A
+          CALL   NVSAV
+          LD     A,D
+          JR     KBDSMDE  ; Change the mode
 
 ; --------- LD_STDMA (CMD 12)
 ; Record the address (in application space) of the SD Card DMA buffer
@@ -554,7 +585,7 @@ JTAB:     DW     LD_MON       ; CMD 0  - Jump back to ZLoader
           DW     TX_CHR       ; CMD 4  - Send character to serial port A
           DW     RX_CHR       ; CMD 5  - Rx character from serial port A, wait if none available
           DW     CHK_CHR      ; CMD 6  - Check for a character, return if available
-          DW     LD_NOP       ; CMD 7  - NOP
+          DW     LD_KBMAP     ; CMD 7  - Map keyboard
           DW     LD_NOP       ; CMD 8  - NOP
           DW     LD_NOP       ; CMD 9  - NOP
           DW     LD_STDSK     ; CMD 10 - Map logical disk number

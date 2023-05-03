@@ -45,6 +45,7 @@ zmac $INCLUDE $AFLAGS ./cmdcfg.asm
 zmac $INCLUDE $AFLAGS ./cmdpage.asm
 zmac $INCLUDE $AFLAGS ./cmdexec.asm
 zmac $INCLUDE $AFLAGS ./cmdhist.asm
+zmac $INCLUDE $AFLAGS ./cmdkbd.asm
 zmac $INCLUDE $AFLAGS ./cmdregs.asm
 zmac $INCLUDE $AFLAGS ./cmdsdimg.asm
 zmac $INCLUDE $AFLAGS ./cmdsdboot.asm
@@ -74,6 +75,7 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/cmdpage.rel \
         ./zout/cmdexec.rel \
         ./zout/cmdhist.rel \
+        ./zout/cmdkbd.rel \
         ./zout/cmdregs.rel \
         ./zout/cmdsdimg.rel \
         ./zout/cmdsdboot.rel \

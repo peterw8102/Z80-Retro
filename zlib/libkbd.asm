@@ -112,9 +112,34 @@ KBDCHK:         LD       A,(kbdCnt)
 ; A low level scan reporting all keys pressed. Assumed to be called from a timer ISR
 ; and so optimised to return as soon as ppssible on no key pressess.
 KBDSCAN:        PUSH     AF
-                PUSH     HL
-                PUSH     DE
                 PUSH     BC
+
+                ; VERY quick scan to get the hell out of here if no keys pressed!
+                LD       A,(pressed)
+                OR       A
+                JR       NZ,.fullscn
+
+                LD       B,9
+                LD       A,(kbdBase)
+                LD       C,A              ; Scan row counter
+.nxtquik:       LD       A,C
+                OUT      (KBD_IO),A       ; Select keyboard row
+                IN       A,(KBD_IO)       ; Result...
+                INC      A                ; If zero THEN no keys pressed
+                JR       NZ,.fullscn      ; Do a full scan if any keys pressed
+                INC      C
+                DJNZ     .nxtquik         ; Check next row.
+
+                ; A will be zero here so save for next time
+                LD       (pressed),A
+
+                ; Nothing pressed so exit now.
+                POP      BC
+                POP      AF
+                RET
+
+.fullscn:       PUSH     DE
+                PUSH     HL
 
                 LD       HL,kbdState
 
@@ -161,9 +186,9 @@ _nxts:          PUSH     AF
                 OR       A
                 JR       NZ,_saveState
 
-                POP      BC               ; All done, no keys pressed. Return as quickly as possible
-                POP      DE
                 POP      HL
+                POP      DE               ; All done, no keys pressed. Return as quickly as possible
+                POP      BC
                 POP      AF
                 RET
 
@@ -224,8 +249,10 @@ _saveState::    LD       A,(kbdState+menu2Row*3)
                 ;    AF at start of ISR
                 ;    HL at start of ISR
                 ;    AF containing the break character
-                POP      BC
+                POP      HL
                 POP      DE
+                POP      BC
+                POP      HL
                 LD       A,3
                 JP       (HL)
 
@@ -256,15 +283,19 @@ _pnxtrow:       LD       A,(HL)        ; New state
                 ; If there were no character generating keys pressed then reset the
                 ; auto repeat counter.
                 LD       A,D           ; Number of rows with pressed character keys
+
+                ; Use the number of rows with keys pressed to update the 'pressed' state: zero if no keys, !zero if keys pressed
+                LD       (pressed),A
+
                 OR       A
                 JR       NZ,.cont      ; If there are no pressed keys then...
                 LD       A,firstRpt    ; ...reset the repeat key counter
                 LD       (rpCount),A
 
                 ; All rows processed and queued so OK to return.
-.cont           POP      BC
+.cont           POP      HL
                 POP      DE
-                POP      HL               ; All done, no keys pressed. Return as quickly as possible
+                POP      BC               ; All done, no keys pressed. Return as quickly as possible
                 POP      AF
                 RET
 
@@ -909,11 +940,11 @@ VTMAP:          DW       0               ; $C0
 firstRpt        EQU       10
 reRep           EQU       1
 
-
 codeWrPtr::     DW       codeBuf
 codeRdPtr::     DW       codeBuf
 codeBuf::       DS       CODE_BUFSIZE*3
 rpCount         DB       firstRpt  ; When this gets to zero, clear the scan codes
+pressed         DB       0         ; non-zero if at least one key pressed
 
 kbdWrPtr::      DW       kbdBuf
 kbdRdPtr::      DW       kbdBuf

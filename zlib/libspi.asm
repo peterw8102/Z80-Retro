@@ -2,7 +2,7 @@ import ../zlib/defs.asm
 
           extrn  ADD8T16
 
-          public SPI_SEL,SPI_BEG,SPI_END,SPI_INIT,SPI_ACMD,SPI_TXB
+          public SPI_SEL,SPI_BEG,SPI_STRT,SPI_END,SPI_FIN,SPI_INIT,SPI_ACMD,SPI_TXB
           public SPI_RXB,SPI_RBF,SPI_CM1,SPI_CMN,SPI_BRD,SPI_BWR
 
 ; SPI_SBI
@@ -59,8 +59,7 @@ _baddev:  LD    A,SPICS_DS      ; Clear the device select number so requests are
           LD    (DEVSEL),A
           RET
 
-SPI_INIT: ; Set clock and CS LOW (inactive)
-          LD    A,SPICS_DS
+SPI_STRT: LD    A,SPICS_DS
           OUT   (SPICS_P),A    ; Deselect ALL devices
           XOR   A
           OUT   (SPIPORT_L),A  ; Data:0 CLK: 0
@@ -68,6 +67,10 @@ SPI_INIT: ; Set clock and CS LOW (inactive)
           ; We want SPI mode 0 so clk low when we take CS active. Activate CS.
           LD    A,(DEVSEL)     ; Get mask for selected device
           OUT   (SPICS_P),A
+          RET
+
+SPI_INIT: ; Set clock and CS LOW (inactive)
+          CALL  SPI_STRT
 
           ; Send ~80 clock transitions
           LD    B,10
@@ -88,7 +91,7 @@ _bsy:     CALL  SPI_RXB
 ; ---- SPI_END - End of a command. Clock LOW then remove CS
 SPI_END:  LD    A,0
           OUT   (SPIPORT_L),A
-          LD    A,SPICS_DS     ; Then take CS off as well.
+SPI_FIN:  LD    A,SPICS_DS     ; Then take CS off as well.
           OUT   (SPICS_P),A
           RET
 

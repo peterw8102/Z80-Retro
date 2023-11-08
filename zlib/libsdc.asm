@@ -294,7 +294,7 @@ _a:       CALL       SPI_RXB
 
           ; Write out the block...
           LD         B,00h          ; 256x2 bytes
-          POP        HL             ; Get the block address back but into DE where we can use it.
+          POP        HL             ; Get the block address back but into HL where we can use it.
           CALL       SPI_BWR
 
           ; 2 byte CRC (NOT USED)
@@ -307,10 +307,13 @@ _a:       CALL       SPI_RXB
           CP         5
           LD         H,A
           ; End of command
-_abrt_wr: CALL       SPI_END
+_ec:      CALL       SPI_END
           LD         A,H
           ; Returning Z flag set if we got the expected result.
           RET
+
+_abrt_wr: POP        BC
+          JR         _ec
 
 ; ----------- READ BLOCK -----------
 ; SDCard address is a 512byte sector number which needs to be scaled up to

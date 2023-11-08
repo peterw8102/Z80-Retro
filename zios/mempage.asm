@@ -231,24 +231,25 @@ P_MAPX::  PUSH  DE
           CALL  _PGCALC  ; HL: Adjusted address, A the 16K application block number to map (0-3)
           PUSH  AF
           LD    DE,PAGE_MP
+          PUSH  AF
           ADD   E
           LD    E,A      ; Monitor memory is linked from 2000h so won't cross a 256 byte boundary.
 
           LD    A,(DE)   ; DE is now the address of the PAGE_MP for the addressed page in application space
           BANK  1
 
-          INC   DE
+          POP   AF
+          CP    3
+          JR    NZ,_noov
+          LD    DE,PAGE_MP-1
+
+_noov:    INC   DE
           LD    A,(DE)
           BANK  2
 
           POP   AF        ; AF includes the logical bock number (0-3)
           POP   DE
           RET
-
-
-
-
-
 
          DSEG
 

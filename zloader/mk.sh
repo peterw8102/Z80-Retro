@@ -121,3 +121,12 @@ ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
 
 node ../tools/hextform --fix --move=C000,FFFF,4000 loader.tmp > loader.hex
 rm ./loader.tmp
+
+# Create a ROM binary image file for the emulator.
+/Applications/hex2bin -l 524288 ./loader.hex
+
+# Binary image into a disk image
+dd if=loader.bin of=loader.rom bs=524288 conv=sync
+
+# Tidyup
+rm ./loader.bin

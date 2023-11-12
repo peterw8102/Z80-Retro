@@ -37,10 +37,10 @@ HASVDU:     LD       A,$FF
             LD       DE,($7FFE)
             LD       A,E
             CP       $AA
-            RET      NZ
+            JR       NZ,.novdu
             LD       A,D
             CP       $55
-            POP      DE
+.novdu:     POP      DE
             POP      HL
             RET
 

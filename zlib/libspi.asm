@@ -124,7 +124,7 @@ SPI_CM1:  CALL       SPI_BEG
           LD         A,B
           CALL       SPI_TXB
           ; Now read bytes until we get a non-FF response
-          LD         B,8
+          LD         B,128
 _r1w:     CALL       SPI_RXB
           INC        A
           JR         NZ,_r1wd

@@ -28,7 +28,7 @@ I2C_WR    EQU 0
 I2C_INIT:   PUSH  AF
             LD    A, I2CDEF
             LD    (I2C_VAL),A
-            OUT   (I2CPORT+1),A   ; Data HIGH and clock HIGH
+            OUT   (I2CPORT_H),A   ; Data HIGH and clock HIGH
             CALL  PAUSE
             POP   AF
             RET
@@ -144,9 +144,9 @@ _by_nxtr:   LD    A,C
 ; Set or clear the I2C data bit according to the value in A (zero/not zero). Bit zero only is used
 I2C_CHDATA: PUSH  BC
             AND   01h             ; Test bit 0 (Z flag set)
-            LD    A,(I2C_CLK)
+            LD    A,(I2C_CLK)     ; Will be 64h or 65h reflecting clock state
             LD    C,A
-            LD    A,(I2C_VAL)
+            LD    A,(I2C_VAL)     ; Current data. Bit 1 is the i2c output bit
             JR    Z,_i2c_1
             OR    A,I2CDATA       ; Set bit
             JR    _i2c_2
@@ -157,14 +157,14 @@ _i2c_2:     LD    (I2C_VAL),A     ; Save
             RET
 
 ; I2C_CHCLK
-; Set or clear the I2C data bit according to the value in A (zero/not zero). Bit zero only is used
+; Set clock high or low according to bit 0 of A. A is NOT preserved.
 I2C_CHCLK:  PUSH  BC
-            RRCA                  ; Test bit 0 (Z flag set)
+            RRCA                  ; Bit 0 into carry flag
             LD    A,I2CPORT
-            ADC   A,0
-            LD    (I2C_CLK),A
+            ADC   A,0             ; A=64h (clock low) or 65h (high)
+            LD    (I2C_CLK),A     ; Save current clock state (port number)
             LD    C,A
-            LD    A,(I2C_VAL)
+            LD    A,(I2C_VAL)     ; Set clock state using current data
             OUT   (C),A
             POP   BC
             RET

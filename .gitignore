@@ -78,3 +78,7 @@ samples/
 .tmp*
 .tmp.driveupload/
 .tmp.drivedownload/
+
+# Ignore an emulator run directory
+emulator
+

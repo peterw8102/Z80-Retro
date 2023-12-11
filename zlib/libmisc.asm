@@ -14,7 +14,7 @@ import defs.asm
 ; Read the DIP config switches and return the result to the caller.
 ; Result returned in A
 ; All registers EXCEPT A are preserved.
-SW_CFG:     IN    A,(PG_PORT0)
+SW_CFG:     IN    A,(PG_CTRL)
             AND   $E0
             RLCA
             RLCA

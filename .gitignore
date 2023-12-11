@@ -80,5 +80,7 @@ samples/
 .tmp.drivedownload/
 
 # Ignore an emulator run directory
-emulator
+emulator/
 
+# And vscode directory now I'm having to change editor!
+.vscode/

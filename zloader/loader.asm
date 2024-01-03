@@ -308,7 +308,7 @@ DECCHR:     LD       HL,_NULLSTR
 ; --------------------- STRINGS
 ; _INTRO:   DEFB 13,"Z80 ZIOS 2.0.5",NULL
 _INTRO:   DEFB ESC,"[2J",ESC,"[H",ESC,"[J",ESC,"[0;50r"
-_TITLE:   DEFB "Z80 ZIOS 2.1.2"
+_TITLE:   DEFB "Z80 ZIOS 2.1.3"
 if IS_DEVEL
           DEFB " (Dev)"
 endif

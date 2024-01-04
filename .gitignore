@@ -74,6 +74,7 @@ samples/
 *.rel
 *.rom
 !images/*.hex
+!cpmtools/*.hex
 
 .tmp*
 .tmp.driveupload/

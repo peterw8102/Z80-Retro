@@ -36,12 +36,12 @@ ZIOS_INI::  LD    A,MN2_PG+1
             ; Initialise i2c
             CALL   RTC_INI
 
-            ; and read the NV RAM
+            ; and read the NV RAM (returns address of NVRAM)
             CALL   NVLD
 
             ; Copy execution flag default to the PCB
             LD     A,(HL)
-            AND    CFG_DEF
+            AND    CFG_VAL
             LD     (P_FLAGS),A
 
             ; Initialise the interrupt vector table. Table will be right at the end of the
@@ -76,6 +76,8 @@ _nxtisr:    LD    (HL),E
             LD     (31h),HL
 
             ; And initialise the console dispatcher.
+            LD     A,(P_FLAGS)
+            AND    CF_IGNVDU
             CALL   CNS_INI
 
             ; If the keyboard and video card are available then set up CTC for

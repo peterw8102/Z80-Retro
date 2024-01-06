@@ -11,7 +11,7 @@ import config.asm
 
           CSEG
 
-; ------ NVLD ------
+; ------ NVRD ------
 ; Read the full 56 bytes of data from the RTC RAM into
 ; memory pointed to by HL (which must be mapped into
 ; Z80 memory!). If HL is 0 (null) then copy into our own

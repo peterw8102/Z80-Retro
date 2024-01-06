@@ -11,9 +11,13 @@ CF_LOADOS   EQU   00000001b
 CF_BREAK    EQU   00000010b
 CF_DEBUG    EQU   00000100b
 CF_VT100    EQU   00001000b
+CF_IGNVDU   EQU   00010000b
 
 ; Default flag byte if NVRAM invalid
 CFG_DEF     EQU   CF_VT100|CF_DEBUG|CF_LOADOS|CF_BREAK
+
+; Valid bits stored in NVRAM
+CFG_VAL     EQU   CF_IGNVDU|CF_VT100|CF_DEBUG|CF_LOADOS|CF_BREAK
 
 ; Bits of the flag byte that are used for process execution.
 CFG_EXEC    EQU   CF_DEBUG|CF_LOADOS|CF_BREAK

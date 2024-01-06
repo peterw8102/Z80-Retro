@@ -91,7 +91,7 @@ _cfsv:    LD     A,B
           LD     (HL),A
 
           ; Also change the shadow in the current PCB
-          AND    A,CFG_DEF
+          AND    A,CFG_VAL
           LD     (P_FLAGS),A
 
           ; Print description
@@ -184,5 +184,9 @@ CFG_TAB:        DEFB      00000001b                ; Bit 0
                 DEFB      00001000b                ; Bit 3
                 DEFB      0
                 DEFB      "VT100: ",0
+
+                DEFB      00010000b                ; Bit 4
+                DEFB      0
+                DEFB      "Ignore VDU: ",0
 
                 DEFB      0         ; Terminator

@@ -22,19 +22,22 @@ MaxDev      EQU    2
 ; ------ CNS_INI
 ; Initialise device handler blocks for SIO and console. IF there is no hardware
 ; for the VDU console then that becomes the same device as the serial port.
+; INPUT: A - non-zero means ignore the hardware VDU
 CNS_INI:    ; Copy initial dispatch table (serial port)
-            XOR   A
-            CALL  CNS_SET
+            OR    A
+            JR    NZ,.novdu
 
             CALL  HASPIO
-            RET   NZ
+            JR    NZ,.novdu
             CALL  HASVDU
-            RET   NZ
+            JR    NZ,.novdu
 
             ; Modify device 1 to reference the VDU dispatch table.
             LD    HL,VduPort
             LD    (dev1),HL
 
+.novdu:     XOR   A
+            CALL  CNS_SET
             RET
 
 ; ------ CNS_SET

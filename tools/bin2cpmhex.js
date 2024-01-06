@@ -22,16 +22,25 @@ const path = require('path');
  * Output format is:
  * -----------------------
  * A:DOWNLOAD fname
- * U0
+ * U{u}
  * :{hexdata}
  * >LLCC
  * -----------------------
  * Where:
- *  - {hexdata} is a sequence of hex character pairs (one per byte)
+ *  - {u} The CP/M user number (range 0-15)
  *  - LL is the lower 8 bits of a count of all the bytes in the
  *       hexdata set (size of binary)
  *  - CC is the checksum, calculated by adding every byte in the
  *       hexdata set and taking the least significant 8 bits.
+ *
+ * Command line options
+ * --minsize=nnn     Exclude files smaller than nnn kilobytes
+ * --maxsize=nnn     Exclude files bigger than nnn kilobytes
+ * --excltype=XXX    Exclude files with the extention XXX
+ * --defuser=n       Write files to this CP/M user number
+ * --userdir         Use the name of a files parent directory as the CP/M
+ *                   user number if it is numeric in the range 0-15
+ * --patch=fname     Apply a set of patches to a single file
  */
 
 const writeout = (...args) => process.stdout.write(...args);
@@ -41,10 +50,45 @@ function log(...args) {
   if (enableDebug)
     console.error(...args);
 }
+
+
+function report(...args) {
+  console.error(...args);
+}
+
 const args = ([]).concat(process.argv);
 
+// Keep some basic stats
+const stats = {
+  files: {
+    processed: 0,
+    hexFiles: 0,
+    excluded: 0
+  },
+  bytes: {
+    processed: 0
+  }
+};
+
+
+// This can get set to `true`. If true then the name of the parent directory of a file
+// is checked. If the name is an integer number in the range 0-15 this is used as the
+// CP/M user area number. This is sent to download.com as part of the prefix before
+// the hex data.
+//
+// the --userdir flag sets this option to true
+var userFromDir = false;
+
+// CP/M User number. Defaults to zero but can be switched to this ID instead. Valid
+// user numbers are from 0-15.
+var defUser = 0;
+
+// Min and max file sizes. Outside of these ranges files are not processed.
+var minFileSize = 0;
+var maxFileSize = -1; 
+
 // Strip all parameters up until one containing our command line name
-while (args.length>0 && process.mainModule.filename.indexOf(args[0])!=0)
+while (args.length > 0 && require.main.filename.indexOf(args[0])!=0)
   args.shift();
 
 // The first thing in the array now should be US so discard that out as well.
@@ -52,11 +96,11 @@ args.shift();
 
 // Output two character hext value of a byte (zero padded for <0x10)
 function toHex2(val) {
-  return ('00'+val.toString(16)).substr(-2);
+  return ('00'+val.toString(16)).slice(-2);
 }
 // Output two character hext value of a byte (zero padded for <0x10)
 function toHex4(val) {
-  return ('0000'+val.toString(16)).substr(-4);
+  return ('0000'+val.toString(16)).slice(-4);
 }
 
 /** Every file in the output package is prefixed with a CP/M
@@ -65,10 +109,24 @@ function toHex4(val) {
  *  implementation the user number is always zero.
  *  @param {String} fname - the name of the file being processed
 */
-function sendPrefix(fname) {
+function sendPrefix(fname, userID) {
   writeout('A:DOWNLOAD '+fname.toUpperCase()+'\n');
-  writeout('U0\n:');
+  writeout('\nU'+userID.toString(16)+'\n:');
 }
+function getUserID(fpath) {
+  if (!userFromDir) {
+    // Go to the default user
+    return defUser;
+  }
+  // Check the path name
+  log("USER DIR PATH: "+fpath);
+  const tok = parseInt(((/(\d+)\/[^/]+$/).exec(fpath) ?? [])[1],10);
+  log("LastPart: ", tok);
+  let usr = defUser;
+  if (tok!=null && !isNaN(tok) && tok>=0 && tok<=15)
+    usr = tok;
+  return tok;
+} 
 
 // Number of bytes to output on a single line, which is followed by a line break
 const sliceSize=45;
@@ -183,6 +241,7 @@ function convertFile(file, flen) {
   log("TOTAL BYTES PROCESSED: ", processed);
   log("TOTAL LINES OUTPUT: ", oplines);
   log("APPROX BYTES: ", oplines * sliceSize);
+  stats.bytes.processed += processed;
 }
 
 /** patchFile
@@ -260,9 +319,11 @@ function processFile(fpath) {
     const isHex = (/\.hex$/).test(fname);
     if (isHex) {
       log("Converting Intel HEX file to .com");
+      stats.files.hexFiles++;
       outname = fname.replace(/\.hex$/i,'.com');
     }
-    sendPrefix(outname);
+    const user = getUserID(fpath);
+    sendPrefix(outname, user);
     if (isHex)
       convertHexFile(fl, flen);
     else
@@ -273,6 +334,38 @@ function processFile(fpath) {
 
 const filesToProcess = [];
 var   patchName, patchData;
+
+const bannedExts = [];
+
+/** Check whether a specific file name should be processed
+ *  based on filename, file size etc.
+ * @param {Object} st - output from fstat
+ * @param {String} fname
+ */
+function acceptFile(st, fname) {
+  // Compare with min/max file sizes.
+  if (st.size < minFileSize) {
+    log("File: "+fname+" excluded. Too small\n");
+    return false;
+  }
+  if (maxFileSize > 0 && st.size > maxFileSize) {
+    log("File: " + fname + " excluded. Too big\n");
+    return false;
+  }
+  // Any exclude file extensions
+  const fext = fname.replace(/.*\./, '').toUpperCase();
+  log("FILE: "+fname+". EXCLUDE CHECK AGAINST EXT: '"+fext+"'\n");
+  for (let i=0;i<bannedExts.length;i++) {
+    if (bannedExts[i]==fext) {
+      log("Excluding '"+fname+"' because of extension\n");
+      return false;
+    }
+  }
+  log("File included: "+fname+"\n");
+  return true;
+}
+var minFileSize = 0;
+var maxFileSize = -1; 
 
 /** Check whether a specified argument represents a file,
  *  a directory or is invalid. If a directory then
@@ -304,6 +397,56 @@ function parseParam(argPath) {
     }
     return;
   }
+  if (argPath == '--help' || argPath == '-h') {
+    process.stdout.write("bin2cpmhex - packager for CP/M download files\n");
+    process.stdout.write("--userdir      : set CP/M user from directory name\n");
+    process.stdout.write("--defuser=n    : CP/M user number (0-15)\n");
+    process.stdout.write("--excltype=XXX : Exclude files with this extention\n");
+    process.stdout.write("--minsize=nnn  : Exclude files smaller than nnn KB\n");
+    process.stdout.write("--maxsize=nnn  : Exclude files bigger than nnn KB\n");
+    process.reallyExit();
+  }
+  if (argPath.indexOf('--userdir')==0) {
+    userFromDir = true;
+    log("Switched on directory to user mapping\n");
+    return;
+  }
+  if (argPath.indexOf('--defuser=')==0) {
+    const tmpusr = parseInt(argPath.substring(10), 10);
+    if (isNaN(tmpusr) || tmpusr<0 || tmpusr>15) {
+      process.stderr.write("Invalid default user number\n");
+      process.reallyExit(-1);
+    }
+    defUser = tmpusr;
+    log("Default user set to "+defUser+"\n");
+    return;
+  }
+  if (argPath.indexOf('--minsize=')==0) {
+    const tmpsz = parseInt(argPath.substring(10), 10);
+    if (isNaN(tmpsz) || tmpsz < 0 || tmpsz >4096) {
+      process.stderr.write("Invalid minimum file size filter (valid: 0-4096)\n");
+      process.reallyExit(-1);
+    }
+    minFileSize = tmpsz * 1024;
+    log("Ignore files smaller than "+tmpsz+"KB\n");
+    return;
+  }
+  if (argPath.indexOf('--maxsize=')==0) {
+    const tmpsz = parseInt(argPath.substring(10), 10);
+    if (isNaN(tmpsz) || tmpsz < 0 || tmpsz >4096) {
+      process.stderr.write("Invalid maximum file size filter (valid: 0-4096)\n");
+      process.reallyExit(-1);
+    }
+    maxFileSize = tmpsz * 1024;
+    log("Ignore files bigger than "+tmpsz+"KB\n");
+    return;
+  }
+  if (argPath.indexOf('--excltype=') == 0) {
+    const tmpext = argPath.substring(11).toUpperCase();
+    bannedExts.push(tmpext);
+    log("Exclude files with extention: " + tmpext + "\n");
+    return;
+  }
   if (!fs.existsSync(argPath)) {
     errout("Path: '"+argPath+"' doesn't exist. Argument ignored\n");
     return;
@@ -322,8 +465,14 @@ function parseParam(argPath) {
     });
   }
   else {
-    // Standard file so this gets processed
-    filesToProcess.push(argPath);
+    // Standard file. Is it excluded?
+    if (acceptFile(s, argPath)) {
+      filesToProcess.push(argPath);
+      stats.files.processed++;
+    }
+    else {
+      stats.files.excluded++;
+    }
   }
 }
 
@@ -340,10 +489,12 @@ function parseParam(argPath) {
     errout("--patch can only be used on a single file!\n")
     process.reallyExit();
   }
-
-
   // Now generate the package for all accepted files
   while (fpath = filesToProcess.shift()) { // eslint-disable-line
     processFile(fpath);
   }
+  report("Files processed:     "+stats.files.processed);
+  report("Hex files processed: "+stats.files.hexFiles);
+  report("Files excluded:      "+stats.files.excluded);
+  report("Bytes processed:     "+stats.bytes.processed);
 })();

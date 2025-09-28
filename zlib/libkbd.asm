@@ -488,7 +488,7 @@ DOKEY:          PUSH     AF
                 ; Change caps LED
                 OR       A
                 LD       A,(kbdBase)
-                JR       Z,.capsoff
+                JR       NZ,.capsoff
 
                 ; Caps ON - turn LED on
                 AND      not LED_CAPS

@@ -50,7 +50,7 @@ _nline:   LD    A,(HL)
           INC   C
           INC   HL
           CALL  PRINT_80         ; Returns HL after end of first string
-          PUSH  HL               ; First character of second string
+          ; (A PUSH HL with no matching POP was here: 2 bytes of stack lost per line)
           EX    DE,HL
           LD    HL,S_COLSTR
           CALL  PRINT

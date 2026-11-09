@@ -41,6 +41,8 @@ SDMOD:   CALL  WASTESPC
          LD    DE,SDPAGE        ; Calculate the address in the buffer (SDPAGE+offset)
          EX    DE,HL
          ADD   HL,DE            ; HL now actual address, DE is display offset
+         LD    A,1
+         LD    (MS_LIM),A       ; Limit to the 512 byte buffer
          JR    _nextln
 
 ;
@@ -57,7 +59,9 @@ _geth:   CALL  GET_HEX          ; Start address (in application space)
          JR    Z, E_BADPS
 
          ; Make a copy in DE
-_gotaddr:LD    D,H
+_gotaddr:XOR   A
+         LD    (MS_LIM),A
+         LD    D,H
          LD    E,L
          CALL  P_MAPX     ; Translate HL into an offset and a page number and map application pages into memory
 
@@ -79,6 +83,18 @@ _skhx:   JR    Z, _eoln
          CALL  INHEX_2
          JR    C, _eoln    ; Carry: error, no hex digits
          ; Have a value to write...
+         ; With MS do not go past the end of the sector (it used to write past
+         ; SDPAGE, over ZLoader's variables).
+         LD    C,A
+         LD    A,(MS_LIM)
+         OR    A
+         JR    Z,_nolim
+         LD    A,D
+         CP    2           ; Offset >= 200h
+         JR    C,_nolim
+         CALL  NL
+         JR    main
+_nolim:  LD    A,C
          LD    (HL),A      ; Storing in mapped address location
          INC   HL
          INC   DE          ; Keep raw address in sync
@@ -92,3 +108,7 @@ _eoln:   CALL  NL
 
 _skdol:  CALL  BUFCHR
          JR    _nexthx
+
+
+         DSEG
+MS_LIM:  DEFB  0           ; 1: modifying the SD buffer (MS)

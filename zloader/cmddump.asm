@@ -86,6 +86,7 @@ _GETDPAR: LD     C,8              ; Default count
           RET    NZ               ; Line count is optional and will default to 8
           PUSH   HL
           CALL   GET_DEC
+          JR     C,.udef          ; Not a number: 8 lines
           LD     A,L
           OR     A
           JR     Z,.udef

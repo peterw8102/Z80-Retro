@@ -61,7 +61,7 @@ zmac $INCLUDE $AFLAGS ./cmdhelp.asm
 zmac $INCLUDE $AFLAGS ./cmdcons.asm
 zmac $INCLUDE $AFLAGS ./more.asm
 
-ld80 -o ./loader.tmp -P 0040 -D 3400 -O ihex -s - -m -S 2048 \
+ld80 -o ./loader.tmp -P 0068 -D 3400 -O ihex -s - -m -S 2048 \
         ./zout/loader.rel \
         ./zout/disassembler.rel \
         ./zout/breakpoint.rel \

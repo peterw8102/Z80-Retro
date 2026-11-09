@@ -108,9 +108,21 @@ CMDDEF MACRO name,addr
 
 
 ; Alternate command table format: LETTER:ADDRESS
-BDG_TABLE:   CMDDEF 'B',   BP
+; In debug mode this table is searched first and CMD_TABLE afterwards. The
+; one letter commands 'B' and 'S' hid BOS/BO/SD/SM/SW (e.g. "SD 0" single
+; stepped the program). The longer commands that start the same way are
+; repeated here first, in the same order as in CMD_TABLE.
+BDG_TABLE:   CMDDEF 'BOS?',SDDIR
+             CMDDEF 'BOS-',SDLOAD
+             CMDDEF 'BOS', SDRUN
+             CMDDEF 'BO-', BOOTIX
+             CMDDEF 'BO',  BOOT
+             CMDDEF 'B',   BP
              CMDDEF 'N',   NSTEP
              CMDDEF 'R',   SET_RGS
+             CMDDEF 'SM',  SMAP
+             CMDDEF 'SD',  SDUMP
+             CMDDEF 'SW',  SWRITE
              CMDDEF 'S',   SSTEP
              CMDDEF 'G',   GO
 

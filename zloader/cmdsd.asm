@@ -30,7 +30,7 @@ import zload.asm
   extrn  SETDMA
   extrn  DMP16
   extrn  SDPAGE
-  extrn  E_NOSD
+  extrn  E_NOSD,E_SDERR
 
 ; -------- SDUMP
 ; Dump the contents of a 512 byte SD card sector. By default this is an absolute sector
@@ -71,7 +71,9 @@ _ldsd:   PUSH  HL
          POP   HL
 
          ; Read the data into SDPAGE
+         LD    B,0            ; SDCard 0 for absolute addresses (B was not set)
          RST   30h
+         JR    NZ,_sderr      ; The old buffer used to be shown as if it were the sector
 
 _do_dmp: CALL  NL
          ; 512 bytes to dump in blocks of 32 bytes
@@ -95,6 +97,9 @@ _sdnx3:  DJNZ  _sdnxt
 
          LD    HL,_MORESD
          JR    MORE
+
+_sderr:  CALL  NL
+         JR    E_SDERR
 
 _MORESD   DEFW  0
           DEFW  .sdmore2

@@ -27,6 +27,7 @@ import zload.asm
   extrn E_BADPS,E_NOTF,E_ERROR
 
   public LDF,LDH,LDT,LOADF,BOOT,BOOTIX
+  public LD_ST
 
 
 ; Aliases for the scratch area
@@ -69,37 +70,89 @@ SHOWBCNT:  PUSH  HL
 ; INPUT:  INBUF contains a line of text ready to be processed.
 ; OUTPUT: Z  - return with with Z flag set if no error, otherwise Z clear for error, code in A (?)
 _procln:  CALL  BUFCHR
+          RET   Z                  ; Empty line: nothing to do (Z = ok)
           CP    ':'
           RET    NZ                ; Return on invalid start of line
           ; Accept this line. Format: [LEN 1][ADDR 2][REC_TYPE 1][DATA 2]+[CHKSM 1]
+          ; The checksum is now checked (it was ignored: a character corrupted in
+          ; transit ended up in memory, and with FP in the flash).
           CALL  INHEX_2            ; Length -> A
 
           JR    C, _recerr
           LD    B,A                ; Length into B
+          LD    E,A                ; E = sum of all the record's bytes
           CALL  INHEX_4            ; Address - HL
           JR    C, _recerr
-          CALL  INHEX_2            ; Command - which should be 00. If not then EOF so end.
+          LD    A,H
+          ADD   A,E
+          ADD   A,L
+          LD    E,A
+          CALL  INHEX_2            ; Record type
           JR    C, _recerr
+          LD    D,A                ; D = type
+          ADD   A,E
+          LD    E,A
+          LD    A,D
           OR    A
-          JR    NZ, _impeof
+          JR    NZ, _rectyp        ; Any type other than 00 used to mean end of file
           LD    A,B                ; Check for zero length
           OR    A
           JR    Z,_recerr
 
           ; The upper two bits of the address identifies the page block - set
           ; up the page register so it's in the range 4000h-7fffh.
-          CALL  P_MAP
+          ; P_MAPX (two pages): a record crossing a 16K boundary, or wrapping from
+          ; FFFF to 0000, was written to whatever page was in bank 2 (ZLoader at boot).
+          CALL  P_MAPX
 
           ; And write these bytes into that page
 next_b:   CALL  INHEX_2            ; Get a hex byte
           JR    C, _recerr
           LD   (HL), A
           INC   HL
+          ADD   A,E
+          LD    E,A
           DJNZ  next_b
-          ; END of that record (ignoring checksum)
-          ; Return with Z flag set (A=0)
-          XOR   A
+_rcks:    CALL  INHEX_2            ; Record checksum
+          JR    C, _recerr
+          ADD   A,E
+          JR    NZ, _recerr        ; All bytes must sum to 0
+          LD    A,D                ; Record type
+          OR    A
+          RET   Z                  ; 00 data: ok (Z, A=0)
+          DEC   A
+          JR    Z, _impeof         ; 01 end of file
+          DEC   A                  ; 02 extended segment
+          JR    Z, _rext
+          DEC   A                  ; 03 start address: ignored
+          JR    Z, _rok
+          DEC   A                  ; 04 extended linear address
+          JR    Z, _rext
+          DEC   A                  ; 05 start linear address: ignored
+          JR    Z, _rok
+          JR    _recerr            ; Unknown type
+_rext:    LD    A,C                ; Only base 0 accepted (64K space)
+          OR    A
+          JR    NZ, _recerr
+_rok:     XOR   A
           RET
+
+; Record with no data for memory: read the data only for the checksum.
+; C = OR of the data (to insist on base 0 for types 02/04).
+_rectyp:  LD    C,0
+          LD    A,B
+          OR    A
+          JR    Z, _rcks
+_rskip:   CALL  INHEX_2
+          JR    C, _recerr
+          LD    H,A
+          OR    C
+          LD    C,A
+          LD    A,H
+          ADD   A,E
+          LD    E,A
+          DJNZ  _rskip
+          JR    _rcks
 
 ; When loading a binary file, the user can optionally enter a hex
 ; load address. The default address is 100h
@@ -122,6 +175,8 @@ cmd_bin:  LD    A,1
 
 PREPLD:   LD    HL,100h           ; Default load address for binary data
           LD    (PROGADD),HL
+          LD    A,$FF             ; Load in progress = failed until it completes
+          LD    (LD_ST),A
           XOR   A
           LD    (AUTO_RUN),A      ; Cancel auto-run mode
           LD    (LOAD_MODE),A     ; Default to HEX mode
@@ -197,7 +252,7 @@ _blkdn:   ; File is OPEN. LOAD_MODE tells us whether to process input blocks as
           LD    DE,(PROGADD)   ; Where to put the file we're loading (binary load)
 
           EX    DE,HL
-          CALL  P_MAP          ; Map programme space address into user space.
+          CALL  P_MAPX         ; Two pages: a block may cross a 16K boundary
           LD    (PROGPG),A     ; Save the selected page
           EX    DE,HL
 
@@ -220,7 +275,6 @@ _nxtblk:  LD    A,$11      ; Read block command
           OR    40h
           LD    D,A
 
-          ; *************** The following looks WRONG. Should be using the page map *************
           PUSH  HL
           PUSH  AF
           LD    HL,(PROGADD)
@@ -228,16 +282,21 @@ _nxtblk:  LD    A,$11      ; Read block command
           LD    A,40h
           ADD   H
           LD    H,A
+          ; Save the progress: PROGADD never changed, so from the third 16K
+          ; block on the same page was written again.
+          LD    (PROGADD),HL
           ; Remap this address to get the page (don't care about the address)
-          CALL  P_MAP
+          CALL  P_MAPX
           LD    (PROGPG),A
-          BANK  1
           POP   AF
           POP   HL
-          ; *************** ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ ************************
           JR    _nxtblk
 
 _fin:     INC   A
+          JR    Z,E_REC        ; FF: block with a bad checksum (used to say "Complete")
+          DEC   A
+          DEC   A              ; 01: normal end of file
+          JR    NZ,E_REC       ; Any other status is an error
           JR    M_COMP
           ; JR    main
 
@@ -256,10 +315,20 @@ _hexldn:  LD    A,(FIN_CODE)
           LD    DE,FILE_BUF  ; Into our 128 byte buffer
           CALL  CMD_B
           LD    (FIN_CODE),A ; Status for THIS block - but doesn't mean this block doesn't include data.
+          INC   A            ; FF: bad block checksum, do not use its data
+          JR    Z,E_REC
           LD    B,80h        ; Size of block (bytes)
           LD    HL,FILE_BUF
           LD    DE,(INPTR)
 _nexchr:  LD    A,(HL)       ; Copy to INPTR (INBUF)
+          ; Line limit: a long line (or a file without LF) kept copying past
+          ; INBUF and overwrote ZLoader's data.
+          PUSH  HL
+          LD    HL,INBUF+LINELEN-1
+          OR    A
+          SBC   HL,DE
+          POP   HL
+          JR    C,E_REC      ; DE > INBUF+LINELEN-1
           LD    (DE),A
           INC   HL
           CP    0Dh
@@ -280,7 +349,11 @@ _nexchr:  LD    A,(HL)       ; Copy to INPTR (INBUF)
           CALL  _procln
           POP   BC
           POP   HL
-          JR    NZ, _eofhxok   ; Saw end of hex data record
+          JR    Z, _hxok
+          INC   A              ; Only A=FF is end of file; any error or odd line
+          JR    Z, _eofhxok    ; used to be taken as the end (and BO ran it)
+          JR    E_REC
+_hxok:
           LD    DE,INBUF
 
 _goon:    DJNZ  _nexchr
@@ -288,12 +361,16 @@ _goon:    DJNZ  _nexchr
           LD    (INPTR),DE
           JR    _hexldn
 
-_eofhxok: LD    A,(AUTO_RUN)
+_eofhxok: LD    A,1
+          LD    (LD_ST),A      ; Load complete and correct
+          LD    A,(AUTO_RUN)
           OR    A
           LD    HL,0        ; Run from address 0000h
           JR    NZ,PR_RUN
 
-M_COMP:   LD    HL,_COMPLETE
+M_COMP:   LD    A,1
+          LD    (LD_ST),A      ; Load complete and correct
+          LD    HL,_COMPLETE
           JR    E_PRTERR
 
 ; ----- BOOT
@@ -307,6 +384,8 @@ BOOT:     LD    A,1
 ; then execute that image.
 BOOTIX:   LD    HL,_record$
           CALL  PRINT
+          LD    A,$FF
+          LD    (LD_ST),A          ; Load in progress
           XOR   A
           LD    (LOAD_MODE),A      ; Force Intel Hex format load
           LD    HL,_BOOTHEX        ; From the default file
@@ -336,3 +415,7 @@ PROGADD    DEFS    2
 PROGPG     DEFS    1
 
 FIN_CODE:  DEFB    0
+
+; Status of the last L/LH/LF/BO load: 0 none, 1 good, FF failed or
+; interrupted. FP refuses to program the flash when it is FF.
+LD_ST:     DEFB    0

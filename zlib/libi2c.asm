@@ -15,6 +15,19 @@ import ../zlib/defs.asm
 
           CSEG
 
+; ------ I2C_DLY
+; Short delay between I2C bus edges. PAUSE (~4100 cycles, 0.55 ms at
+; 7.37 MHz) was used on every edge, making the bus ~100 times slower than
+; needed (boot spent ~1.1 s reading the RTC). With the I2C_CHDATA/I2C_CHCLK
+; calls (~110 cycles each) plus this delay (~90 cycles) every clock phase still
+; lasts >= 13 us even with the CPU at 14.7 MHz: the DS1307 needs >= 4.7 us low
+; and >= 4.0 us high (100 kHz).
+I2C_DLY:    PUSH  BC
+            LD    B,3
+_idly:      DJNZ  _idly
+            POP   BC
+            RET
+
 ; Definitions
 I2CDATA   EQU 02h
 I2CDEF    EQU 03h
@@ -42,41 +55,41 @@ I2C_STRT:   ; Bus is IDLE. Send the start condition
             CALL  I2C_CHCLK     ; Clock HIGH
             LD    A,1
             CALL  I2C_CHDATA    ; Data HIGH
-            CALL  PAUSE
+            CALL  I2C_DLY
             XOR   A
             CALL  I2C_CHDATA    ; Data LOW
-            CALL  PAUSE
+            CALL  I2C_DLY
             XOR   A
             CALL  I2C_CHCLK     ; Clock LOW
-            CALL  PAUSE
+            CALL  I2C_DLY
             RET
 
 ; I2C_STOP
 ; Send an I2C stop condition.
 I2C_STOP:   XOR   A
             CALL  I2C_CHDATA    ; Data LOW
-            CALL  PAUSE
+            CALL  I2C_DLY
             LD    A,1
             CALL  I2C_CHCLK     ; Clock HIGH
-            CALL  PAUSE
+            CALL  I2C_DLY
             LD    A,1
             CALL  I2C_CHDATA   ; Data HIGH
-            CALL  PAUSE
+            CALL  I2C_DLY
             XOR   A
             CALL  I2C_CHCLK     ; Clock HIGH
-            CALL  PAUSE
+            CALL  I2C_DLY
             RET
 
 ; _WBI
 ; Write bit 0 of A to the bus. A NOT preserved
 _WBI:       CALL  I2C_CHDATA    ; Data to required value
-            CALL  PAUSE
+            CALL  I2C_DLY
             LD    A,1
             CALL  I2C_CHCLK     ; Clock HIGH
-            CALL  PAUSE
+            CALL  I2C_DLY
             XOR   A
             CALL  I2C_CHCLK     ; Clock LOW
-            CALL  PAUSE
+            CALL  I2C_DLY
             RET
 
 ; I2C_WBY
@@ -100,17 +113,17 @@ _by_nxtw:   RLC   C         ; Bit 7 -> Bit 0
 ; Write bit 0 of A to the bus
 _RBI:  LD    A,1
             CALL  I2C_CHDATA    ; Data HIGH (inactive so slave can drive)
-            CALL  PAUSE
+            CALL  I2C_DLY
             LD    A,1
             CALL  I2C_CHCLK     ; Clock HIGH
-            CALL  PAUSE
+            CALL  I2C_DLY
             ; Read the data bit now for device value
             IN    A,(I2CIN)
             AND   I2CDATA       ; (data bit)
             PUSH  AF
             XOR   A
             CALL  I2C_CHCLK     ; Clock LOW
-            CALL  PAUSE
+            CALL  I2C_DLY
             POP   AF
             SRA   A
             RET

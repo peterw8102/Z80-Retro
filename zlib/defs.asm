@@ -94,4 +94,9 @@ MLSZ:       EQU   1024
 ; Where to put the history buffer - right at the end of our first memory page.
 D_HISTB     EQU   4000h-MLSZ
 
+; Length of the line buffer (INBUF). Defined here rather than in libconin so
+; that cmdload can limit the lines it copies into INBUF. INBUF has LINELEN+1
+; bytes: a line holds at most LINELEN-1 characters and always ends in a 0.
+LINELEN     EQU   128
+
 import macros.asm

@@ -140,8 +140,8 @@ BOOT:     XOR    A
           LD     SP,STK       ; Set a temporary small stack in spare space below the CPM buffer
 
           ; Write out HELLO message (whatever's in the CP/M buffer)
-          LD     HL,CCP+6
-          CALL   _strout
+          LD     HL,CCP+8     ; CCP+6 is the buffer length (7Fh = DEL) followed by 0,
+          CALL   _strout      ; so only a DEL came out. The text starts at CCP+8
 
           JP     gocpm        ; initialize and go to cp/m
 
@@ -150,6 +150,8 @@ BOOT:     XOR    A
 ; ****** WARM BOOT *******/
 ; Load CCP and BDOS from the start of disk 0
 WBOOT:    LD    SP, STK     ; Set a temporary small stack in spare space below the CP/M buffer
+          LD    C,A_CPPRG   ; Write anything left in the ZIOS cache to the card
+          RST   30h         ; (^C, end of program) so the card can be swapped safely
           LD    C,0         ; select disk 0
           CALL  SELDSK
           CALL  HOME        ; go to track 00
@@ -177,10 +179,14 @@ gocpm:    LD    a, 0c3h     ; c3 is a jmp instruction
 
           EI                ; enable the interrupt system
 
+          ; cdisk holds the user number in the high nibble: with a user other
+          ; than 0 the compare failed and every warm boot went back to A: user 0.
           LD    A,(cdisk)   ; get current disk number
+          AND   0Fh         ; Drive only
           CP    disks       ; see if valid disk number
+          LD    A,(cdisk)
           JR    C,diskok    ; disk valid, go to CCP
-          XOR   A           ; invalid disk, change to disk 0
+          AND   0F0h        ; invalid disk, change to disk 0 (keep the user number)
 diskok:   LD    C,A         ; send to the CCP
 
           JP	  CCP         ; go to cp/m for further processing, clearing the input buffer
@@ -225,6 +231,7 @@ _strout:  LD    A,(HL)
           RET   Z
           LD    E,A
           INC   HL
+          LD    B,1           ; Console (B used to hold whatever was left in it)
           LD    C,A_TXCHR
           RST   30H
           JR    _strout
@@ -253,8 +260,8 @@ READER:   LD    A,(IOBYTE)
 
 
 ; CPM/2 extensions
-LISTST:   XOR  A
-          RET
+LISTST:   LD   A,0FFh      ; List device always ready (0 meant always busy, and
+          RET               ; programs that poll it waited forever)
 SECTRN:   LD   H,B
           LD   L,C
           RET
@@ -357,7 +364,10 @@ read:     PUSH  BC
           CALL  _calcblk
           LD    C,A_CPMRD
           RST   30h          ; BLK READ
-          XOR   A            ; Never fails (!)
+          OR    A            ; ZIOS returns 0 on success. This used to always
+          JR    Z,_rdok      ; return 0, so card errors never reached the BDOS
+          LD    A,1
+_rdok:
           POP   HL
           POP   DE
           POP   BC
@@ -379,8 +389,11 @@ write:    PUSH  BC
           POP   BC
           LD    B,C
           LD    C,A_CPMWR
-          RST   30h          ; BLK READ
-          XOR   A
+          RST   30h          ; BLK WRITE
+          OR    A            ; As in read: 1 on error
+          JR    Z,_wrok
+          LD    A,1
+_wrok:
           POP   HL
           POP   DE
           POP   BC

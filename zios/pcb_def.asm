@@ -29,4 +29,5 @@
 
 ; SDCard DMA addresses
           extrn DMA_PAGE    ; Page the application wants us to write SDcard data to
+          extrn DMA_PG2     ; Page that follows DMA_PAGE
           extrn DMA_ADDR    ; Offset into the page of the DMA buyffer

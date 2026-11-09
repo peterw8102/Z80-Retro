@@ -13,7 +13,7 @@ import pcb_def.asm
           extrn  DEVMAP
           extrn  P_ALLOC,P_FREE
           extrn  SDTXLTD
-          extrn  SD_BKRD,SD_BKWR,SD_PRG
+          extrn  SD_BKRD,SD_BKWR,SD_PRG,SD_CINV
           extrn  DEV_OUT,DEV_IN,DEV_CHK
           extrn  NVRAM,NVSAV
           extrn  PRINT_LN,WRITE_D
@@ -60,8 +60,10 @@ _dosys:   CP     86h
 
 ; Jump to monitor. Basically an abort from the application. ZIOS memory pages are
 ; already mapped into CPU space so just restart the monitor
-LD_MON:   LD     HL,_M_MONS
-          LD     SP,SP_STK
+LD_MON:   LD     SP,SP_STK
+          LD     A,1                  ; Back to ZLoader: write anything pending in
+          CALL   SD_PRG               ; the disk cache and empty it
+          LD     HL,_M_MONS
           EI
           CALL   PRINT_LN
           JR     WARMSTRT
@@ -251,9 +253,29 @@ LD_KBMAP: LD     A,B
 ; Record the address (in application space) of the SD Card DMA buffer
 ; HL - Address into application pages.
 ; Translate into a page and offset and store in local memory
-LD_STDMA: CALL   P_ADJ
+LD_STDMA: PUSH   DE
+          PUSH   HL
+          CALL   P_ADJ
           LD     (DMA_PAGE),A
           LD     (DMA_ADDR),HL
+          ; Also record the page of the following 16K block: a buffer that
+          ; crosses the boundary (e.g. DMA at 3FC0) carried on writing into
+          ; whatever happened to be in bank 2.
+          POP    HL
+          PUSH   HL
+          LD     A,H
+          RLCA
+          RLCA
+          INC    A
+          AND    03h
+          LD     E,A
+          LD     D,0
+          LD     HL,PAGE_MP
+          ADD    HL,DE
+          LD     A,(HL)
+          LD     (DMA_PG2),A
+          POP    HL
+          POP    DE
           RET
 
 ; --------- LD_STDMA (CMD 86)
@@ -263,6 +285,8 @@ LD_STDMA: CALL   P_ADJ
 ;         HL  - The offset into that page
 LD_EDMA:  LD     A,B
           LD     (DMA_PAGE),A
+          INC    A
+          LD     (DMA_PG2),A    ; Next physical page
           ; Address will be mapped into bank 1 so add 4000h
           LD     A,40h
           ADD    H
@@ -287,11 +311,22 @@ LD_SDRD:  CALL   SDMPADD
 ;   B is the physical SDCard to read.
 ;
 ; The result will be written to the currently defined DMA address
-LD_RWRD:  ; Select the SDCard referenced in B
+LD_RWRD:  ; A direct read bypasses the CP/M cache: write anything pending
+          ; first so the data read is up to date.
+          PUSH   HL
+          PUSH   DE
+          PUSH   BC
+          XOR    A
+          CALL   SD_PRG
+          POP    BC
+          POP    DE
+          POP    HL
+          ; Select the SDCard referenced in B
           LD     A,B                  ; Physical SDCard
           CALL   SD_SEL
           LD     BC,(DMA_ADDR)
           BANK   1,(DMA_PAGE)         ; Get the buffer page into bank 1
+          BANK   2,(DMA_PG2)          ; and the next one (buffer crossing 16K)
           CALL   SD_INIT
           CALL   SD_RBLK              ; Get the SDCard data
           RET
@@ -385,14 +420,30 @@ LD_SDWR:  CALL   SDMPADD
 ; SDCard Write Block.
 ;   HLDE is the **SECTOR ADDRESS** (32 bits)
 ; The result will be written to the currently defined DMA address
-LD_RWWR:  LD     A,B
+LD_RWWR:  ; A direct write bypasses the CP/M cache: write anything pending
+          ; first and drop the sector from the cache, otherwise the cache would
+          ; keep returning (and later write back) the old version.
+          PUSH   HL
+          PUSH   DE
+          PUSH   BC
+          XOR    A
+          CALL   SD_PRG
+          POP    BC
+          POP    DE
+          POP    HL
+          LD     A,B
+          CALL   SD_CINV
+          LD     A,B
           CALL   SD_SEL
           PUSH   BC
           LD     BC,(DMA_ADDR)
           BANK   1,(DMA_PAGE)         ; Get the buffer address into page 1
+          BANK   2,(DMA_PG2)          ; and the next one (buffer crossing 16K)
           CALL   SD_WBLK
           POP    BC
-          RET
+          RET    NZ             ; Error: A = code, NZ
+          XOR    A              ; Success: A = 0 and Z (it used to return A = 5,
+          RET                   ; the card's data response token)
 
 
 ; --------- SD_INV (CMD 11)
@@ -608,7 +659,7 @@ JTAB:     DW     LD_MON       ; CMD 0  - Jump back to ZLoader
           DW     LD_NOP       ; CMD 27 - NOP
           DW     LD_DTIME     ; CMD 28 - Get date/time
 
-MAX_CODE: EQU          ($ - JTAB) << 1
+MAX_CODE: EQU          ($ - JTAB) >> 1   ; Number of entries (was << 1: no range check)
 
 _M_MONS:  DEFB   10,13,"ZIOS...", 10,13,0
 

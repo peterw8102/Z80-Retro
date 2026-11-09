@@ -50,6 +50,13 @@ SDMPADD:  LD     A,H        ; The upper 8 bits contain logical drive, needs to b
           OR     L          ; Merge in the drive offset
           LD     D,A        ; Put back into D
           LD     L,H        ; And HL comes straight from the offset table
+          LD     H,0        ; Bits 24-31 of the sector are always 0. The high byte
+                            ; of the table entry was left here, so virtual disk 8
+                            ; or above (drives I-P by default, or SM X=8..1023)
+                            ; got the wrong sector. Unnoticed with SDSC cards
+                            ; because the driver dropped that byte when scaling to
+                            ; a byte address; with SDHC (block addresses) it
+                            ; reaches the card.
           POP    AF         ; Restore SDCard number
           RET
 
@@ -143,8 +150,8 @@ SDMPRAW:  PUSH   DE
           LD     (HL),B
           INC    HL
 
-          ; Make sure low 5 bits are zeros
-          LD     A,$F8
+          ; Make sure low 5 bits are zeros (the mask was F8h, which clears only 3)
+          LD     A,$E0
           AND    E
 
           LD     (HL),A        ; Store in the address map

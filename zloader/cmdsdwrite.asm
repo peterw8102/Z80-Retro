@@ -29,7 +29,11 @@ import zload.asm
   public SWRITE
 
   extrn  main
-  extrn  E_NOSD
+  extrn  E_NOSD,E_SDERR
+
+; Position of the boot table end marker and checksum (same as
+; ENDMOFF/CSUMOFF in cmdsdboot.asm: 16 entries of 23 bytes).
+BT_ENDM    EQU   16*23
   extrn  SADDR,SDPAGE,SBCALCS
   extrn  SETDMA
 
@@ -61,9 +65,11 @@ SWRITE:  CALL  SETDMA
          CALL  SBCALCS
 
          ; Write checksum into page buffer
+         ; This used to write SDPAGE+480/481: the table kept its old checksum
+         ; and partition entry 3 of the MBR was overwritten.
          LD    A,$FF
-         LD    (SDPAGE+480),A
-         LD    (SDPAGE+481),HL
+         LD    (SDPAGE+BT_ENDM),A
+         LD    (SDPAGE+BT_ENDM+1),HL
          POP   DE
          POP   HL
 
@@ -72,6 +78,8 @@ SWRITE:  CALL  SETDMA
 _nocs:   LD    A,A_DSKWR-A_DSKRD
          ADD   C
          LD    C,A
+         LD    B,0            ; SDCard 0 for absolute addresses
          RST   30h
+         JR    NZ,E_SDERR     ; The write error used to be lost
          JR    main
          ; ---------- DEBUG DUMP

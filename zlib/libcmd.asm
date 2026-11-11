@@ -165,7 +165,10 @@ _checkrx8:        IN       A, (SIOB_C)      ; Next byte SHOULD be the checksum
                   JR       NC, _checkrx8
                   IN       A,(SIOB_D)       ; MSB
                   CP       L
-                  ; JR       Z,_badcrc
+                  ; The checksum result used to be ignored (and the commented-out
+                  ; jump had the condition reversed). tools/block.js computes the
+                  ; same 8 bit sum.
+                  JR       NZ,_badcrc
 
                   LD       A,H              ; Move status back to A
                   POP      BC               ; BC now contains the body length
@@ -218,21 +221,24 @@ _nores:           LD       BC,0
 
 ; Start the send command sequence.
 CMD_B:          PUSH     AF
+                ; DI before selecting WR5: if the SIO A interrupt came in between
+                ; the two OUTs, its own write to SIOA_C landed in WR5 (TX, DTR
+                ; and RTS off: dead console).
+                DI                  ; Disable interrupts - there's no flow control!
                 LD       A, $05
                 OUT      (SIOA_C),A
                 LD       A,RTS_HIGH
                 OUT      (SIOA_C),A
-                DI                  ; Disable interrupts - there's no flow control!
                 POP      AF
                 PUSH     DE         ; Destination bufer not used to send the request so save
                 CALL     _SEND_CMD  ; Send the command
                 POP      DE
                 CALL       _WAIT_RES  ; Wait for the response
                 PUSH     AF
-                EI
                 LD       A, $05
                 OUT      (SIOA_C),A
                 LD       A,RTS_LOW
                 OUT      (SIOA_C),A
+                EI                  ; Only after writing WR5 (see above)
                 POP      AF
                 RET

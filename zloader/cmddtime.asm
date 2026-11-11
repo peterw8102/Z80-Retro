@@ -52,12 +52,21 @@ DTIME:    CALL     RTC_INI       ; Initialise RTC
           JR       C,errtime
           LD       (_TIME+6),A
 
+          ; Ranges were not checked: DT 261399 or DT :456190 were written as is
+          ; (seconds >= 80h stop the clock, hours >= 40h switch it to 12 hour
+          ; mode). _GDECNUM leaves Z=1 when the value is 0.
           CALL     _GDECNUM     ; 2 digit month
           JR       C,errtime
+          JR       Z,errtime    ; Month 01-12
+          CP       13h
+          JR       NC,errtime
           LD       (_TIME+5),A
 
           CALL     _GDECNUM     ; 2 digit date
           JR       C,errtime
+          JR       Z,errtime    ; Day 01-31
+          CP       32h
+          JR       NC,errtime
           LD       (_TIME+4),A
 
 _stime:   CALL     BUFCHR
@@ -67,14 +76,20 @@ _stime:   CALL     BUFCHR
 
           CALL     _GDECNUM     ; Expect a 2 hours
           JR       C,errtime
+          CP       24h          ; Hour 00-23 (24 hour mode)
+          JR       NC,errtime
           LD       (_TIME+2),A
 
           CALL     _GDECNUM     ; Expect a 2 mins
           JR       C,errtime
+          CP       60h          ; Minutes 00-59
+          JR       NC,errtime
           LD       (_TIME+1),A
 
           CALL     _GDECNUM     ; Expect a 2 secs
           JR       C,_sdtim     ; seconds optional
+          CP       60h          ; Seconds 00-59 (bit 7 would stop the clock)
+          JR       NC,errtime
           LD       (_TIME),A
 
 _sdtim:   LD       HL,_TIME

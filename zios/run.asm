@@ -19,7 +19,7 @@ import pcb_def.asm
             extrn  P_MAPX,ZS_BRK
             extrn  CNTINUE
             extrn  NUL_ISR,BANKST
-            extrn  ZIOS_OFF
+            extrn  ZIOS_OFF,SD_PRG
             extrn  main
 
             CSEG
@@ -28,7 +28,18 @@ import pcb_def.asm
 ; Check whether drivers are installed. If not check if they should be installed. Then
 ; intall them if reqjuired.
 ; INPUT: HL - execution address, which may be zero.
-INSTDRV:: ; Check configuration to see whether we're meant to be installing drivers
+INSTDRV:: ; Before starting or resuming an application, write anything pending in
+          ; the disk cache and empty it: the SD card may have been changed from
+          ; ZLoader (WI, SW, another card...) and the cache would hold stale data.
+          PUSH   HL
+          PUSH   DE
+          PUSH   BC
+          LD     A,1
+          CALL   SD_PRG
+          POP    BC
+          POP    DE
+          POP    HL
+          ; Check configuration to see whether we're meant to be installing drivers
           BANK   1,(PAGE_MP)          ; Application page 0 => bank 1
           BANK   2,(PAGE_MP+3)        ; Application page 3 => bank 2
 
@@ -75,7 +86,8 @@ INSTDRV:: ; Check configuration to see whether we're meant to be installing driv
           ; Set all interrupt vectors to a dummy handler
           LD     DE,NUL_ISR
           LD     HL,8000h+SIO_IB
-          LD     B,16
+          LD     B,12                 ; SIO (8) + CTC channels 0-3 (4). 16 wrote
+                                      ; 8 bytes past the end of the table (3FF8-3FFF)
 _nxtisr:  LD     (HL),E
           INC    HL
           LD     (HL),D
@@ -89,7 +101,7 @@ _nxtisr:  LD     (HL),E
 
           ; And patch the timer ISR
           LD   HL,CTC_ISR
-          LD   (8000h+CTC_ICH1),HL
+          LD   (8000h+CTC_ICH3),HL   ; vdu.asm programs CTC channel 3 (was ICH1)
 
           POP    AF
           RRCA               ; Terminal input break handler?
@@ -170,18 +182,18 @@ PR_REST:: CALL   INSTDRV     ; This could be the very first exec of this process
           RET    NC          ; Can't do anything here if there's no ZIOS installed
 
           ; INSTDRV will have mapped app page 0 into bank1 amd page 3 into bank 2
+          DI                           ; No interrupts while SP/banks are in flux
           LD     HL,(R_SP)
-          PUSH   HL
-          CALL   P_MAPX                ; Stack memory now accessible in HL
-          LD     DE,(R_AF)             ; Simulate pushing AF onto app stack
-          DEC    HL
-          LD     (HL),D
-          DEC    HL
-          LD     (HL),E
-          POP    HL                    ; Get the original unmapped stack
           DEC    HL
           DEC    HL                    ; So we can later POP AF
           LD     (R_SP),HL
+          CALL   P_MAPX                ; Map AFTER moving SP down: if the stack
+                                       ; sat on a 16K boundary the old code wrote
+                                       ; AF outside the mapped page
+          LD     DE,(R_AF)             ; Simulate pushing AF onto app stack
+          LD     (HL),E
+          INC    HL
+          LD     (HL),D
 
           BANK   2,(PAGE_MP+3)         ; Make application page 3 available
 

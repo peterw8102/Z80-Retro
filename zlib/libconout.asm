@@ -58,6 +58,7 @@ _NUM2D:   LD     D,' '
           LD     C,-10
           CALL   NUM1
           LD     C,B
+          LD     D,'0'           ; The last digit is always printed (0 used to print as a blank)
 
 NUM1      LD     A,'0'-1
 NUM2      INC    A

@@ -15,6 +15,7 @@ import zload.asm
 
 
   extrn  main,E_PRTERR
+  extrn  LD_ST
 
   public FLSH_ID,FLSH_PRG,FLSH_CHR
 
@@ -44,7 +45,13 @@ FLSH_ID:  LD    HL,_flsh_id
 ;
 ; A sanity check is made on the RAM contents which must include "ZIOS" at
 ; locations 003Ch.
-FLSH_PRG: BANK   1,(PAGE_MP)
+FLSH_PRG: ; Do not program if the last load (L/LH/LF/BO) failed or was cut short:
+          ; the ZIOS signature can be present with the rest of the image incomplete.
+          LD     A,(LD_ST)
+          INC    A
+          LD     HL,_badld
+          JR     Z,E_PRTERR
+          BANK   1,(PAGE_MP)
           LD     A,(403Ch)
           CP     'Z'
           JR     NZ,_isnok
@@ -115,8 +122,54 @@ _do:      LD     HL,_gd_img
           LD     B,A
           LD     C,TPG_1
           CALL   FL_WPAGE
+
+          ; 3. Verify: compare each flash page with RAM.
+          LD     A,(PAGE_MP)
+          LD     B,A
+          LD     C,TPG_0
+          CALL   _vfy
+          JR     NZ,_vfail
+          LD     A,(PAGE_MP+1)
+          LD     B,A
+          LD     C,TPG_1
+          CALL   _vfy
+          JR     NZ,_vfail
           LD     HL,_done
           JR     E_PRTERR
+
+_vfail:   PUSH   HL
+          LD     HL,_vfyerr
+          CALL   PRINT
+          LD     A,C           ; Flash page
+          CALL   WRITE_8
+          LD     A,':'
+          RST    08h
+          POP    HL
+          RES    6,H           ; Offset within the page
+          CALL   WRITE_16
+          LD     HL,_vfyerr2
+          JR     E_PRTERR
+
+; ---- _vfy
+; Compare RAM page B with flash page C (16K).
+; Output: Z if equal; NZ and HL = address (4000-7FFF) of the first difference.
+; Preserves BC.
+_vfy:     LD     A,C
+          OUT    (PG_PORT0+1),A  ; Flash in bank 1
+          LD     A,B
+          OUT    (PG_PORT0+2),A  ; RAM in bank 2
+          LD     HL,4000h
+          LD     DE,8000h
+_vnx:     LD     A,(DE)
+          CP     (HL)
+          RET    NZ
+          INC    HL
+          INC    DE
+          LD     A,H
+          CP     80h
+          JR     NZ,_vnx
+          XOR    A
+          RET
 
 
 _isnok:   LD     HL,_bad_img
@@ -173,6 +226,9 @@ _done     DEFB "complete",0
 _clpage   DEFB "Clearing page: ",0
 _wrpage   DEFB "Writing page: ",0
 _cancel   DEFB "Cancelled",0
+_badld    DEFB "Last load failed - not writing flash",0
+_vfyerr   DEFB "VERIFY ERROR at flash ",0
+_vfyerr2  DEFB " - flash does not match RAM. DO NOT RESET, retry FP",0
 _chset    DEFB "Overwrite character set stored in flash",0
 _inst     DEFB "This command will upgrade ZLoader in flash",0
 _conf     DEFB "Please confirm (Y/n) ",0

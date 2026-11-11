@@ -48,7 +48,7 @@ import zload.asm
           public AUTO_RUN
 
           ; Error messages
-          public E_PRTERR,E_NOTF,E_ERROR,E_UNKWN,E_NEMPT,E_NOSD,E_BADPS
+          public E_PRTERR,E_NOTF,E_ERROR,E_UNKWN,E_NEMPT,E_NOSD,E_BADPS,E_SDERR
 
           ; Command handlers
           public CLS,DECCHR,EXDBG
@@ -86,6 +86,11 @@ if !IS_DEVEL
 else
           DEFB   'DEVL'
 endif
+
+          ; NMI (can only come from a card on the bus): it used to land in the
+          ; middle of ZLoader's code. Ignore it.
+          ORG    $66
+          RETN
 
 END_RES   EQU     $
 
@@ -231,11 +236,18 @@ E_NOTF:   ; File doesn't exist so error
           LD    HL,S_NOTF
           JR    _prterr
 
+E_SDERR:  LD    HL,_SDERR      ; SD card read/write failure
+          JR    _prterr
 E_BADPS:  LD    HL,_IOERR
 E_PRTERR:
 _prterr:  CALL  PRINT_LN
 
-main:     CALL  RSTCONS
+main:     ; Clean stack for every command: many error exits jump here from
+          ; inside a CALL (or with data pushed) and each one leaked 2 bytes;
+          ; after a few dozen the stack ran into SCRATCH (FD00) and the
+          ; machine hung.
+          LD    SP,SP_STK
+          CALL  RSTCONS
 
           LD    HL, _PROMPT
           CALL  PRINT
@@ -328,6 +340,7 @@ _ERROR       DEFB "Error",0
 _NODRV       DEFB "No OS", NULL
 _PRMBC       DEFB "BP:   @", NULL
 _NOSDADD     DEFB "Bad SDcard address", NULL
+_SDERR       DEFB "SDCard error", NULL
 
 ; Common (shared) strings
 S_COLSTR:    DEFB CR,ESC,'[25C',NULL

@@ -18,6 +18,7 @@
 
           public DMA_PAGE    ; Page the application wants us to write SDcard data to
           public DMA_ADDR    ; Offset into the page of the DMA buyffer
+          public DMA_PG2     ; Next page (for buffers that cross a 16K boundary)
 
 
           public SZ_PCB
@@ -39,6 +40,7 @@ P_FLAGS:   DEFS    1              ; Flags to be used when starting this process 
 ; of the PCB data.
 DMA_PAGE   DEFS    1              ; Page the application wants us to write SDcard data to
 DMA_ADDR   DEFS    2              ; Offset into the page of the DMA buyffer
+DMA_PG2    DEFS    1              ; Page that follows DMA_PAGE in the application's space
 
 
 ; Suspenended execution registers. NOTE - application page 0

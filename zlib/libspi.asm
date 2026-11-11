@@ -83,9 +83,25 @@ _nidle:   CALL  SPI_RXB
 SPI_BEG:  LD    A,(DEVSEL)     ; Get mask for selected device
           OUT   (SPICS_P),A
           CALL  SPI_RXB        ; +2x dummy clock bytes
+          ; Wait until the card is no longer busy (reads FF). Previously there
+          ; was no limit: with MISO stuck low (damaged card, or a socket with
+          ; no adapter fitted) the machine hung. Limit: 20000 bytes, ~1.2 s at
+          ; 7.37 MHz (a card may stay busy for up to 0.5 s after a write).
+          ; Returns carry clear when the card is ready, carry set on timeout.
+          PUSH  BC             ; SPI_RXB uses the alternate registers, so
+          LD    BC,20000       ; BC is preserved across calls
 _bsy:     CALL  SPI_RXB
           INC   A              ; Expect 0xFF
+          JR    Z,_bsyok       ; (INC leaves carry alone: OR clears it below)
+          DEC   BC
+          LD    A,B
+          OR    C
           JR    NZ,_bsy
+          POP   BC
+          SCF                  ; Timed out
+          RET
+_bsyok:   POP   BC
+          OR    A              ; Carry clear
           RET
 
 ; ---- SPI_END - End of a command. Clock LOW then remove CS
@@ -110,7 +126,10 @@ SPI_CMN: LD         HL,0
 ; DE:  Lower 16 bits of arg
 ; B:   CRC
 ; C:   COMMAND
+; Returns A = first response byte (R1) with carry clear, or A = FF with carry
+; set if the card never stopped being busy (the command is not sent).
 SPI_CM1:  CALL       SPI_BEG
+          JR         C,_cmto
           LD         A,C
           CALL       SPI_TXB
           LD         A,H
@@ -131,6 +150,12 @@ _r1w:     CALL       SPI_RXB
           DJNZ       _r1w
           ; Passed or timeout
 _r1wd:    DEC        A
+          SCF                   ; Clear carry without touching Z (SCF + CCF)
+          CCF
+          RET
+_cmto:    LD         A,0FFh
+          OR         A          ; NZ: callers that only test Z see a failure
+          SCF                   ; Carry set: the card stayed busy
           RET
 
 ; ---- Send an application command

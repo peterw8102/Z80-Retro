@@ -24,7 +24,7 @@ import zload.asm
   extrn  main
   extrn  SDPAGE,SADDR,SDMP_MD,SDMP_L,SETDMA,SDBREAD
   extrn  AUTO_RUN
-  extrn  E_NEMPT,E_NOTF,E_BADPS,E_ERROR,E_PRTERR
+  extrn  E_NEMPT,E_NOTF,E_BADPS,E_ERROR,E_PRTERR,E_SDERR
 
   extrn  DMP16
 
@@ -144,7 +144,8 @@ _sksec:   POP   HL
 ;
 FNDIMG:   LD    HL,SDPAGE
           LD    DE,0
-          LD    B,ENTRIES+1    ; (Should this be just ENTRIES?)
+          LD    B,ENTRIES      ; Was ENTRIES+1: with a full table "entry 17" (the end
+                               ; marker and checksum) was reported as a free slot
 
           ; Check this block - should countain 01 if it's usable
 _again:   LD    A,(HL)
@@ -212,6 +213,8 @@ _sdauto:  CALL  GET_DEC        ; Get the decimal type number to boot
           LD    A,H
           OR    A
           JR    NZ,E_BADPS
+          OR    L              ; ID 0 is not valid
+          JR    Z,E_BADPS
           LD    C,L            ; 'A' contains the image ID to boot
 
 _bsload:  LD    HL,_BSD
@@ -278,12 +281,14 @@ _na:      DJNZ  _nchr
           LD    A,(NVRAM)        ; Default flag byte
           AND   ~CFG_EXEC        ; Clear the lower bits and MSB
           OR    A,(HL)           ; Add in our own flags (OS, break handler, debugger)
+          AND   7Fh              ; Bit 7 (relative address) is not an execution flag
           LD    (P_FLAGS),A      ; Store in the PCB
 
           ; Stored address is always absolute but if it was specified as relative when
           ; the boot record was created then map the address into logical disk drive A
-          RRA
-          JR    NC,_absadd
+          ; Bit 0 (CF_LOADOS) used to be tested instead of bit 7 (relative).
+          BIT   7,(HL)
+          JR    Z,_absadd
 
           ; Relative so MAP the logical drive number into virtual drive zero
           ;  (the A drive). Get the most significant 16 bits of the address.
@@ -302,6 +307,7 @@ _absadd:  ; Need to work out how many whole blocks we need to load
           ; Always going to be reading raw for this function
           LD     A,A_DSKRW
           CALL   SDBREAD
+          JR     NZ,E_SDERR      ; Do not run a partially loaded image
 
           ; Load complete, auto-execute?
           LD     HL,(EXECADD)
@@ -339,7 +345,7 @@ WBOOT:      CALL  BTPREP
             JR    NZ,BADCSWR      ; Invalid checksum in boot memory so no boot available
 
             LD    HL,PBUF
-            LD    BC,32
+            LD    B,32            ; Was BC,32: B=0 so DJNZ cleared 256 bytes
 _xxx:       LD    (HL),0
             INC   HL
             DJNZ  _xxx
@@ -347,6 +353,11 @@ _xxx:       LD    (HL),0
 
             CALL  GET_DEC         ; MUST be an image ID, returned in HL
             JR    C,E_BADPS
+            LD    A,H             ; ID 1-255: 257 used to be taken as 1
+            OR    A
+            JR    NZ,E_BADPS
+            OR    L
+            JR    Z,E_BADPS
 
             LD    IX,PBUF
             LD    C,L             ; 'C' contains the ID of the image we want
@@ -371,6 +382,10 @@ _xxx:       LD    (HL),0
             ; Inserting. Need the data. HL currently points at the start of the new
             ; record. Save this and build a dummy in the SCRATCH buffer.
             LD    (IMGPOS),HL
+            LD    A,H             ; HL=0: table full (FNDIMG no longer returns the
+            OR    L               ; end marker as a free slot)
+            LD    HL,_FULL
+            JR    Z,E_PRTERR
 
             ; Get the parameters
             ; 1: SDAddr
@@ -481,8 +496,10 @@ SAVEBT:     CALL  SBCALCS
             CALL  SETDMA
             LD    HL,0
             LD    DE,0
+            LD    B,0          ; SDCard 0 (it was only 0 because SBCALCS happened to leave it so)
             LD    C,A_DSKWW    ; Write raw
             RST   30h
+            JR    NZ,E_SDERR
 
             JR    _dumpbs
 
@@ -555,6 +572,9 @@ BTPREP:   ; Always need to load the first 512 byte block that includes the boot 
           LD    B,0           ; SDCard 0
           LD    C,A_DSKRW     ; Raw read
           RST   30h
+          ; If the read fails the buffer holds stale data (an all-zero buffer
+          ; passes the checksum): stop, and above all do not rewrite sector 0.
+          JR    NZ,E_SDERR
           ; DROP THROUGH TO CALCULATE THE Checksum
 
 ; ----- SBCALCS
@@ -598,6 +618,7 @@ _TODEL:      DEFB "Delete image: ", NULL
 _BADCS:      DEFB "Invalid checksum in boot menu", NULL
 _QINIT:      DEFB "Initialise boot sector? (Y/N)", NULL
 _NC:         DEFB 10,13,"Boot data unchanged",NULL
+_FULL:       DEFB "Boot table full",NULL
 
         DSEG
 

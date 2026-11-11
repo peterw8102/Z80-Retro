@@ -42,6 +42,7 @@ SETDMA:   PUSH  HL
 ;          HL:        Target address in application space RAM
 ;                     into which to the loaded store data
 ;          DE:        Number of bytes to load
+; OUTPUT:  Z on success, NZ if an SD read failed.
 SDBREAD:  LD    (DDMP_MDE),A    ; Save drive access mode (raw or translated)
           LD    A,D
           OR    A
@@ -54,6 +55,12 @@ SDBREAD:  LD    (DDMP_MDE),A    ; Save drive access mode (raw or translated)
           LD     D,A
           LD     (LASTB),DE
 
+          ; No full blocks (under 512 bytes): DJNZ with B=0 used to loop 256
+          ; times and load 128K over all of memory.
+          INC    B
+          DEC    B
+          JR     Z,_bpart
+
           ; Start loading blocks.
 _bxtbl:   PUSH   BC
           PUSH   HL
@@ -61,6 +68,12 @@ _bxtbl:   PUSH   BC
           ; Tell API where to put data (HL)
           LD     C,A_DSKDM
           RST    30h
+
+          ; Next page into bank 2: a sector crossing a 16K boundary was written
+          ; to whatever page was in bank 2 (at boot, ZLoader's own page 0).
+          POP    HL
+          PUSH   HL
+          CALL   P_MAPX
 
           ; Load the SDCard sector address
           LD     DE,(SDADDR)
@@ -71,9 +84,11 @@ _bxtbl:   PUSH   BC
           LD     A,(DDMP_MDE)
           LD     C,A
           RST    30h                    ; Load the next page in to RAM
+          POP    HL
+          POP    BC
+          RET    NZ                     ; Read error: NZ to the caller
 
           ; Increase SD address and memory address by 512
-          POP    HL
           INC    H                      ; Add 512
           INC    H
           PUSH   HL
@@ -93,11 +108,10 @@ _bxtbl:   PUSH   BC
 
           ; Any more full blocks to load?
 _nxt1:    POP    HL
-          POP    BC
           DJNZ   _bxtbl
 
           ; Full blocks loaded and addresses set up for any partial last block
-          LD     DE,(LASTB)
+_bpart:   LD     DE,(LASTB)
           LD     A,E
           OR     D
           RET    Z
@@ -116,12 +130,14 @@ _nxt1:    POP    HL
 
           ; Copy to destination
           POP    HL                   ; Current load address. Need to know translate into a valid page address
-          CALL   P_MAP                ; HL contains the target address
+          RET    NZ                   ; Read error
+          CALL   P_MAPX               ; Two pages: the remainder may cross a 16K boundary
 
           LD     DE,SDPAGE            ; The partial block
           LD     BC,(LASTB)           ; Number of bytes
           EX     DE,HL
           LDIR                        ; Copy
+          XOR    A                    ; Z: success
           RET
 
 

@@ -57,8 +57,15 @@ SSTEP_BP: LD    A,E
           ; C: Extended status
           ; HL: Unchanged - start of THIS instruction
           ; DE: Mapped physical address of target instruction (start of)
+          ; DE = mapped address + length. Only E used to be copied from L, so D
+          ; was still the high byte of THIS instruction: across a 256 byte
+          ; boundary the offset/target was read 256 bytes too low.
+          PUSH  AF
+          EX    DE,HL
+          CALL  ADD8T16
+          EX    DE,HL
+          POP   AF
           CALL  ADD8T16      ; Adjust the application address to start of next opcode
-          LD    E,L         ; DE now points at the mapped address space start of next opcode
           LD    A,1         ; Set a type 1 BP here (single step)
           CALL  SETBP       ; HL point to next instruction
           LD    A,C         ; Control flow from this instruction - can it go anywhere else?

@@ -13,7 +13,7 @@ IS_TRACE EQU 0
 
       extrn  SD_INIT,SD_RBLK,SD_WBLK,SD_PRES,SD_SEL,SDMPADD,ADD8T16
 
-      public SD_BKRD,SD_BKWR,SD_PRG,SD_STAT,ENDBLK
+      public SD_BKRD,SD_BKWR,SD_PRG,SD_STAT,SD_CINV,ENDBLK
 
       ; --------------- DEBUG SYMBOLS --------------
 if IS_DEBUG || IS_TRACE
@@ -73,9 +73,12 @@ endif
           ; Get the right block into a buffer area. BC points to the loaded
           ; block on return.
           CALL   primebuf
+          RET    NZ         ; Read error: A = 1 (it used to be ignored and data
+                            ; from another sector was returned)
 
           ; Write the data to the application address space.
           CALL   cpout
+          XOR    A          ; Z and A = 0: success
           RET
 
 if IS_DEBUG
@@ -144,6 +147,7 @@ endif
           ; Get the right block into a buffer area. BC points to the loaded
           ; block on return.
           CALL   primebuf
+          RET    NZ            ; Error reading or freeing a slot: A = 1
 
           ; BC points to the data currently held on the SDCard. Overlay our 128 bytes
           CALL   cpin
@@ -182,13 +186,10 @@ endif
           DEC    A             ; If it was 1 then purge.
           JR     NZ,_defer
           XOR    A
-          CALL   SD_PRG
-if IS_DEBUG
-          LD     HL,_m16
-          CALL   PRINT_LN
-endif
+          JR     SD_PRG        ; Returns the write result (A=0 ok, 1 error)
 
-_defer:   RET
+_defer:   XOR    A             ; Z and A = 0: success
+          RET
 
 if IS_DEBUG
 _m14:     DEFB   'DIRTY PAGES: ',0
@@ -216,14 +217,18 @@ MARK:     PUSH   HL
 ; disk.
 ; INPUTS: A - if non-zero then ALSO flush all data from the cache
 ;             and force a reload from the device.
+; OUTPUT: A = 0 and Z if everything was written; A = 1 and NZ if a write
+;         failed (those pages stay marked dirty).
 SD_PRG:   PUSH    AF
           LD      HL,IDX
           LD      DE,DIRTY
-          LD      B,NUMSECT
+          LD      BC,NUMSECT << 8   ; B = count, C = 0: no errors
 _nxtdrt:  LD      A,(DE)
           OR      A
           CALL    NZ,DOPURG   ; HL points to IDX entry,
-          INC     HL          ; Next IDX
+          JR      Z,_prgok    ; Z: not dirty, or written successfully
+          LD      C,1         ; The write failed: remember it
+_prgok:   INC     HL          ; Next IDX
           INC     HL
           INC     HL
           INC     HL
@@ -232,7 +237,7 @@ _nxtdrt:  LD      A,(DE)
           DJNZ    _nxtdrt
           POP     AF
           OR      A
-          RET     Z           ; Don't invalidate the cached data
+          JR      Z,_prgret   ; Don't invalidate the cached data
 
 if IS_DEBUG
           LD      HL,_m13
@@ -240,20 +245,32 @@ if IS_DEBUG
 endif
 
           ; Invalidate all stored data and force reload from device.
+          PUSH    BC          ; C = write result (the LDIRs clobber it)
           LD      HL,META
           LD      DE,META+1
           LD      A,2
           LD      (HL),A
-          LD      BC,METASZ * NUMSECT
+          LD      BC,METASZ * NUMSECT - 1   ; Was N: wrote one byte too many (into LRU)
           LDIR
+
+          ; Pages that could not be written are dropped: they no longer
+          ; belong to any sector and must not be written later.
+          LD      HL,DIRTY
+          LD      B,NUMSECT
+_clrdrt:  LD      (HL),0
+          INC     HL
+          DJNZ    _clrdrt
 
           ; Clear entire cache area to zero so there's no data laying around
           LD      HL,CACHE
           LD      DE,CACHE+1
           XOR     A
           LD      (HL),A
-          LD      BC,SECTSZ * NUMSECT
+          LD      BC,SECTSZ * NUMSECT - 1   ; Was N: wrote one byte too many
           LDIR
+          POP     BC
+_prgret:  LD      A,C
+          OR      A
           RET
 
 if IS_DEBUG
@@ -275,7 +292,7 @@ SD_STAT:  LD      A,L
           LD      DE,ST_READ
           EX      DE,HL
           PUSH    BC
-          LD      B,ENDSTAT-ST_READ
+          LD      BC,ENDSTAT-ST_READ
           LDIR
           POP     BC
 
@@ -292,6 +309,48 @@ SD_STAT:  LD      A,L
           RET
 
 
+
+; -------- SD_CINV --------
+; Invalidate the cache entry holding this sector (if any). Used after a
+; direct write (services 15/16) so the cache does not keep returning the old
+; version of the sector.
+; INPUTS:  A    - Physical SDCard
+;          HLDE - Absolute sector
+; Preserves BC, DE and HL.
+SD_CINV:  PUSH    BC
+          PUSH    DE
+          PUSH    HL
+          LD      (SDCARD),A
+          LD      (SECTOR),DE
+          LD      (SECTOR+2),HL
+          LD      HL,META
+          LD      C,NUMSECT
+_cinxt:   PUSH    HL
+          LD      DE,SDCARD
+          LD      B,TESTSZ
+_cicmp:   LD      A,(DE)
+          CP      (HL)
+          JR      NZ,_cino
+          INC     DE
+          INC     HL
+          DJNZ    _cicmp
+          POP     HL
+          LD      (HL),2      ; Card 2: never matches
+          PUSH    HL
+          LD      A,NUMSECT   ; If still dirty (an earlier write failed) drop it:
+          SUB     C           ; the direct write is the good version and the
+          LD      HL,DIRTY    ; old one must not be written over it
+          CALL    ADD8T16
+          LD      (HL),0
+_cino:    POP     HL
+          LD      DE,METASZ
+          ADD     HL,DE
+          DEC     C
+          JR      NZ,_cinxt
+          POP     HL
+          POP     DE
+          POP     BC
+          RET
 
 ; -------- DOPURG --------
 ; Purge cache page 'C' to SDCard.
@@ -313,8 +372,6 @@ if IS_DEBUG
           POP     HL
 endif
 
-          XOR     A
-          LD      (DE),A         ; Clear dirty flag. Don't need DE from here
           LD      E,(HL)         ; Load META data pointer from IDX
           INC     HL
           LD      D,(HL)
@@ -326,7 +383,10 @@ endif
           CALL    PURGE
           POP     HL
           POP     DE
-          POP     BC
+          JR      NZ,_dpfail     ; If the write failed the page stays dirty
+          XOR     A              ; (it used to be marked clean BEFORE writing and
+          LD      (DE),A         ; the error ignored: the data was lost)
+_dpfail:  POP     BC
           RET
 
 if IS_DEBUG
@@ -355,10 +415,12 @@ PURGE:   LD     A,(HL)    ; SDCard number
          EX     DE,HL
          POP    DE        ; Address data loaded (HLDE). BC already contains buffer address
          CALL   SD_WBLK
+         PUSH   AF        ; Z if the card accepted the block
 
          ; Update stats
          LD     HL,ST_WRITE
          CALL   INC64
+         POP    AF
          RET
 
 ; ----- PURGONE  ------
@@ -393,7 +455,9 @@ _fndisx:  LD     E,(HL)     ; Address of the metadata
           EX     DE,HL      ; BC=cache data area, HL=Mata data slot
           CALL   PURGE
           POP    HL
-          RET
+          RET    NZ         ; Failed: the page stays dirty
+          LD     (HL),0     ; Written: no longer dirty (it was never cleared and
+          RET               ; got written again later with stale data)
 
 if IS_DEBUG
 _m1:      DEFB   'PURGE ONE PAGE: ',0
@@ -424,6 +488,8 @@ if IS_DEBUG
 endif
 
         BANK   1,(DMA_PAGE)  ; Get the buffer page into bank 1
+        BANK   2,(DMA_PG2)   ; and the next one into bank 2 in case the buffer
+                             ; crosses a 16K boundary
         LD     A,(SCT_OFF)   ; Add blk offset to base in BC
         CALL   calcoff       ; HL points to the start of the 128 bytes wanted
 
@@ -456,6 +522,7 @@ endif
 ; space 128 byte buffer. The buffer must have been set via a call to
 ; the A_DSKDM services API.
 cpin:   BANK   1,(DMA_PAGE)  ; Get the buffer page into bank 1
+        BANK   2,(DMA_PG2)   ; Next page (buffer crossing 16K)
         LD     A,(SCT_OFF)   ; Add blk offset to base in BC
         LD     BC,(SLOTADD)
 
@@ -524,7 +591,9 @@ prep:     LD     A,B
 ; INPUTS:   HLDE - Absolute sector number required
 ;           A    - The SDCard number (0 or 1)
 ; OUTPUTS:  BC   - Address of the loaded block (also SLOTADD)
+; Returns A = 0 and Z when the block is ready; A = 1 and NZ on error.
 primebuf:  CALL    getslot         ; BC receiving buffer address
+           JR      C,_pberr        ; Could not free a cache slot
            LD      (SLOTADD),BC    ; The cached block address
 
 if IS_DEBUG
@@ -545,8 +614,11 @@ if IS_DEBUG
            ; ----------------- DEBUG ----------------
 endif
 
-           RET    NZ               ; Already loaded
+           JR     Z,_pbmiss
+           XOR    A                ; Already loaded
+           RET
 
+_pbmiss:
 if IS_DEBUG
            ; ----------------- DEBUG ----------------
            PUSH   AF
@@ -599,6 +671,7 @@ endif
            LD     BC,511      ; Size of buffer
            LDIR               ; Clear
            POP    BC
+           XOR    A
            RET
 
            ; Select the correct SDCard for the read operation
@@ -618,6 +691,23 @@ _loadchc:  LD      A,(SDCARD)
            CALL    SD_INIT
            CALL    SD_RBLK         ; Get the SDCard data
            LD      HL,(SLOTADD)    ; The cached block address
+           RET     Z               ; A = 0: success
+
+           ; The read failed. The entry used to stay tagged with the new
+           ; sector while holding another sector's data, and later accesses
+           ; took it as valid. Invalidate it (card 2 = never matches).
+           LD      A,(SLOT)
+           RLCA                    ; x4: size of an IDX entry
+           RLCA
+           LD      HL,IDX
+           CALL    ADD8T16
+           LD      E,(HL)          ; Pointer to this entry's META
+           INC     HL
+           LD      D,(HL)
+           LD      A,2
+           LD      (DE),A
+_pberr:    LD      A,1
+           OR      A               ; NZ: error
            RET
 
 if IS_DEBUG
@@ -665,6 +755,7 @@ endif
           ; LRU array. The entry with the highest value is the least
           ; recently used.
           CALL  cycslt
+          RET   C          ; Error writing the page that was to be reused
 
           ; At this point 'A' is the best slot to re-use
           ; Copy the current target into this slots meta data area
@@ -675,7 +766,7 @@ endif
 
           LD    A,(SLOT)
           CALL  getent
-          XOR   A
+          XOR   A          ; Z: needs loading. Carry = 0
           RET
 
 if IS_DEBUG
@@ -717,10 +808,54 @@ _wrs:     INC   HL         ; Next LRU entry
           OR    A
           LD    A,C        ; Get the slot back into A
           CALL  NZ,PURGONE
-          POP   BC
+          JR    Z,_cyok
+
+          ; The dirty page could not be written: do not reuse it (its data
+          ; would be lost). Use the least recently used CLEAN page instead;
+          ; only if every page is dirty is an error returned. This way a
+          ; persistent write error does not leave CP/M without a cache
+          ; (previously it could not even reload the CCP).
+          XOR   A
+          LD    (CY_MAX),A
+          LD    C,0FFh        ; None yet
+          LD    E,0           ; Page being checked
+          LD    HL,LRU
+          LD    B,NUMSECT
+_cyfnx:   PUSH  HL
+          LD    HL,DIRTY
+          LD    A,E
+          CALL  ADD8T16
+          LD    A,(HL)
+          POP   HL
+          OR    A
+          JR    NZ,_cyfsk     ; Dirty: not usable
+          LD    A,(CY_MAX)
+          LD    D,A
+          LD    A,(HL)
+          CP    D
+          JR    C,_cyfsk
+          LD    (CY_MAX),A
+          LD    C,E
+_cyfsk:   INC   HL
+          INC   E
+          DJNZ  _cyfnx
+          LD    A,C
+          INC   A             ; FF: no clean page
+          JR    Z,_cyerr
+          LD    A,C
+          LD    (SLOT),A
+
+_cyok:    POP   BC
           POP   DE
           POP   HL
           LD    A,(SLOT)
+          OR    A           ; Carry = 0
+          RET
+
+_cyerr:   POP   BC
+          POP   DE
+          POP   HL
+          SCF               ; Carry: no page can be reused
           RET
 
 ; ----- cpymeta -----
@@ -768,7 +903,9 @@ up_lru:   PUSH  HL
           LD    HL,LRU
           LD    B,NUMSECT
 nxtlru:   INC   (HL)
-          INC   HL
+          JR    NZ,_lruok   ; Do not wrap from FF to 0: an unused page would
+          DEC   (HL)        ; suddenly look like the most recent
+_lruok:   INC   HL
           DJNZ  nxtlru
           POP   HL
           XOR   A
@@ -985,6 +1122,7 @@ APPSZ    EQU   128  ; Number of bytes in an application block
 ; Working space for new requests being processed
 WRT_MDE  DB    0    ; 0: deferable, 1=non-deferable, purge data
 SLOT     DB    0    ; Which cache slot is being used for this request
+CY_MAX   DB    0    ; cycslt work: highest LRU seen among clean pages
 SLOTADD  DW    0    ; The address of the cached block currently being processed
 SCT_OFF  DB    0    ; Offset into the 512 byte sector from which to return 128 bytes
 

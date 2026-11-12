@@ -19,11 +19,11 @@ var enableDebug = false;
 const fs = require('fs');
 const readline = require('readline');
 
-const writeout = (...args) => process.stdout.write(...args);
-const writeerr = (str, ...args) => process.stderr.write(str+'\n',...args);
+const writeout = (...args) => process.stdout.write(args.join(''));
+const writeerr = (str, ...args) => process.stderr.write(str+args.join(''));
 function log(...args) {
   if (enableDebug)
-    console.log(...args);
+    writeerr(...args,'\n');
 }
 
 function toHex4(val) {
@@ -45,10 +45,13 @@ args.shift();
 
 // Options:
 //   --debug        Output log messages
+//   --report       Send a summary of work done to stderr at end of processing
 //   --validate     Validate the checksums in the file
 //   --fix          Fix the checksums in the file
-//   --relocate=start,end,new-start
-//                  Relocate data
+//   --move=start,end,new-start
+//                  Relocate data. Any records addressed withing the start-end
+//                  range will be moved so that block starts are the
+//                  'new-start' address
 //
 // If no operation is specified then a VALIDATE is performed.
 //
@@ -59,6 +62,8 @@ var fname = [];
 var report   = false;
 var fix      = false;
 var move     = false;
+var help     = false;
+var summary  = false;
 
 var mvstart = 0;     // Only relocate data records >= this address
 var mvend   = 0;     // And less than this address
@@ -69,9 +74,13 @@ var mvdelta = 0;     // to add to matching data record addresses
 const stats = {
   relocated: 0,
   processed: 0,
+  fixCount:  0,
   data:      0,
   other:     0
 };
+
+if (args.length==0)
+  help = true;
 
 var err;
 while (err==null && args.length>0) {
@@ -79,9 +88,12 @@ while (err==null && args.length>0) {
   if (arg[0]=='-' && arg[1]=='-') {
     // it's a switch
     const [,opt,params] = (/^--(\w+)=?(.*)?$/g).exec(arg);
-    log("OPT: ", opt);
-    log("PRM: ", params);
+    log("OPT: "+opt);
+    log("PRM: "+params);
     switch (opt) {
+    case 'help':
+      help = true;
+      break;
     case 'debug':
       enableDebug = true;
       break;
@@ -90,6 +102,9 @@ while (err==null && args.length>0) {
       break;
     case 'fix':
       fix = true;
+      break;
+    case 'report':
+      summary = true;
       break;
     case 'move':
       // Should be three comma separated hex values
@@ -109,13 +124,28 @@ while (err==null && args.length>0) {
       break;
     default:
       // Unknown option
+      help = true;
       err = "Invalid parameter: "+arg+'\n';
     }
   }
   else  {
-    // Can't specify more than one file name
+    // It's a filename - add to the list to process.
     fname.push(arg);
   }
+}
+if (help==true) {
+  if (err!=null)
+    writeerr(err);
+
+  writeerr("hextform [--validate] [--fix] [--move=start,end,new-start]\n");
+  writeerr("   --help       : display this message and exit\n");
+  writeerr("   --validate   : check and report bad line checksums\n");
+  writeerr("   --fix        : correct bad checksums in output stream\n");
+  writeerr("   --report     : send a summary of work done to stderr\n");
+  writeerr("   --move       : relocate records in the start-end address range to\n");
+  writeerr("                  reside within the new start address\n");
+  writeerr("   --debug      : send debug output to stderr\n");
+  process.reallyExit(-1);
 }
 
 const splitLine = new RegExp(
@@ -162,8 +192,11 @@ async function processLine(line, linenum) {
   newcs = ((-newcs) & 0xff);
 
   // Is the checksum correct?
-  if (cs!=newcs && report) {
-    writeerr("Line: "+linenum+". Bad checksum. Should be: "+toHex2(newcs)+" IS: "+toHex2(cs));
+  if (cs!=newcs) {
+    stats.fixCount++;
+    if (report) {
+      writeerr("Line: "+linenum+". Bad checksum. Should be: "+toHex2(newcs)+" IS: "+toHex2(cs)+"\n");
+    }
   }
   if (fix)
     cs = newcs;
@@ -183,7 +216,7 @@ async function processLine(line, linenum) {
 
       const newaddr = (addr + mvdelta) & 0xffff;
 
-      log("MOVE RECORD FROM: "+toHex4(addr)+" TO "+toHex4(newaddr)+"\n");
+      log("MOVE RECORD FROM: "+toHex4(addr)+" TO "+toHex4(newaddr));
 
       // Relocoate
       addr = newaddr;
@@ -198,7 +231,7 @@ async function processLine(line, linenum) {
   }
   if (send) {
     // Write out the (potentially) corrected/modified line.
-    log("USING CHECKSUM: ",cs)
+    log("USING CHECKSUM: ",cs);
     writeout((':'+toHex2(len)+toHex4(addr)+toHex2(type)+parts[4]+toHex2(cs)).toUpperCase()+'\r\n');
   }
 }
@@ -230,8 +263,8 @@ function openStream(file) {
 
 async function processFiles(files) {
   while (files.length>0) {
-    fln = files.shift();
-    str = openStream(fln);
+    var fln = files.shift();
+    var str = openStream(fln);
     await processStream(str);
   }
   // And send a final end of file marker.
@@ -239,14 +272,17 @@ async function processFiles(files) {
 }
 
 if (err!=null) {
-  process.stderr.write(err);
+  writeerr(err);
   process.reallyExit(-1);
 }
 
 processFiles(fname).then(() => {
-  log("Records processed: "+stats.processed);
-  log("Data records:      "+stats.data);
-  log("Other records:     "+stats.other);
-  log("Records relocated: "+stats.relocated);
+  if (summary) {
+    writeerr("Records processed: "+stats.processed+'\n');
+    writeerr("Data records:      "+stats.data+'\n');
+    writeerr("Fixed checksums:   "+stats.fixCount+'\n');
+    writeerr("Other records:     "+stats.other+'\n');
+    writeerr("Records relocated: "+stats.relocated+'\n');
+  }
   process.reallyExit(-1);
 });
